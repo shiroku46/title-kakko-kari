@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>タイトルカッコカリ - Socket.io テストクライアント</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; display: flex; height: 100vh; }
+
+    #sidebar {
+      width: 320px;
+      min-width: 320px;
+      background: #16213e;
+      border-right: 1px solid #0f3460;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 8px;
+      overflow-y: auto;
+    }
+
+    #log-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 8px;
+      overflow: hidden;
+    }
+
+    h2 { font-size: 13px; color: #e94560; margin-top: 8px; border-bottom: 1px solid #0f3460; padding-bottom: 4px; }
+    h1 { font-size: 14px; color: #e94560; margin-bottom: 4px; }
+
+    .row { display: flex; gap: 4px; align-items: center; }
+    label { font-size: 11px; color: #aaa; min-width: 70px; }
+
+    input[type="text"] {
+      flex: 1;
+      background: #0f3460;
+      border: 1px solid #1a4a80;
+      color: #e0e0e0;
+      padding: 4px 6px;
+      font-size: 12px;
+      font-family: monospace;
+      border-radius: 3px;
+    }
+
+    button {
+      background: #0f3460;
+      border: 1px solid #1a4a80;
+      color: #e0e0e0;
+      padding: 5px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-family: monospace;
+      white-space: nowrap;
+    }
+    button:hover { background: #e94560; border-color: #e94560; }
+    button.primary { background: #e94560; border-color: #e94560; }
+    button.primary:hover { background: #c73550; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #status {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 3px;
+      background: #333;
+    }
+    #status.connected { background: #1a4a2e; color: #4caf50; }
+    #status.disconnected { background: #4a1a1a; color: #f44336; }
+
+    #log {
+      flex: 1;
+      background: #0a0a1a;
+      border: 1px solid #0f3460;
+      border-radius: 4px;
+      padding: 8px;
+      overflow-y: auto;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .log-entry { margin-bottom: 2px; }
+    .log-entry .time { color: #555; }
+    .log-entry.out .arrow { color: #4fc3f7; }
+    .log-entry.in .arrow  { color: #81c784; }
+    .log-entry.err .arrow { color: #e57373; }
+    .log-entry.sys .arrow { color: #ffb74d; }
+    .log-entry .event { color: #fff59d; }
+    .log-entry .data { color: #b0bec5; }
+
+    #clear-btn { font-size: 10px; padding: 2px 8px; }
+
+    .section-note { font-size: 10px; color: #666; }
+
+    #info-box {
+      background: #0f3460;
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 11px;
+      line-height: 1.7;
+      color: #b0c4de;
+    }
+    #info-box span { color: #e0e0e0; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1>タイトルカッコカリ</h1>
+  <div style="font-size:10px; color:#666;">Socket.io テストクライアント</div>
+
+  <!-- 接続状態 -->
+  <div id="status" class="disconnected">● 未接続</div>
+
+  <!-- 現在のセッション情報 -->
+  <div id="info-box">
+    <div>RoomCode: <span id="info-code">-</span></div>
+    <div>PlayerID: <span id="info-pid">-</span></div>
+    <div>Nickname: <span id="info-nick">-</span></div>
+    <div>RoundID: <span id="info-rid">-</span></div>
+  </div>
+
+  <!-- 接続 -->
+  <h2>1. 接続</h2>
+  <div class="row">
+    <label>Server URL</label>
+    <input type="text" id="server-url" value="http://localhost:3000" />
+  </div>
+  <button class="primary" onclick="connectSocket()">接続</button>
+  <button onclick="disconnectSocket()">切断</button>
+
+  <!-- ルーム作成 -->
+  <h2>2. ルーム作成</h2>
+  <div class="row">
+    <label>ニックネーム</label>
+    <input type="text" id="create-nick" value="ホスト太郎" />
+  </div>
+  <button onclick="createRoom()">room:create</button>
+
+  <!-- ルーム参加 -->
+  <h2>3. ルーム参加（別タブで）</h2>
+  <div class="section-note">別タブでこのページを開いて参加してください</div>
+  <div class="row">
+    <label>ルームコード</label>
+    <input type="text" id="join-code" placeholder="ABC123" style="text-transform:uppercase" />
+  </div>
+  <div class="row">
+    <label>ニックネーム</label>
+    <input type="text" id="join-nick" value="ゲスト花子" />
+  </div>
+  <button onclick="joinRoom()">room:join</button>
+
+  <!-- ゲーム開始 -->
+  <h2>4. ゲーム開始（ホストのみ）</h2>
+  <button onclick="gameStart()">game:start</button>
+
+  <!-- あらすじ提出 -->
+  <h2>5. あらすじ提出（出題者）</h2>
+  <div class="row">
+    <label>あらすじ</label>
+    <input type="text" id="synopsis" value="主人公は謎の島に漂着し、そこで不思議な少女と出会う。" />
+  </div>
+  <div class="row">
+    <label>本物タイトル</label>
+    <input type="text" id="real-title" value="島の伝説" />
+  </div>
+  <button onclick="submitSynopsis()">round:submit_synopsis</button>
+
+  <!-- 知ってる宣言 -->
+  <h2>6. 知ってる宣言（回答者）</h2>
+  <button onclick="declareKnown()">round:declare_known</button>
+  <button onclick="reselectWork()">round:reselect（出題者）</button>
+
+  <!-- 偽タイトル提出開始 -->
+  <h2>7. 偽タイトル提出フェーズ（出題者）</h2>
+  <button onclick="startSubmitting()">round:start_submitting</button>
+
+  <!-- 偽タイトル提出 -->
+  <h2>8. 偽タイトル提出（回答者）</h2>
+  <div class="row">
+    <label>偽タイトル</label>
+    <input type="text" id="fake-title" value="謎の孤島" />
+  </div>
+  <button onclick="submitFake()">round:submit_fake</button>
+
+  <!-- 投票 -->
+  <h2>9. 投票（回答者）</h2>
+  <div class="section-note">選択肢はログから answer_id をコピー</div>
+  <div class="row">
+    <label>answer_id</label>
+    <input type="text" id="vote-answer-id" placeholder="UUIDを貼り付け" />
+  </div>
+  <button onclick="submitVote()">round:submit_vote</button>
+
+  <!-- 次ラウンド -->
+  <h2>10. 次ラウンド（出題者 or ホスト）</h2>
+  <button onclick="nextRound()">game:next_round</button>
+
+  <!-- ステート取得 -->
+  <h2>ユーティリティ</h2>
+  <button onclick="getState()">room:get_state</button>
+</div>
+
+<div id="log-panel">
+  <div class="row" style="justify-content:space-between;">
+    <h1>イベントログ</h1>
+    <button id="clear-btn" onclick="clearLog()">クリア</button>
+  </div>
+  <div id="log"></div>
+</div>
+
+<script>
+  let socket = null;
+  let myPlayerId = null;
+  let myRoomCode = null;
+  let myNickname = null;
+  let currentRoundId = null;
+
+  // ── ログ ──────────────────────────────
+  function log(direction, event, data) {
+    const el = document.getElementById('log');
+    const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+    const arrows = { out: '→', in: '←', err: '✕', sys: '◆' };
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${direction}`;
+    const dataStr = data !== undefined ? ` ${JSON.stringify(data, null, 0)}` : '';
+    entry.innerHTML = `<span class="time">${time}</span> <span class="arrow">${arrows[direction]}</span> <span class="event">${event}</span><span class="data">${dataStr}</span>`;
+    el.appendChild(entry);
+    el.scrollTop = el.scrollHeight;
+  }
+  function clearLog() { document.getElementById('log').innerHTML = ''; }
+
+  function updateInfo() {
+    document.getElementById('info-code').textContent = myRoomCode || '-';
+    document.getElementById('info-pid').textContent = myPlayerId ? myPlayerId.slice(0, 8) + '…' : '-';
+    document.getElementById('info-nick').textContent = myNickname || '-';
+    document.getElementById('info-rid').textContent = currentRoundId ? currentRoundId.slice(0, 8) + '…' : '-';
+  }
+
+  // ── 接続 ──────────────────────────────
+  function connectSocket() {
+    if (socket?.connected) { log('sys', 'すでに接続済みです'); return; }
+    const url = document.getElementById('server-url').value.trim();
+    socket = io(url, { transports: ['websocket'] });
+
+    socket.on('connect', () => {
+      document.getElementById('status').className = 'connected';
+      document.getElementById('status').textContent = '● 接続中 / ' + socket.id;
+      log('sys', 'connected', { id: socket.id });
+    });
+    socket.on('disconnect', (reason) => {
+      document.getElementById('status').className = 'disconnected';
+      document.getElementById('status').textContent = '● 切断';
+      log('sys', 'disconnected', { reason });
+    });
+    socket.on('connect_error', (err) => log('err', 'connect_error', { message: err.message }));
+
+    // ─ ルーム系イベント ─
+    socket.on('room:player_joined',        (d) => log('in', 'room:player_joined', d));
+    socket.on('room:player_disconnected',  (d) => log('in', 'room:player_disconnected', d));
+
+    // ─ ゲーム系イベント ─
+    socket.on('game:started',              (d) => { log('in', 'game:started', d); });
+    socket.on('game:round_started',        (d) => {
+      log('in', 'game:round_started', d);
+      if (d.round?.id) { currentRoundId = d.round.id; updateInfo(); }
+    });
+    socket.on('round:synopsis_presented',  (d) => log('in', 'round:synopsis_presented', d));
+    socket.on('round:known_declared',      (d) => log('in', 'round:known_declared', d));
+    socket.on('round:reselect_started',    (d) => log('in', 'round:reselect_started', d));
+    socket.on('round:submitting_started',  (d) => log('in', 'round:submitting_started', d));
+    socket.on('round:fake_submitted',      (d) => log('in', 'round:fake_submitted', d));
+    socket.on('round:choices_presented',   (d) => {
+      log('in', 'round:choices_presented', d);
+      if (d.choices?.length) {
+        log('sys', '投票用の id 一覧 ↓');
+        d.choices.forEach(a => log('sys', `  id=${a.id}  title="${a.title}"`));
+      }
+    });
+    socket.on('round:vote_progress',       (d) => log('in', 'round:vote_progress', d));
+    socket.on('round:revealed',            (d) => log('in', 'round:revealed', d));
+    socket.on('game:finished',             (d) => log('in', 'game:finished', d));
+  }
+
+  function disconnectSocket() {
+    socket?.disconnect();
+    myPlayerId = myRoomCode = myNickname = currentRoundId = null;
+    updateInfo();
+  }
+
+  // ── ヘルパー ──────────────────────────
+  function emit(event, data, cb) {
+    if (!socket?.connected) { log('err', '未接続です'); return; }
+    log('out', event, data);
+    if (cb) socket.emit(event, data, cb);
+    else socket.emit(event, data);
+  }
+
+  function callback(event) {
+    return (res) => {
+      if (res.ok) log('in', event + ' [OK]', res);
+      else        log('err', event + ' [ERR]', res);
+    };
+  }
+
+  // ── 各ボタンのアクション ──────────────
+  function createRoom() {
+    const nickname = document.getElementById('create-nick').value.trim();
+    emit('room:create', { nickname }, (res) => {
+      callback('room:create')(res);
+      if (res.ok) {
+        myPlayerId = res.player.id;
+        myRoomCode = res.room.code;
+        myNickname = nickname;
+        document.getElementById('join-code').value = res.room.code;
+        updateInfo();
+        log('sys', `ルームコード: ${res.room.code} ← 別タブで入力してください`);
+      }
+    });
+  }
+
+  function joinRoom() {
+    const code = document.getElementById('join-code').value.trim().toUpperCase();
+    const nickname = document.getElementById('join-nick').value.trim();
+    emit('room:join', { code, nickname }, (res) => {
+      callback('room:join')(res);
+      if (res.ok) {
+        myPlayerId = res.player.id;
+        myRoomCode = code;
+        myNickname = nickname;
+        updateInfo();
+      }
+    });
+  }
+
+  function gameStart()      { emit('game:start', null, callback('game:start')); }
+  function declareKnown()   { emit('round:declare_known', null, callback('round:declare_known')); }
+  function reselectWork()   { emit('round:reselect', null, callback('round:reselect')); }
+  function startSubmitting(){ emit('round:start_submitting', null, callback('round:start_submitting')); }
+  function nextRound()      { emit('game:next_round', null, callback('game:next_round')); }
+  function getState()       { emit('room:get_state', null, callback('room:get_state')); }
+
+  function submitSynopsis() {
+    const synopsis  = document.getElementById('synopsis').value.trim();
+    const realTitle = document.getElementById('real-title').value.trim();
+    emit('round:submit_synopsis', { synopsis, realTitle }, callback('round:submit_synopsis'));
+  }
+
+  function submitFake() {
+    const title = document.getElementById('fake-title').value.trim();
+    emit('round:submit_fake', { title }, callback('round:submit_fake'));
+  }
+
+  function submitVote() {
+    const answerId = document.getElementById('vote-answer-id').value.trim();
+    if (!answerId) { log('err', 'answer_id を入力してください'); return; }
+    emit('round:submit_vote', { answerId }, callback('round:submit_vote'));
+  }
+
+  // ── キーボードショートカット ──────────
+  // Enter で入力フィールドのボタンをトリガー（必要なら追加）
+</script>
+</body>
+</html>

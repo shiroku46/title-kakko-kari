@@ -1,0 +1,22 @@
+# 依存関係
+node_modules/
+
+# 環境変数（APIキーが含まれるため絶対にコミットしない）
+.env
+server/.env
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+.metro-health-check*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ログ
+npm-debug.*
+yarn-debug.*
+yarn-error.*
