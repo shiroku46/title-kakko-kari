@@ -65,13 +65,13 @@ function registerGameHandlers(io, socket) {
 
         await supabase
           .from('rooms')
-          .update({ status: 'playing', current_round: 1, total_rounds: totalRounds, settings: { mode: 'cpu' } })
+          .update({ status: 'playing', current_round: 1, total_rounds: totalRounds })
           .eq('id', room.id);
 
-        // 第1ラウンド作成（questioner_id = null, confirming フェーズ）
+        // 第1ラウンド作成（questioner_id = null がCPUモードの印）
         const { data: round, error: roundError } = await supabase
           .from('rounds')
-          .insert({ room_id: room.id, round_number: 1, questioner_id: null, status: 'confirming' })
+          .insert({ room_id: room.id, round_number: 1, questioner_id: null, status: 'selecting' })
           .select()
           .single();
         if (roundError) throw roundError;
@@ -117,7 +117,7 @@ function registerGameHandlers(io, socket) {
 
         await supabase
           .from('rooms')
-          .update({ status: 'playing', current_round: 1, total_rounds: totalRounds, settings: { mode: 'player' } })
+          .update({ status: 'playing', current_round: 1, total_rounds: totalRounds })
           .eq('id', room.id);
 
         const firstQuestioner = shuffledPlayers[0];
@@ -165,7 +165,8 @@ function registerGameHandlers(io, socket) {
       if (!me?.is_host) throw new Error('ホストのみ操作できます');
 
       const round = await getCurrentRound(roomCode);
-      if (round.status !== 'confirming') throw new Error('確認フェーズ以外では操作できません');
+      if (round.status !== 'selecting') throw new Error('確認フェーズ以外では操作できません');
+      if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
       if (!round.synopsis) throw new Error('あらすじがまだ取得されていません');
 
       await supabase.from('rounds').update({ status: 'submitting' }).eq('id', round.id);
@@ -192,7 +193,8 @@ function registerGameHandlers(io, socket) {
       if (!me?.is_host) throw new Error('ホストのみ操作できます');
 
       const round = await getCurrentRound(roomCode);
-      if (round.status !== 'confirming') throw new Error('確認フェーズ以外では操作できません');
+      if (round.status !== 'selecting') throw new Error('確認フェーズ以外では操作できません');
+      if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
 
       callback?.({ ok: true });
 
@@ -550,7 +552,9 @@ function registerGameHandlers(io, socket) {
         .eq('code', roomCode)
         .single();
 
-      const mode = room.settings?.mode ?? 'player';
+      // questioner_id が null の場合は CPU モード
+      const currentRound = await getCurrentRound(roomCode);
+      const mode = currentRound.questioner_id === null ? 'cpu' : 'player';
 
       // 現在の出題者またはホストのみ操作可能
       const currentQuestioner = await getCurrentQuestioner(roomCode);
@@ -575,7 +579,7 @@ function registerGameHandlers(io, socket) {
         // ── CPU出題モード ────────────────────────────────────────
         const { data: nextRound, error: roundError } = await supabase
           .from('rounds')
-          .insert({ room_id: room.id, round_number: nextRoundNumber, questioner_id: null, status: 'confirming' })
+          .insert({ room_id: room.id, round_number: nextRoundNumber, questioner_id: null, status: 'selecting' })
           .select()
           .single();
         if (roundError) throw roundError;
