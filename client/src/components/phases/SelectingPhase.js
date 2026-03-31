@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform,
+  ActivityIndicator,
 } from 'react-native';
 import RoundHeader from '../RoundHeader';
+import { getCurrentUrl } from '../../hooks/useSocket';
 
 export default function SelectingPhase({
   currentRound, totalRounds, questioner,
@@ -13,6 +15,26 @@ export default function SelectingPhase({
   const [realTitle, setRealTitle] = useState('');
   const [declared, setDeclared] = useState(null); // null | 'known' | 'unknown'
   const [submitted, setSubmitted] = useState(false);
+  const [fetching, setFetching] = useState(false);
+
+  async function handleAutoFetch() {
+    setFetching(true);
+    try {
+      const baseUrl = getCurrentUrl() || 'https://title-kakko-kari.onrender.com';
+      const res = await fetch(`${baseUrl}/api/random-work`);
+      const data = await res.json();
+      if (!data.ok) {
+        Alert.alert('取得失敗', data.error ?? '再試行してください');
+        return;
+      }
+      setSynopsisText(data.synopsis);
+      setRealTitle(data.title);
+    } catch (_) {
+      Alert.alert('取得失敗', 'サーバーに接続できませんでした');
+    } finally {
+      setFetching(false);
+    }
+  }
 
   function handleSubmitSynopsis() {
     if (!synopsisText.trim()) return Alert.alert('エラー', 'あらすじを入力してください');
@@ -78,7 +100,24 @@ export default function SelectingPhase({
             <View style={styles.card}>
               <Text style={styles.cardTitle}>あらすじを入力</Text>
               <Text style={styles.cardNote}>実在するマイナーな作品のあらすじを入力してください。本物タイトルは他のプレイヤーには見えません。</Text>
-<Text style={styles.fieldLabel}>あらすじ</Text>
+
+              {/* Wikipedia 自動取得ボタン */}
+              <TouchableOpacity
+                style={[styles.btnWiki, fetching && styles.btnDisabled]}
+                onPress={handleAutoFetch}
+                disabled={fetching}
+              >
+                {fetching ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={styles.btnWikiText}>Wikipediaからランダム取得</Text>
+                )}
+              </TouchableOpacity>
+              {(synopsisText || realTitle) && (
+                <Text style={styles.wikiNote}>取得後に自由に編集できます</Text>
+              )}
+
+              <Text style={styles.fieldLabel}>あらすじ</Text>
               <TextInput
                 style={[styles.input, styles.textarea]}
                 placeholder="ここにあらすじを入力..."
@@ -107,7 +146,6 @@ export default function SelectingPhase({
                 <Text style={styles.synopsisText}>{synopsisText}</Text>
               </View>
 
-              {/* 宣言状況 */}
               {hasKnown && (
                 <View style={styles.knownBox}>
                   <Text style={styles.knownTitle}>「知ってる！」宣言あり</Text>
@@ -204,17 +242,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5', borderRadius: 12, padding: 16, marginBottom: 16,
   },
   synopsisText: { fontSize: 15, color: '#1A1A1A', lineHeight: 24 },
+  // Wikipedia 取得ボタン
+  btnWiki: {
+    backgroundColor: '#3D7EAA', borderRadius: 10, padding: 12,
+    alignItems: 'center', marginBottom: 8,
+  },
+  btnWikiText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  wikiNote: { fontSize: 11, color: '#999', textAlign: 'center', marginBottom: 12 },
   btnPrimary: {
     backgroundColor: '#FF3B5C', borderRadius: 12, padding: 15, alignItems: 'center',
   },
   btnDisabled: { backgroundColor: '#E0E0E0' },
-
   btnPrimaryText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
   btnSecondary: {
     backgroundColor: '#F5F5F5', borderRadius: 12, padding: 15, alignItems: 'center',
   },
   btnSecondaryText: { color: '#1A1A1A', fontSize: 15, fontWeight: '600' },
-  // 知ってる・知らない ボタン行
   declareRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   btnKnown: {
     flex: 1, backgroundColor: '#FF3B5C', borderRadius: 12,
@@ -226,7 +269,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: '#E0E0E0',
   },
   btnUnknownText: { color: '#555', fontSize: 15, fontWeight: '700' },
-  // 宣言済み表示
   declaredBox: {
     borderRadius: 12, padding: 14, alignItems: 'center', marginBottom: 12,
     backgroundColor: '#F5F5F5',
@@ -234,7 +276,6 @@ const styles = StyleSheet.create({
   declaredKnownText: { color: '#FF3B5C', fontWeight: '700', fontSize: 14, marginBottom: 4 },
   declaredUnknownText: { color: '#555', fontWeight: '700', fontSize: 14, marginBottom: 4 },
   declaredNote: { fontSize: 12, color: '#999' },
-  // 「知ってる」宣言者ボックス（出題者向け）
   knownBox: {
     backgroundColor: '#FFF8E8', borderRadius: 12,
     padding: 14, marginBottom: 14,

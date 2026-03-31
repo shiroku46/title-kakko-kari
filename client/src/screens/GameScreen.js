@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
 import { useSocketListeners, getSocket } from '../hooks/useSocket';
 
+import ConfirmingPhase from '../components/phases/ConfirmingPhase';
 import SelectingPhase from '../components/phases/SelectingPhase';
 import SubmittingPhase from '../components/phases/SubmittingPhase';
 import VotingPhase from '../components/phases/VotingPhase';
@@ -11,7 +12,8 @@ export default function GameScreen({ navigation, route }) {
   const { room, player, gameData } = route.params;
   const socket = getSocket();
 
-  const [phase, setPhase] = useState('selecting');
+  const [mode, setMode] = useState(gameData.mode ?? 'player');
+  const [phase, setPhase] = useState(gameData.mode === 'cpu' ? 'confirming' : 'selecting');
   const [round, setRound] = useState(gameData.round);
   const [currentRound, setCurrentRound] = useState(gameData.currentRound);
   const [totalRounds, setTotalRounds] = useState(gameData.totalRounds);
@@ -19,6 +21,7 @@ export default function GameScreen({ navigation, route }) {
 
   // 各フェーズのデータ
   const [synopsis, setSynopsis] = useState(null);
+  const [fetchedSynopsis, setFetchedSynopsis] = useState(null); // CPU モード: ホストのみ
   const [choices, setChoices] = useState([]);
   const [revealData, setRevealData] = useState(null);
   const [fakeSubmittedCount, setFakeSubmittedCount] = useState(0);
@@ -28,7 +31,7 @@ export default function GameScreen({ navigation, route }) {
   const [mvpData, setMvpData] = useState(null);
   const [selectingKey, setSelectingKey] = useState(0);
 
-  const isQuestioner = player.id === questioner.id;
+  const isQuestioner = player.id === questioner?.id;
 
   useEffect(() => {
     const onDisconnect = () => {
@@ -46,8 +49,10 @@ export default function GameScreen({ navigation, route }) {
       setCurrentRound(data.currentRound);
       setTotalRounds(data.totalRounds);
       setQuestioner(data.questioner);
-      setPhase('selecting');
+      if (data.mode) setMode(data.mode);
+      setPhase(data.mode === 'cpu' ? 'confirming' : 'selecting');
       setSynopsis(null);
+      setFetchedSynopsis(null);
       setChoices([]);
       setRevealData(null);
       setFakeSubmittedCount(0);
@@ -55,6 +60,10 @@ export default function GameScreen({ navigation, route }) {
       setKnownDeclarations([]);
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
+    },
+    // CPU モード: ホストのみ受信するあらすじプレビュー
+    'round:synopsis_fetched': (data) => {
+      setFetchedSynopsis(data.synopsis);
     },
     'round:synopsis_presented': (data) => {
       setSynopsis(data.synopsis);
@@ -76,6 +85,8 @@ export default function GameScreen({ navigation, route }) {
       setSelectingKey((k) => k + 1);
     },
     'round:submitting_started': () => {
+      // CPU モード確定時は fetchedSynopsis をあらすじとして使う
+      if (mode === 'cpu' && fetchedSynopsis) setSynopsis(fetchedSynopsis);
       setPhase('submitting');
     },
     'round:fake_submitted': (data) => {
@@ -104,8 +115,6 @@ export default function GameScreen({ navigation, route }) {
       Alert.alert('プレイヤー退出', `${nickname} が退出しました`);
     },
     'game:questioner_disconnected': ({ nickname: qNickname, fallbackHostId, roundStatus }) => {
-      // 出題者が落ちた場合の通知
-      // selecting/submitting/voting 中なら、ホストが次のラウンドへ進める旨を案内
       const isMe = player.id === fallbackHostId;
       const msg = roundStatus === 'selecting'
         ? `出題者 ${qNickname} が離脱しました。\nホストがラウンドをスキップできます。`
@@ -114,11 +123,28 @@ export default function GameScreen({ navigation, route }) {
     },
   });
 
+  // round:submitting_started イベント時に fetchedSynopsis が state に反映される前に
+  // 参照できるよう、mode と fetchedSynopsis を useEffect で監視して synopsis をセット
+  useEffect(() => {
+    if (phase === 'submitting' && mode === 'cpu' && fetchedSynopsis && !synopsis) {
+      setSynopsis(fetchedSynopsis);
+    }
+  }, [phase, mode, fetchedSynopsis]);
+
   function renderPhase() {
-    // isQuestioner は questioner.id で毎回再計算
-    const amQuestioner = player.id === questioner.id;
+    const amQuestioner = player.id === questioner?.id;
 
     switch (phase) {
+      case 'confirming':
+        return (
+          <ConfirmingPhase
+            currentRound={currentRound}
+            totalRounds={totalRounds}
+            fetchedSynopsis={fetchedSynopsis}
+            isHost={player.is_host}
+            socket={socket}
+          />
+        );
       case 'selecting':
         return (
           <SelectingPhase

@@ -8,16 +8,41 @@ const { shuffle } = require('../utils/shuffle');
 const roundDeclarations = new Map();
 
 // ============================================================
+// Wikipedia からランダム記事を取得するヘルパー
+// ============================================================
+async function fetchWikipediaSynopsis() {
+  for (let i = 0; i < 5; i++) {
+    try {
+      const res = await fetch('https://ja.wikipedia.org/api/rest_v1/page/random/summary');
+      const data = await res.json();
+      const title = (data.title || '').trim();
+      const synopsis = (data.extract || '').trim();
+      if (synopsis.length < 100) continue;
+      // タイトル文字列をマスク（ネタバレ防止）
+      const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const masked = synopsis.replace(new RegExp(escaped, 'g'), '■■■');
+      return { title, synopsis: masked };
+    } catch (_) {
+      // リトライ
+    }
+  }
+  return null;
+}
+
+// ============================================================
 // ゲームイベントハンドラー
 // ============================================================
 
 function registerGameHandlers(io, socket) {
   // ----------------------------------------------------------
   // ゲーム開始（ホストのみ）
+  // payload: { mode: 'player'|'cpu', totalRounds?: number }
   // ----------------------------------------------------------
-  socket.on('game:start', async (_, callback) => {
+  socket.on('game:start', async (payload, callback) => {
     try {
       const { playerId, roomCode } = socket.data;
+      const mode = payload?.mode ?? 'player';
+      const requestedRounds = payload?.totalRounds ?? 5;
 
       const { data: room, error } = await supabase
         .from('rooms')
@@ -34,53 +59,93 @@ function registerGameHandlers(io, socket) {
       const connectedPlayers = room.players.filter((p) => p.is_connected);
       if (connectedPlayers.length < 2) throw new Error('最低2人が必要です（推奨4〜6人）');
 
-      // 出題順をシャッフルして turn_order を割り当て
-      const shuffledPlayers = shuffle(connectedPlayers);
-      for (let i = 0; i < shuffledPlayers.length; i++) {
+      if (mode === 'cpu') {
+        // ── CPU出題モード ────────────────────────────────────────
+        const totalRounds = Math.min(Math.max(requestedRounds, 1), 20);
+
         await supabase
-          .from('players')
-          .update({ turn_order: i + 1 })
-          .eq('id', shuffledPlayers[i].id);
+          .from('rooms')
+          .update({ status: 'playing', current_round: 1, total_rounds: totalRounds, settings: { mode: 'cpu' } })
+          .eq('id', room.id);
+
+        // 第1ラウンド作成（questioner_id = null, confirming フェーズ）
+        const { data: round, error: roundError } = await supabase
+          .from('rounds')
+          .insert({ room_id: room.id, round_number: 1, questioner_id: null, status: 'confirming' })
+          .select()
+          .single();
+        if (roundError) throw roundError;
+
+        console.log(`[Game] 開始(CPU): ${roomCode} / ${totalRounds}ラウンド`);
+        io.to(roomCode).emit('game:started', {
+          totalRounds,
+          currentRound: 1,
+          questioner: null,
+          round,
+          playerOrder: [],
+          mode: 'cpu',
+        });
+
+        callback?.({ ok: true });
+
+        // Wikipedia 取得（非同期でホストにだけ送信）
+        const work = await fetchWikipediaSynopsis();
+        if (work) {
+          await supabase
+            .from('rounds')
+            .update({ synopsis: work.synopsis, real_title: work.title })
+            .eq('id', round.id);
+          const host = connectedPlayers.find((p) => p.is_host);
+          if (host?.socket_id) {
+            io.to(host.socket_id).emit('round:synopsis_fetched', {
+              roundId: round.id,
+              synopsis: work.synopsis,
+            });
+          }
+        }
+      } else {
+        // ── プレイヤー出題モード ──────────────────────────────────
+        const shuffledPlayers = shuffle(connectedPlayers);
+        for (let i = 0; i < shuffledPlayers.length; i++) {
+          await supabase
+            .from('players')
+            .update({ turn_order: i + 1 })
+            .eq('id', shuffledPlayers[i].id);
+        }
+
+        const totalRounds = shuffledPlayers.length;
+
+        await supabase
+          .from('rooms')
+          .update({ status: 'playing', current_round: 1, total_rounds: totalRounds, settings: { mode: 'player' } })
+          .eq('id', room.id);
+
+        const firstQuestioner = shuffledPlayers[0];
+        const { data: round, error: roundError } = await supabase
+          .from('rounds')
+          .insert({ room_id: room.id, round_number: 1, questioner_id: firstQuestioner.id, status: 'selecting' })
+          .select()
+          .single();
+        if (roundError) throw roundError;
+
+        const playerOrder = shuffledPlayers.map((p) => ({
+          id: p.id,
+          nickname: p.nickname,
+          turnOrder: p.turn_order ?? shuffledPlayers.indexOf(p) + 1,
+        }));
+
+        console.log(`[Game] 開始(Player): ${roomCode} / ${totalRounds}ラウンド`);
+        io.to(roomCode).emit('game:started', {
+          totalRounds,
+          currentRound: 1,
+          questioner: { id: firstQuestioner.id, nickname: firstQuestioner.nickname },
+          round,
+          playerOrder,
+          mode: 'player',
+        });
+
+        callback?.({ ok: true });
       }
-
-      const totalRounds = shuffledPlayers.length;
-
-      // ルームをゲーム中に更新
-      await supabase
-        .from('rooms')
-        .update({ status: 'playing', current_round: 1, total_rounds: totalRounds })
-        .eq('id', room.id);
-
-      // 第1ラウンドを作成
-      const firstQuestioner = shuffledPlayers[0];
-      const { data: round, error: roundError } = await supabase
-        .from('rounds')
-        .insert({
-          room_id: room.id,
-          round_number: 1,
-          questioner_id: firstQuestioner.id,
-          status: 'selecting'
-        })
-        .select()
-        .single();
-      if (roundError) throw roundError;
-
-      const playerOrder = shuffledPlayers.map((p) => ({
-        id: p.id,
-        nickname: p.nickname,
-        turnOrder: p.turn_order ?? shuffledPlayers.indexOf(p) + 1
-      }));
-
-      console.log(`[Game] 開始: ${roomCode} / ${totalRounds}ラウンド`);
-      io.to(roomCode).emit('game:started', {
-        totalRounds,
-        currentRound: 1,
-        questioner: { id: firstQuestioner.id, nickname: firstQuestioner.nickname },
-        round,
-        playerOrder
-      });
-
-      callback?.({ ok: true });
     } catch (err) {
       console.error('[game:start]', err.message);
       callback?.({ ok: false, error: err.message });
@@ -88,9 +153,72 @@ function registerGameHandlers(io, socket) {
   });
 
   // ----------------------------------------------------------
-  // あらすじ提出（出題者）
-  // クライアント送信: { synopsis: string, realTitle: string }
-  //
+  // あらすじ確定（ホストのみ・CPU出題モード）
+  // confirming フェーズから submitting へ移行する
+  // ----------------------------------------------------------
+  socket.on('round:confirm_synopsis', async (_, callback) => {
+    try {
+      const { playerId, roomCode } = socket.data;
+
+      const { data: room } = await supabase.from('rooms').select('players(*)').eq('code', roomCode).single();
+      const me = room.players.find((p) => p.id === playerId);
+      if (!me?.is_host) throw new Error('ホストのみ操作できます');
+
+      const round = await getCurrentRound(roomCode);
+      if (round.status !== 'confirming') throw new Error('確認フェーズ以外では操作できません');
+      if (!round.synopsis) throw new Error('あらすじがまだ取得されていません');
+
+      await supabase.from('rounds').update({ status: 'submitting' }).eq('id', round.id);
+
+      io.to(roomCode).emit('round:submitting_started', { roundId: round.id });
+
+      console.log(`[Round] CPU あらすじ確定: ${roomCode} R${round.round_number}`);
+      callback?.({ ok: true });
+    } catch (err) {
+      console.error('[round:confirm_synopsis]', err.message);
+      callback?.({ ok: false, error: err.message });
+    }
+  });
+
+  // ----------------------------------------------------------
+  // あらすじ再取得（ホストのみ・CPU出題モード）
+  // ----------------------------------------------------------
+  socket.on('round:reroll_synopsis', async (_, callback) => {
+    try {
+      const { playerId, roomCode } = socket.data;
+
+      const { data: room } = await supabase.from('rooms').select('players(*)').eq('code', roomCode).single();
+      const me = room.players.find((p) => p.id === playerId);
+      if (!me?.is_host) throw new Error('ホストのみ操作できます');
+
+      const round = await getCurrentRound(roomCode);
+      if (round.status !== 'confirming') throw new Error('確認フェーズ以外では操作できません');
+
+      callback?.({ ok: true });
+
+      // 新しい Wikipedia 記事を取得してホストにのみ送信
+      const work = await fetchWikipediaSynopsis();
+      if (work) {
+        await supabase
+          .from('rounds')
+          .update({ synopsis: work.synopsis, real_title: work.title })
+          .eq('id', round.id);
+        const host = room.players.find((p) => p.is_host && p.is_connected);
+        if (host?.socket_id) {
+          io.to(host.socket_id).emit('round:synopsis_fetched', {
+            roundId: round.id,
+            synopsis: work.synopsis,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[round:reroll_synopsis]', err.message);
+      callback?.({ ok: false, error: err.message });
+    }
+  });
+
+  // ----------------------------------------------------------
+  // あらすじ提出（出題者・プレイヤー出題モードのみ）
   // ※ realTitle はこのサーバーのみが保持し、フロントへは送らない
   // ----------------------------------------------------------
   socket.on('round:submit_synopsis', async ({ synopsis, realTitle }, callback) => {
@@ -103,16 +231,14 @@ function registerGameHandlers(io, socket) {
       if (!synopsis?.trim()) throw new Error('あらすじを入力してください');
       if (!realTitle?.trim()) throw new Error('本物のタイトルを入力してください');
 
-      // あらすじと本物タイトルをDBに保存（real_title はフロントに送出しない）
       await supabase
         .from('rounds')
         .update({ synopsis: synopsis.trim(), real_title: realTitle.trim() })
         .eq('id', round.id);
 
-      // 回答者へはあらすじのみ送信
       io.to(roomCode).emit('round:synopsis_presented', {
         roundId: round.id,
-        synopsis: synopsis.trim()
+        synopsis: synopsis.trim(),
       });
 
       console.log(`[Round] あらすじ提示: ${roomCode} R${round.round_number}`);
@@ -135,7 +261,6 @@ function registerGameHandlers(io, socket) {
       if (round.status !== 'selecting') throw new Error('あらすじが提示されていません');
       if (!round.synopsis) throw new Error('あらすじが提示されていません');
 
-      // 宣言を記録
       if (!roundDeclarations.has(round.id)) {
         roundDeclarations.set(round.id, { known: new Set(), unknown: new Set() });
       }
@@ -157,7 +282,6 @@ function registerGameHandlers(io, socket) {
 
   // ----------------------------------------------------------
   // タイトルを知らない宣言（回答者）
-  // 全員が宣言し終わったら round:all_declared を emit
   // ----------------------------------------------------------
   socket.on('round:declare_unknown', async (_, callback) => {
     try {
@@ -168,7 +292,6 @@ function registerGameHandlers(io, socket) {
       if (round.status !== 'selecting') throw new Error('あらすじが提示されていません');
       if (!round.synopsis) throw new Error('あらすじが提示されていません');
 
-      // 宣言を記録
       if (!roundDeclarations.has(round.id)) {
         roundDeclarations.set(round.id, { known: new Set(), unknown: new Set() });
       }
@@ -190,7 +313,6 @@ function registerGameHandlers(io, socket) {
 
   // ----------------------------------------------------------
   // 作品の選び直し（出題者）
-  // 宣言があった場合に出題者がトリガーする
   // ----------------------------------------------------------
   socket.on('round:reselect', async (_, callback) => {
     try {
@@ -200,7 +322,6 @@ function registerGameHandlers(io, socket) {
       if (round.questioner_id !== playerId) throw new Error('出題者のみ操作できます');
       if (round.status !== 'selecting') throw new Error('現在この操作はできません');
 
-      // あらすじと本物タイトルをリセット・宣言状態もリセット
       await supabase
         .from('rounds')
         .update({ synopsis: null, real_title: null })
@@ -209,7 +330,7 @@ function registerGameHandlers(io, socket) {
       roundDeclarations.delete(round.id);
 
       io.to(roomCode).emit('round:reselect_started', {
-        message: '出題者が新しい作品を選んでいます...'
+        message: '出題者が新しい作品を選んでいます...',
       });
 
       callback?.({ ok: true });
@@ -220,8 +341,7 @@ function registerGameHandlers(io, socket) {
   });
 
   // ----------------------------------------------------------
-  // 偽タイトル提出フェーズへ移行（出題者）
-  // 宣言が誰もなかったことを確認してから呼ぶ
+  // 偽タイトル提出フェーズへ移行（出題者・プレイヤー出題モードのみ）
   // ----------------------------------------------------------
   socket.on('round:start_submitting', async (_, callback) => {
     try {
@@ -232,7 +352,6 @@ function registerGameHandlers(io, socket) {
       if (round.status !== 'selecting') throw new Error('現在この操作はできません');
       if (!round.synopsis || !round.real_title) throw new Error('あらすじが設定されていません');
 
-      // 「知ってる」宣言者がいたら進めない
       const decl = roundDeclarations.get(round.id);
       if (decl && decl.known.size > 0) {
         throw new Error('「知ってる！」宣言をしたプレイヤーがいます。作品を選び直してください');
@@ -243,9 +362,7 @@ function registerGameHandlers(io, socket) {
         .update({ status: 'submitting' })
         .eq('id', round.id);
 
-      io.to(roomCode).emit('round:submitting_started', {
-        roundId: round.id
-      });
+      io.to(roomCode).emit('round:submitting_started', { roundId: round.id });
 
       callback?.({ ok: true });
     } catch (err) {
@@ -256,7 +373,6 @@ function registerGameHandlers(io, socket) {
 
   // ----------------------------------------------------------
   // 偽タイトル提出（回答者）
-  // クライアント送信: { title: string }
   // 全員提出完了で自動的に投票フェーズへ移行する
   // ----------------------------------------------------------
   socket.on('round:submit_fake', async ({ title }, callback) => {
@@ -268,22 +384,14 @@ function registerGameHandlers(io, socket) {
       if (round.status !== 'submitting') throw new Error('現在この操作はできません');
       if (!title?.trim()) throw new Error('タイトルを入力してください');
 
-      // 偽タイトルをDBに保存
       const { error } = await supabase
         .from('answers')
-        .insert({
-          round_id: round.id,
-          player_id: playerId,
-          title: title.trim(),
-          is_real: false
-        });
+        .insert({ round_id: round.id, player_id: playerId, title: title.trim(), is_real: false });
       if (error) {
-        // UNIQUE制約エラー = すでに提出済み
         if (error.code === '23505') throw new Error('すでに偽タイトルを提出しています');
         throw error;
       }
 
-      // 提出済み件数と必要件数をカウント
       const { data: room } = await supabase
         .from('rooms')
         .select('players(*)')
@@ -295,25 +403,27 @@ function registerGameHandlers(io, socket) {
         .eq('round_id', round.id)
         .eq('is_real', false);
 
+      // CPU モードは questioner_id = null なので全員が回答者になる
       const answererCount = room.players.filter(
         (p) => p.id !== round.questioner_id && p.is_connected
       ).length;
       const submittedCount = submittedAnswers.length;
 
-      // 出題者に進捗を通知（回答者には件数のみ。内容は非公開）
-      const { data: questioner } = await supabase
-        .from('players')
-        .select('socket_id')
-        .eq('id', round.questioner_id)
-        .single();
-      if (questioner?.socket_id) {
-        io.to(questioner.socket_id).emit('round:fake_submitted', {
-          submittedCount,
-          totalCount: answererCount
-        });
+      // プレイヤー出題モードのみ出題者に進捗通知
+      if (round.questioner_id) {
+        const { data: questioner } = await supabase
+          .from('players')
+          .select('socket_id')
+          .eq('id', round.questioner_id)
+          .single();
+        if (questioner?.socket_id) {
+          io.to(questioner.socket_id).emit('round:fake_submitted', {
+            submittedCount,
+            totalCount: answererCount,
+          });
+        }
       }
 
-      // 全員提出完了 → 投票フェーズへ自動移行
       if (submittedCount >= answererCount) {
         await transitionToVoting(io, roomCode, round);
       }
@@ -327,7 +437,6 @@ function registerGameHandlers(io, socket) {
 
   // ----------------------------------------------------------
   // 投票（回答者）
-  // クライアント送信: { answerId: string }
   // 全員投票完了で自動的に結果公開へ移行する
   // ----------------------------------------------------------
   socket.on('round:submit_vote', async ({ answerId }, callback) => {
@@ -338,7 +447,6 @@ function registerGameHandlers(io, socket) {
       if (round.questioner_id === playerId) throw new Error('出題者は投票できません');
       if (round.status !== 'voting') throw new Error('現在投票フェーズではありません');
 
-      // 投票をDBに保存
       const { error } = await supabase
         .from('votes')
         .insert({ round_id: round.id, voter_id: playerId, answer_id: answerId });
@@ -347,7 +455,6 @@ function registerGameHandlers(io, socket) {
         throw error;
       }
 
-      // 投票済み件数をカウント
       const { data: room } = await supabase
         .from('rooms')
         .select('players(*)')
@@ -363,13 +470,8 @@ function registerGameHandlers(io, socket) {
       ).length;
       const votedCount = votes.length;
 
-      // 全員に投票進捗を通知
-      io.to(roomCode).emit('round:vote_progress', {
-        votedCount,
-        totalCount: answererCount
-      });
+      io.to(roomCode).emit('round:vote_progress', { votedCount, totalCount: answererCount });
 
-      // 全員投票完了 → 結果公開
       if (votedCount >= answererCount) {
         await revealRound(io, roomCode, round);
       }
@@ -382,9 +484,7 @@ function registerGameHandlers(io, socket) {
   });
 
   // ----------------------------------------------------------
-  // MVP選出（出題者のみ）
-  // クライアント送信: { answerId: string }
-  // 一番気に入った偽タイトルに +1pt を贈る（任意・1回限り）
+  // MVP選出（出題者のみ・プレイヤー出題モード）
   // ----------------------------------------------------------
   socket.on('round:submit_mvp', async ({ answerId }, callback) => {
     try {
@@ -394,7 +494,6 @@ function registerGameHandlers(io, socket) {
       if (round.questioner_id !== playerId) throw new Error('出題者のみ操作できます');
       if (round.status !== 'revealed') throw new Error('結果公開フェーズ以外では操作できません');
 
-      // 対象の回答が「このラウンドの偽タイトル」かを確認
       const { data: answer, error: answerError } = await supabase
         .from('answers')
         .select('id, title, player_id, players(id, nickname)')
@@ -405,7 +504,6 @@ function registerGameHandlers(io, socket) {
       if (answerError || !answer) throw new Error('選択した回答が見つかりません');
       if (!answer.player_id) throw new Error('本物タイトルにはMVPを贈れません');
 
-      // +1pt（現在のスコアを取得してインクリメント）
       const { data: targetPlayer } = await supabase
         .from('players')
         .select('score')
@@ -416,16 +514,11 @@ function registerGameHandlers(io, socket) {
         .update({ score: (targetPlayer.score ?? 0) + 1 })
         .eq('id', answer.player_id);
 
-      // 更新後の全スコアを取得
-      const { data: room } = await supabase
-        .from('rooms')
-        .select('id')
-        .eq('code', roomCode)
-        .single();
+      const { data: roomRow } = await supabase.from('rooms').select('id').eq('code', roomCode).single();
       const { data: players } = await supabase
         .from('players')
         .select('id, nickname, score')
-        .eq('room_id', room.id)
+        .eq('room_id', roomRow.id)
         .order('score', { ascending: false });
 
       console.log(`[Round] MVP: ${answer.players.nickname} / ${roomCode}`);
@@ -446,7 +539,6 @@ function registerGameHandlers(io, socket) {
 
   // ----------------------------------------------------------
   // 次のラウンドへ（現在の出題者またはホストが操作）
-  // 結果確認後にトリガーする
   // ----------------------------------------------------------
   socket.on('game:next_round', async (_, callback) => {
     try {
@@ -458,6 +550,8 @@ function registerGameHandlers(io, socket) {
         .eq('code', roomCode)
         .single();
 
+      const mode = room.settings?.mode ?? 'player';
+
       // 現在の出題者またはホストのみ操作可能
       const currentQuestioner = await getCurrentQuestioner(roomCode);
       const me = room.players.find((p) => p.id === playerId);
@@ -465,42 +559,76 @@ function registerGameHandlers(io, socket) {
         throw new Error('次のラウンドへの移行は出題者またはホストのみ操作できます');
       }
 
-      // 全ラウンド終了チェック
       if (room.current_round >= room.total_rounds) {
         await endGame(io, roomCode, room);
         return callback?.({ ok: true });
       }
 
-      // 次のラウンドを作成
       const nextRoundNumber = room.current_round + 1;
-      const nextQuestioner = room.players.find((p) => p.turn_order === nextRoundNumber);
 
       await supabase
         .from('rooms')
         .update({ current_round: nextRoundNumber })
         .eq('id', room.id);
 
-      const { data: nextRound, error: roundError } = await supabase
-        .from('rounds')
-        .insert({
-          room_id: room.id,
-          round_number: nextRoundNumber,
-          questioner_id: nextQuestioner.id,
-          status: 'selecting'
-        })
-        .select()
-        .single();
-      if (roundError) throw roundError;
+      if (mode === 'cpu') {
+        // ── CPU出題モード ────────────────────────────────────────
+        const { data: nextRound, error: roundError } = await supabase
+          .from('rounds')
+          .insert({ room_id: room.id, round_number: nextRoundNumber, questioner_id: null, status: 'confirming' })
+          .select()
+          .single();
+        if (roundError) throw roundError;
 
-      console.log(`[Game] ラウンド ${nextRoundNumber} 開始: ${roomCode}`);
-      io.to(roomCode).emit('game:round_started', {
-        currentRound: nextRoundNumber,
-        totalRounds: room.total_rounds,
-        questioner: { id: nextQuestioner.id, nickname: nextQuestioner.nickname },
-        round: nextRound
-      });
+        console.log(`[Game] CPU ラウンド ${nextRoundNumber} 開始: ${roomCode}`);
+        io.to(roomCode).emit('game:round_started', {
+          currentRound: nextRoundNumber,
+          totalRounds: room.total_rounds,
+          questioner: null,
+          round: nextRound,
+          mode: 'cpu',
+        });
 
-      callback?.({ ok: true });
+        callback?.({ ok: true });
+
+        // Wikipedia 取得してホストに送信
+        const work = await fetchWikipediaSynopsis();
+        if (work) {
+          await supabase
+            .from('rounds')
+            .update({ synopsis: work.synopsis, real_title: work.title })
+            .eq('id', nextRound.id);
+          const connectedPlayers = room.players.filter((p) => p.is_connected);
+          const host = connectedPlayers.find((p) => p.is_host);
+          if (host?.socket_id) {
+            io.to(host.socket_id).emit('round:synopsis_fetched', {
+              roundId: nextRound.id,
+              synopsis: work.synopsis,
+            });
+          }
+        }
+      } else {
+        // ── プレイヤー出題モード ──────────────────────────────────
+        const nextQuestioner = room.players.find((p) => p.turn_order === nextRoundNumber);
+
+        const { data: nextRound, error: roundError } = await supabase
+          .from('rounds')
+          .insert({ room_id: room.id, round_number: nextRoundNumber, questioner_id: nextQuestioner.id, status: 'selecting' })
+          .select()
+          .single();
+        if (roundError) throw roundError;
+
+        console.log(`[Game] ラウンド ${nextRoundNumber} 開始: ${roomCode}`);
+        io.to(roomCode).emit('game:round_started', {
+          currentRound: nextRoundNumber,
+          totalRounds: room.total_rounds,
+          questioner: { id: nextQuestioner.id, nickname: nextQuestioner.nickname },
+          round: nextRound,
+          mode: 'player',
+        });
+
+        callback?.({ ok: true });
+      }
     } catch (err) {
       console.error('[game:next_round]', err.message);
       callback?.({ ok: false, error: err.message });
@@ -512,9 +640,6 @@ function registerGameHandlers(io, socket) {
 // 内部ヘルパー関数
 // ============================================================
 
-/**
- * 全員が知ってる/知らないを宣言したか確認し、完了なら round:all_declared を emit
- */
 async function checkAllDeclared(io, roomCode, round) {
   const { data: room } = await supabase
     .from('rooms')
@@ -542,9 +667,6 @@ async function checkAllDeclared(io, roomCode, round) {
   }
 }
 
-/**
- * 現在進行中のラウンドを取得する
- */
 async function getCurrentRound(roomCode) {
   const { data: room } = await supabase
     .from('rooms')
@@ -563,11 +685,9 @@ async function getCurrentRound(roomCode) {
   return round;
 }
 
-/**
- * 現在の出題者プレイヤーを取得する
- */
 async function getCurrentQuestioner(roomCode) {
   const round = await getCurrentRound(roomCode);
+  if (!round.questioner_id) return null; // CPU モード
   const { data: questioner } = await supabase
     .from('players')
     .select('id, nickname, socket_id, is_host')
@@ -576,32 +696,20 @@ async function getCurrentQuestioner(roomCode) {
   return questioner;
 }
 
-/**
- * 全員の偽タイトルが揃ったら投票フェーズへ移行する
- *
- * 処理内容:
- *   1. 本物タイトルを answers テーブルに挿入
- *   2. 全選択肢（偽 + 本物）をシャッフルして display_order を付与
- *   3. ラウンドのステータスを 'voting' に変更
- *   4. フロント全員に選択肢を送信（is_real / player_id は含めない）
- */
 async function transitionToVoting(io, roomCode, round) {
-  // DB から最新の real_title を取得（提出後に別の round オブジェクトが渡される可能性があるため）
   const { data: currentRound } = await supabase
     .from('rounds')
     .select('real_title')
     .eq('id', round.id)
     .single();
 
-  // 本物タイトルを answers テーブルに追加
   await supabase.from('answers').insert({
     round_id: round.id,
-    player_id: null,        // null = 本物タイトルを示す
+    player_id: null,
     title: currentRound.real_title,
-    is_real: true
+    is_real: true,
   });
 
-  // 全選択肢を取得してシャッフル
   const { data: allAnswers } = await supabase
     .from('answers')
     .select('id, title')
@@ -609,7 +717,6 @@ async function transitionToVoting(io, roomCode, round) {
 
   const shuffled = shuffle(allAnswers);
 
-  // display_order を一括更新
   for (let i = 0; i < shuffled.length; i++) {
     await supabase
       .from('answers')
@@ -617,68 +724,41 @@ async function transitionToVoting(io, roomCode, round) {
       .eq('id', shuffled[i].id);
   }
 
-  // ラウンドを voting フェーズへ
   await supabase.from('rounds').update({ status: 'voting' }).eq('id', round.id);
 
-  // フロントには id と title と表示順のみ送信（is_real・作者情報は含めない）
-  const choices = shuffled.map((a, i) => ({
-    id: a.id,
-    title: a.title,
-    displayOrder: i + 1
-  }));
+  const choices = shuffled.map((a, i) => ({ id: a.id, title: a.title, displayOrder: i + 1 }));
 
   console.log(`[Round] 投票フェーズへ移行: ${roomCode} R${round.round_number}`);
-  io.to(roomCode).emit('round:choices_presented', {
-    roundId: round.id,
-    choices
-  });
+  io.to(roomCode).emit('round:choices_presented', { roundId: round.id, choices });
 }
 
-/**
- * 全員の投票が完了したらラウンド結果を公開する
- *
- * 処理内容:
- *   1. DBの calculate_and_apply_round_scores 関数でスコアを更新
- *   2. 回答・投票の全情報（正解・偽タイトル作者）を公開
- *   3. 全プレイヤーの累計スコアを送信
- */
 async function revealRound(io, roomCode, round) {
-  // スコア計算 & players.score を DB 上で更新（1回の RPC 呼び出しで完結）
   const { data: roundScores, error: scoreError } = await supabase.rpc(
     'calculate_and_apply_round_scores',
     { p_round_id: round.id }
   );
   if (scoreError) throw scoreError;
 
-  // ラウンドを revealed フェーズへ
   await supabase.from('rounds').update({ status: 'revealed' }).eq('id', round.id);
 
-  // スコア更新後の最新プレイヤー情報を取得
-  const { data: room } = await supabase
-    .from('rooms')
-    .select('id')
-    .eq('code', roomCode)
-    .single();
+  const { data: roomRow } = await supabase.from('rooms').select('id').eq('code', roomCode).single();
   const { data: players } = await supabase
     .from('players')
     .select('id, nickname, score')
-    .eq('room_id', room.id)
+    .eq('room_id', roomRow.id)
     .order('score', { ascending: false });
 
-  // 全回答情報（is_real・作者情報を含む）を取得して公開
   const { data: answers } = await supabase
     .from('answers')
     .select('id, title, is_real, display_order, player_id, players(id, nickname)')
     .eq('round_id', round.id)
     .order('display_order');
 
-  // 投票情報（誰が何に投票したか）を取得
   const { data: votes } = await supabase
     .from('votes')
     .select('voter_id, answer_id')
     .eq('round_id', round.id);
 
-  // real_title を取得して公開
   const { data: finalRound } = await supabase
     .from('rounds')
     .select('real_title')
@@ -689,29 +769,19 @@ async function revealRound(io, roomCode, round) {
   io.to(roomCode).emit('round:revealed', {
     roundId: round.id,
     realTitle: finalRound.real_title,
-    // 選択肢の全情報（is_real と作者名を含む）
     answers: answers.map((a) => ({
       id: a.id,
       title: a.title,
       isReal: a.is_real,
       displayOrder: a.display_order,
-      author: a.players ? { id: a.players.id, nickname: a.players.nickname } : null
+      author: a.players ? { id: a.players.id, nickname: a.players.nickname } : null,
     })),
-    // 誰が何番の選択肢に投票したか
-    votes: votes.map((v) => ({
-      voterId: v.voter_id,
-      answerId: v.answer_id
-    })),
-    // ラウンド獲得ポイントの内訳（correct_pts + deceive_pts = total_pts）
+    votes: votes.map((v) => ({ voterId: v.voter_id, answerId: v.answer_id })),
     roundScores,
-    // 全員の累計スコア（スコアボード用）
-    playerScores: players
+    playerScores: players,
   });
 }
 
-/**
- * 全ラウンド終了後のゲーム終了処理
- */
 async function endGame(io, roomCode, room) {
   await supabase.from('rooms').update({ status: 'finished' }).eq('id', room.id);
 
@@ -722,10 +792,7 @@ async function endGame(io, roomCode, room) {
     .order('score', { ascending: false });
 
   console.log(`[Game] 終了: ${roomCode} / 優勝: ${players[0]?.nickname}`);
-  io.to(roomCode).emit('game:finished', {
-    finalScores: players,
-    winner: players[0]
-  });
+  io.to(roomCode).emit('game:finished', { finalScores: players, winner: players[0] });
 }
 
 module.exports = { registerGameHandlers, transitionToVoting, revealRound, checkAllDeclared };
