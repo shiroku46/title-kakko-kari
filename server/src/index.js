@@ -20,8 +20,10 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 // Wikipedia ランダム記事取得エンドポイント（フロントから直接呼び出すためCORSが通るようにサーバー経由にする）
 app.get('/api/random-work', async (req, res) => {
   for (let attempt = 0; attempt < 5; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const r = await fetch('https://ja.wikipedia.org/api/rest_v1/page/random/summary');
+      const r = await fetch('https://ja.wikipedia.org/api/rest_v1/page/random/summary', { signal: controller.signal });
       const data = await r.json();
       const title = (data.title || '').trim();
       const synopsis = (data.extract || '').trim();
@@ -32,6 +34,8 @@ app.get('/api/random-work', async (req, res) => {
       return res.json({ ok: true, title, synopsis: maskedSynopsis });
     } catch (_) {
       // リトライ
+    } finally {
+      clearTimeout(timeout);
     }
   }
   res.json({ ok: false, error: '記事を取得できませんでした。再試行してください。' });

@@ -12,8 +12,10 @@ const roundDeclarations = new Map();
 // ============================================================
 async function fetchWikipediaSynopsis() {
   for (let i = 0; i < 5; i++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const res = await fetch('https://ja.wikipedia.org/api/rest_v1/page/random/summary');
+      const res = await fetch('https://ja.wikipedia.org/api/rest_v1/page/random/summary', { signal: controller.signal });
       const data = await res.json();
       const title = (data.title || '').trim();
       const synopsis = (data.extract || '').trim();
@@ -24,6 +26,8 @@ async function fetchWikipediaSynopsis() {
       return { title, synopsis: masked };
     } catch (_) {
       // リトライ
+    } finally {
+      clearTimeout(timeout);
     }
   }
   return null;

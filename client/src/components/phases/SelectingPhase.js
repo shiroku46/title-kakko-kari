@@ -19,19 +19,27 @@ export default function SelectingPhase({
 
   async function handleAutoFetch() {
     setFetching(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
     try {
       const baseUrl = getCurrentUrl() || 'https://title-kakko-kari.onrender.com';
-      const res = await fetch(`${baseUrl}/api/random-work`);
+      const res = await fetch(`${baseUrl}/api/random-work`, { signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!data.ok) {
-        Alert.alert('取得失敗', data.error ?? '再試行してください');
+        Alert.alert('取得失敗', data.error ?? '記事が見つかりませんでした。再試行してください。');
         return;
       }
       setSynopsisText(data.synopsis);
       setRealTitle(data.title);
-    } catch (_) {
-      Alert.alert('取得失敗', 'サーバーに接続できませんでした');
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        Alert.alert('取得失敗', '時間がかかりすぎました。もう一度お試しください。');
+      } else {
+        Alert.alert('取得失敗', `サーバーに接続できませんでした\n(${err.message})`);
+      }
     } finally {
+      clearTimeout(timeout);
       setFetching(false);
     }
   }
