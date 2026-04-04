@@ -11,6 +11,7 @@ export default function LobbyScreen({ navigation, route }) {
   const [players, setPlayers] = useState(route.params.allPlayers ?? []);
   const [gameMode, setGameMode] = useState('player'); // 'player' | 'cpu'
   const [cpuRounds, setCpuRounds] = useState(5);
+  const [starting, setStarting] = useState(false);
   const isHost = player.is_host;
   const socket = getSocket();
 
@@ -32,9 +33,20 @@ export default function LobbyScreen({ navigation, route }) {
   }, []);
 
   function handleStart() {
-    if (players.length < 2) return Alert.alert('エラー', '最低2人必要です');
+    if (players.length < 2) {
+      return Alert.alert('エラー', `もう${2 - players.length}人参加が必要です`);
+    }
+    setStarting(true);
+    const timer = setTimeout(() => {
+      setStarting(false);
+      Alert.alert('エラー', 'サーバーから応答がありません。再試行してください。');
+    }, 10000);
     socket.emit('game:start', { mode: gameMode, totalRounds: cpuRounds }, (res) => {
-      if (!res.ok) Alert.alert('エラー', res.error);
+      clearTimeout(timer);
+      if (!res.ok) {
+        setStarting(false);
+        Alert.alert('エラー', res.error);
+      }
     });
   }
 
@@ -126,13 +138,20 @@ export default function LobbyScreen({ navigation, route }) {
       {/* アクション */}
       <View style={styles.footer}>
         {isHost ? (
-          <TouchableOpacity
-            style={[styles.btnPrimary, players.length < 2 && styles.btnDisabled]}
-            onPress={handleStart}
-            disabled={players.length < 2}
-          >
-            <Text style={styles.btnPrimaryText}>ゲームを開始する</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={[styles.btnPrimary, (starting) && styles.btnDisabled]}
+              onPress={handleStart}
+              disabled={starting}
+            >
+              <Text style={styles.btnPrimaryText}>
+                {starting ? '開始中...' : 'ゲームを開始する'}
+              </Text>
+            </TouchableOpacity>
+            {players.length < 2 && (
+              <Text style={styles.hintText}>あと{2 - players.length}人の参加が必要です</Text>
+            )}
+          </>
         ) : (
           <View style={styles.waitingBox}>
             <Text style={styles.waitingText}>ホストがゲームを開始するのを待っています</Text>
@@ -240,4 +259,5 @@ const styles = StyleSheet.create({
   waitingText: { color: '#999', fontSize: 14 },
   btnGhost: { padding: 12, alignItems: 'center' },
   btnGhostText: { color: '#C0C0C0', fontSize: 14 },
+  hintText: { textAlign: 'center', color: '#999', fontSize: 13, marginTop: 6 },
 });

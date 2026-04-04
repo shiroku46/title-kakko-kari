@@ -12,33 +12,50 @@ export default function HomeScreen({ navigation }) {
   const [roomCode, setRoomCode] = useState('');
   const [mode, setMode] = useState('home'); // 'home' | 'join'
   const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [serverUrl, setServerUrl] = useState(getCurrentUrl());
+
+  function startConnect(action) {
+    setLoading(true);
+    setLoadingMsg('接続中...');
+    const socket = connectSocket(serverUrl.trim() || DEFAULT_SERVER_URL);
+
+    const slowTimer = setTimeout(() => {
+      setLoadingMsg('サーバーを起動中（最大30秒）...');
+    }, 5000);
+
+    const timeoutTimer = setTimeout(() => {
+      clearTimeout(slowTimer);
+      setLoading(false);
+      setLoadingMsg('');
+      Alert.alert('接続エラー', `サーバーに接続できません。\n${serverUrl.trim() || DEFAULT_SERVER_URL}`);
+      disconnectSocket();
+    }, 30000);
+
+    action(socket, () => {
+      clearTimeout(slowTimer);
+      clearTimeout(timeoutTimer);
+      setLoading(false);
+      setLoadingMsg('');
+    });
+  }
 
   function handleCreate() {
     const nick = nickname.trim();
     if (!nick) return Alert.alert('エラー', 'ニックネームを入力してください');
-    setLoading(true);
-    const socket = connectSocket(serverUrl.trim() || DEFAULT_SERVER_URL);
 
-    socket.emit('room:create', { nickname: nick }, (res) => {
-      setLoading(false);
-      if (!res.ok) return Alert.alert('エラー', res.error);
-      navigation.replace('Lobby', {
-        room: res.room,
-        player: res.player,
-        allPlayers: [{ id: res.player.id, nickname: nick, isHost: true, score: 0 }],
+    startConnect((socket, done) => {
+      socket.emit('room:create', { nickname: nick }, (res) => {
+        done();
+        if (!res.ok) return Alert.alert('エラー', res.error);
+        navigation.replace('Lobby', {
+          room: res.room,
+          player: res.player,
+          allPlayers: [{ id: res.player.id, nickname: nick, isHost: true, score: 0 }],
+        });
       });
     });
-
-    // タイムアウト処理
-    setTimeout(() => {
-      if (!socket.connected) {
-        setLoading(false);
-        Alert.alert('接続エラー', `サーバーに接続できません\n${serverUrl}`);
-        disconnectSocket();
-      }
-    }, 8000);
   }
 
   function handleJoin() {
@@ -46,26 +63,18 @@ export default function HomeScreen({ navigation }) {
     const code = roomCode.trim().toUpperCase();
     if (!nick) return Alert.alert('エラー', 'ニックネームを入力してください');
     if (!code) return Alert.alert('エラー', 'ルームコードを入力してください');
-    setLoading(true);
-    const socket = connectSocket(serverUrl.trim() || DEFAULT_SERVER_URL);
 
-    socket.emit('room:join', { nickname: nick, code }, (res) => {
-      setLoading(false);
-      if (!res.ok) return Alert.alert('エラー', res.error);
-      navigation.replace('Lobby', {
-        room: res.room,
-        player: res.player,
-        allPlayers: res.allPlayers,
+    startConnect((socket, done) => {
+      socket.emit('room:join', { nickname: nick, code }, (res) => {
+        done();
+        if (!res.ok) return Alert.alert('エラー', res.error);
+        navigation.replace('Lobby', {
+          room: res.room,
+          player: res.player,
+          allPlayers: res.allPlayers,
+        });
       });
     });
-
-    setTimeout(() => {
-      if (!socket.connected) {
-        setLoading(false);
-        Alert.alert('接続エラー', `サーバーに接続できません\n${serverUrl}`);
-        disconnectSocket();
-      }
-    }, 8000);
   }
 
   return (
@@ -108,7 +117,10 @@ export default function HomeScreen({ navigation }) {
           )}
 
           {loading ? (
-            <ActivityIndicator color="#FF3B5C" size="large" style={{ marginTop: 20 }} />
+            <View style={{ alignItems: 'center', marginTop: 20 }}>
+              <ActivityIndicator color="#FF3B5C" size="large" />
+              {loadingMsg ? <Text style={styles.loadingMsg}>{loadingMsg}</Text> : null}
+            </View>
           ) : mode === 'home' ? (
             <>
               <TouchableOpacity style={styles.btnPrimary} onPress={handleCreate}>
@@ -231,4 +243,5 @@ const styles = StyleSheet.create({
   settingsNote: { fontSize: 11, color: '#BBB', lineHeight: 18, marginBottom: 12 },
   btnReset: { alignItems: 'center', padding: 8 },
   btnResetText: { fontSize: 13, color: '#C0C0C0' },
+  loadingMsg: { fontSize: 12, color: '#999', marginTop: 8 },
 });
