@@ -16,29 +16,60 @@ export default function HomeScreen({ navigation }) {
   const [showSettings, setShowSettings] = useState(false);
   const [serverUrl, setServerUrl] = useState(getCurrentUrl());
 
-  function startConnect(action) {
+  async function startConnect(action) {
+    const targetUrl = (serverUrl.trim() || DEFAULT_SERVER_URL).replace(/\/$/, '');
     setLoading(true);
     setLoadingMsg('接続中...');
-    const socket = connectSocket(serverUrl.trim() || DEFAULT_SERVER_URL);
 
+    // Phase 1: HTTP でサーバーを起こす（コールドスタート対応・最大90秒）
     const slowTimer = setTimeout(() => {
-      setLoadingMsg('サーバーを起動中（最大30秒）...');
-    }, 5000);
-
-    const timeoutTimer = setTimeout(() => {
+      setLoadingMsg('サーバーを起動中（最大90秒）...');
+    }, 4000);
+    const abortCtrl = new AbortController();
+    const healthTimer = setTimeout(() => abortCtrl.abort(), 90000);
+    try {
+      await fetch(`${targetUrl}/health`, { signal: abortCtrl.signal });
+    } catch (_) {
       clearTimeout(slowTimer);
+      clearTimeout(healthTimer);
       setLoading(false);
       setLoadingMsg('');
-      Alert.alert('接続エラー', `サーバーに接続できません。\n${serverUrl.trim() || DEFAULT_SERVER_URL}`);
+      Alert.alert('接続エラー', `サーバーに接続できません。\nURL: ${targetUrl}`);
+      return;
+    }
+    clearTimeout(slowTimer);
+    clearTimeout(healthTimer);
+
+    // Phase 2: サーバー起動済みなのでソケット接続（通常数秒で完了）
+    setLoadingMsg('ルームを準備中...');
+    const socket = connectSocket(targetUrl);
+
+    function proceed() {
+      setLoadingMsg('');
+      action(socket, () => {
+        setLoading(false);
+        setLoadingMsg('');
+      });
+    }
+
+    if (socket.connected) {
+      proceed();
+      return;
+    }
+
+    const socketTimer = setTimeout(() => {
+      socket.off('connect', onConnect);
+      setLoading(false);
+      setLoadingMsg('');
+      Alert.alert('接続エラー', 'ソケット接続に失敗しました。再試行してください。');
       disconnectSocket();
-    }, 30000);
+    }, 10000);
 
-    action(socket, () => {
-      clearTimeout(slowTimer);
-      clearTimeout(timeoutTimer);
-      setLoading(false);
-      setLoadingMsg('');
-    });
+    function onConnect() {
+      clearTimeout(socketTimer);
+      proceed();
+    }
+    socket.once('connect', onConnect);
   }
 
   function handleCreate() {
