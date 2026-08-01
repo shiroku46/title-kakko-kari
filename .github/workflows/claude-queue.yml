@@ -278,9 +278,18 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.12"
-      - run: python scripts/public_export_guard.py .
-      - run: python scripts/validate_repository.py
-      - run: python -m unittest discover -s tests
+      - name: Run distributed validation and target-owned tests
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m compileall -q scripts
+        python scripts/public_export_guard.py .
+        python scripts/validate_repository.py
+        if [ -d tests ]; then
+python -m unittest discover -s tests
+        else
+echo "No target-owned tests/ directory; distributed validation completed."
+        fi
 
   publish:
     needs: [prepare, implement, resolve, verify]
