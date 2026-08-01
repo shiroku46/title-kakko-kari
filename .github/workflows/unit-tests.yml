@@ -31,6 +31,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Bootstrap targets do not receive the Foundation repository's tests/** tree.
+          # When target-owned tests exist, run them; otherwise verify every distributed
+          # Python module plus both public repository guards.
           if [ -d tests ]; then
             python -m unittest discover -s tests
           else
