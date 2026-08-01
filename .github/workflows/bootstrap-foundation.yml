@@ -38,7 +38,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.BOOTSTRAP_WORKFLOW_TOKEN }}
 
-      - name: Make Claude Queue verification target-safe
+      - name: Correct Claude Queue verification block
         shell: bash
         run: |
           set -euo pipefail
@@ -47,29 +47,36 @@ jobs:
 
           path = Path('.github/workflows/claude-queue.yml')
           text = path.read_text(encoding='utf-8')
-          old = '''      - run: python scripts/public_export_guard.py .
-                - run: python scripts/validate_repository.py
-                - run: python -m unittest discover -s tests
-          '''
-          # The triple-quoted indentation above follows Python source indentation;
-          # normalize it to the exact YAML block before matching.
-          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
-          new = '''      - name: Run distributed validation and target-owned tests
-                shell: bash
-                run: |
-                  set -euo pipefail
-                  python -m compileall -q scripts
-                  python scripts/public_export_guard.py .
-                  python scripts/validate_repository.py
-                  if [ -d tests ]; then
-                    python -m unittest discover -s tests
-                  else
-                    echo "No target-owned tests/ directory; distributed validation completed."
-                  fi
-          '''
-          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          old = (
+              "      - name: Run distributed validation and target-owned tests\n"
+              "      shell: bash\n"
+              "      run: |\n"
+              "        set -euo pipefail\n"
+              "        python -m compileall -q scripts\n"
+              "        python scripts/public_export_guard.py .\n"
+              "        python scripts/validate_repository.py\n"
+              "        if [ -d tests ]; then\n"
+              "python -m unittest discover -s tests\n"
+              "        else\n"
+              "echo \"No target-owned tests/ directory; distributed validation completed.\"\n"
+              "        fi\n"
+          )
+          new = (
+              "      - name: Run distributed validation and target-owned tests\n"
+              "        shell: bash\n"
+              "        run: |\n"
+              "          set -euo pipefail\n"
+              "          python -m compileall -q scripts\n"
+              "          python scripts/public_export_guard.py .\n"
+              "          python scripts/validate_repository.py\n"
+              "          if [ -d tests ]; then\n"
+              "            python -m unittest discover -s tests\n"
+              "          else\n"
+              "            echo \"No target-owned tests/ directory; distributed validation completed.\"\n"
+              "          fi\n"
+          )
           if text.count(old) != 1:
-              raise SystemExit(f'Expected exactly one Claude Queue verification block, found {text.count(old)}')
+              raise SystemExit(f'Expected exactly one malformed Claude Queue block, found {text.count(old)}')
           path.write_text(text.replace(old, new), encoding='utf-8')
           PY
 
@@ -82,5 +89,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/workflows/claude-queue.yml
-          git commit -m "fix: make Claude Queue verification target-safe"
+          git commit -m "fix: correct Claude Queue verification indentation"
           git push origin HEAD:refs/heads/automation/bootstrap-foundation
