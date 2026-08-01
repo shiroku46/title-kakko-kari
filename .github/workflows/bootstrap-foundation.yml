@@ -1,0 +1,118 @@
+name: One-time Foundation Bootstrap
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bootstrap-foundation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-foundation-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    if: github.repository == 'shiroku46/title-kakko-kari'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check out immutable Foundation source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: shiroku46/ai-dev-automation-foundation
+          ref: 36b793b22ae9ce7c0886daa69a5913c4ee48ab89
+          path: .foundation-source
+          persist-credentials: false
+
+      - name: Generate reviewed Bootstrap snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B automation/bootstrap-foundation
+          python .foundation-source/bootstrap/generator.py \
+            --target "$GITHUB_WORKSPACE" \
+            --owner shiroku46
+          rm -rf .foundation-source
+          rm -f .github/workflows/bootstrap-foundation.yml
+
+      - name: Enforce exact Bootstrap scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess
+          from pathlib import Path
+
+          allowed = {
+              'README.md',
+              'LICENSE',
+              'AGENTS.md',
+              'CLAUDE.md',
+              'SECURITY.md',
+              'INSTALL_CHECKLIST.md',
+              'docs/OPERATING_RULES.md',
+              'docs/PUBLIC_SECURITY_MODEL.md',
+              'scripts/public_export_guard.py',
+              'scripts/validate_repository.py',
+              'scripts/ai_recovery_supervisor.py',
+              'scripts/supervisor_final_guard.py',
+              'scripts/supervisor_policy.py',
+              'scripts/supervisor_runtime.py',
+              'scripts/supervisor_queue_recovery.py',
+              'scripts/supervisor_queue_recovery_v2.py',
+              'scripts/supervisor_queue_recovery_v3.py',
+              '.github/workflows/ci.yml',
+              '.github/workflows/unit-tests.yml',
+              '.github/workflows/trusted-checks.yml',
+              '.github/workflows/claude-queue.yml',
+              '.github/workflows/ci-reconcile.yml',
+              '.github/workflows/supervisor.yml',
+              '.github/ISSUE_TEMPLATE/ai-task.yml',
+              '.github/pull_request_template.md',
+              '.github/workflows/bootstrap-foundation.yml',
+          }
+          output = subprocess.check_output(
+              ['git', 'status', '--porcelain=v1'], text=True
+          )
+          changed = set()
+          for line in output.splitlines():
+              path = line[3:]
+              if ' -> ' in path:
+                  old, new = path.split(' -> ', 1)
+                  changed.update((old, new))
+              else:
+                  changed.add(path)
+          unexpected = sorted(changed - allowed)
+          missing = sorted(
+              path for path in allowed
+              if path != '.github/workflows/bootstrap-foundation.yml'
+              and not Path(path).is_file()
+          )
+          if unexpected:
+              raise SystemExit(f'Unexpected changed paths: {unexpected}')
+          if missing:
+              raise SystemExit(f'Missing generated files: {missing}')
+          print('Changed paths are within the authorized Bootstrap scope.')
+          PY
+
+      - name: Commit generated Bootstrap branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: bootstrap AI development automation foundation" \
+            -m "Source: shiroku46/ai-dev-automation-foundation@36b793b22ae9ce7c0886daa69a5913c4ee48ab89" \
+            -m "Authorized by issue #1."
+          git push --force origin HEAD:refs/heads/automation/bootstrap-foundation
