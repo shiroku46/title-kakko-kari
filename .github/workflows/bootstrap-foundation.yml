@@ -82,7 +82,8 @@ jobs:
               '.github/workflows/bootstrap-foundation.yml',
           }
           output = subprocess.check_output(
-              ['git', 'status', '--porcelain=v1'], text=True
+              ['git', 'status', '--porcelain=v1', '--untracked-files=all'],
+              text=True,
           )
           changed = set()
           for line in output.splitlines():
