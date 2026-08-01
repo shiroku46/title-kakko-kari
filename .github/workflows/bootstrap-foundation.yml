@@ -1,4 +1,4 @@
-name: One-time Foundation Bootstrap
+name: One-time Foundation Bootstrap Repair
 
 on:
   push:
@@ -11,14 +11,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: one-time-foundation-bootstrap
+  group: one-time-foundation-bootstrap-repair
   cancel-in-progress: false
 
 jobs:
-  generate:
+  repair:
     if: github.repository == 'shiroku46/title-kakko-kari'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Require scoped Bootstrap token
         shell: bash
@@ -27,105 +27,60 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$BOOTSTRAP_WORKFLOW_TOKEN" ]; then
-            echo "::error::Repository Secret BOOTSTRAP_WORKFLOW_TOKEN is required. Use a repository-scoped fine-grained token with Contents: read/write and Workflows: write."
+            echo "::error::Repository Secret BOOTSTRAP_WORKFLOW_TOKEN is required for the one-time workflow repair."
             exit 1
           fi
 
-      - name: Check out target repository
+      - name: Check out Bootstrap candidate branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: main
+          ref: automation/bootstrap-foundation
           fetch-depth: 0
           token: ${{ secrets.BOOTSTRAP_WORKFLOW_TOKEN }}
 
-      - name: Check out immutable Foundation source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          repository: shiroku46/ai-dev-automation-foundation
-          ref: 36b793b22ae9ce7c0886daa69a5913c4ee48ab89
-          path: .foundation-source
-          persist-credentials: false
-
-      - name: Generate reviewed Bootstrap snapshot
-        shell: bash
-        run: |
-          set -euo pipefail
-          git checkout -B automation/bootstrap-foundation
-          python .foundation-source/bootstrap/generator.py \
-            --target "$GITHUB_WORKSPACE" \
-            --owner shiroku46
-          rm -rf .foundation-source
-          rm -f .github/workflows/bootstrap-foundation.yml
-
-      - name: Enforce exact Bootstrap scope
+      - name: Make Claude Queue verification target-safe
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import subprocess
           from pathlib import Path
 
-          allowed = {
-              'README.md',
-              'LICENSE',
-              'AGENTS.md',
-              'CLAUDE.md',
-              'SECURITY.md',
-              'INSTALL_CHECKLIST.md',
-              'docs/OPERATING_RULES.md',
-              'docs/PUBLIC_SECURITY_MODEL.md',
-              'scripts/public_export_guard.py',
-              'scripts/validate_repository.py',
-              'scripts/ai_recovery_supervisor.py',
-              'scripts/supervisor_final_guard.py',
-              'scripts/supervisor_policy.py',
-              'scripts/supervisor_runtime.py',
-              'scripts/supervisor_queue_recovery.py',
-              'scripts/supervisor_queue_recovery_v2.py',
-              'scripts/supervisor_queue_recovery_v3.py',
-              '.github/workflows/ci.yml',
-              '.github/workflows/unit-tests.yml',
-              '.github/workflows/trusted-checks.yml',
-              '.github/workflows/claude-queue.yml',
-              '.github/workflows/ci-reconcile.yml',
-              '.github/workflows/supervisor.yml',
-              '.github/ISSUE_TEMPLATE/ai-task.yml',
-              '.github/pull_request_template.md',
-              '.github/workflows/bootstrap-foundation.yml',
-          }
-          output = subprocess.check_output(
-              ['git', 'status', '--porcelain=v1', '--untracked-files=all'],
-              text=True,
-          )
-          changed = set()
-          for line in output.splitlines():
-              path = line[3:]
-              if ' -> ' in path:
-                  old, new = path.split(' -> ', 1)
-                  changed.update((old, new))
-              else:
-                  changed.add(path)
-          unexpected = sorted(changed - allowed)
-          missing = sorted(
-              path for path in allowed
-              if path != '.github/workflows/bootstrap-foundation.yml'
-              and not Path(path).is_file()
-          )
-          if unexpected:
-              raise SystemExit(f'Unexpected changed paths: {unexpected}')
-          if missing:
-              raise SystemExit(f'Missing generated files: {missing}')
-          print('Changed paths are within the authorized Bootstrap scope.')
+          path = Path('.github/workflows/claude-queue.yml')
+          text = path.read_text(encoding='utf-8')
+          old = '''      - run: python scripts/public_export_guard.py .
+                - run: python scripts/validate_repository.py
+                - run: python -m unittest discover -s tests
+          '''
+          # The triple-quoted indentation above follows Python source indentation;
+          # normalize it to the exact YAML block before matching.
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '''      - name: Run distributed validation and target-owned tests
+                shell: bash
+                run: |
+                  set -euo pipefail
+                  python -m compileall -q scripts
+                  python scripts/public_export_guard.py .
+                  python scripts/validate_repository.py
+                  if [ -d tests ]; then
+                    python -m unittest discover -s tests
+                  else
+                    echo "No target-owned tests/ directory; distributed validation completed."
+                  fi
+          '''
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one Claude Queue verification block, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
           PY
 
-      - name: Commit generated Bootstrap branch
+      - name: Enforce exact repair scope and push
         shell: bash
         run: |
           set -euo pipefail
+          changed=$(git diff --name-only)
+          test "$changed" = ".github/workflows/claude-queue.yml"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "chore: bootstrap AI development automation foundation" \
-            -m "Source: shiroku46/ai-dev-automation-foundation@36b793b22ae9ce7c0886daa69a5913c4ee48ab89" \
-            -m "Authorized by issue #1."
-          git push --force origin HEAD:refs/heads/automation/bootstrap-foundation
+          git add .github/workflows/claude-queue.yml
+          git commit -m "fix: make Claude Queue verification target-safe"
+          git push origin HEAD:refs/heads/automation/bootstrap-foundation
