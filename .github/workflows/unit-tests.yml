@@ -1,0 +1,43 @@
+name: Unit Tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Immutable commit SHA to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_REF: ${{ inputs.target_ref || github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.TARGET_REF }}
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.12"
+      - name: Run distributed validation and target-owned tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The distributed Foundation modules and guards are mandatory on every
+          # target. Target-owned tests, when present, run in addition to them.
+          python -m compileall -q scripts
+          python scripts/public_export_guard.py .
+          python scripts/validate_repository.py
+          if [ -d tests ]; then
+            python -m unittest discover -s tests
+          else
+            echo "No target-owned tests/ directory; distributed validation completed."
+          fi
