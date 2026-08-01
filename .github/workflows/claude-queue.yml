@@ -279,17 +279,17 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run distributed validation and target-owned tests
-      shell: bash
-      run: |
-        set -euo pipefail
-        python -m compileall -q scripts
-        python scripts/public_export_guard.py .
-        python scripts/validate_repository.py
-        if [ -d tests ]; then
-python -m unittest discover -s tests
-        else
-echo "No target-owned tests/ directory; distributed validation completed."
-        fi
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q scripts
+          python scripts/public_export_guard.py .
+          python scripts/validate_repository.py
+          if [ -d tests ]; then
+            python -m unittest discover -s tests
+          else
+            echo "No target-owned tests/ directory; distributed validation completed."
+          fi
 
   publish:
     needs: [prepare, implement, resolve, verify]
