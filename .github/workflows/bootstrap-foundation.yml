@@ -1,4 +1,4 @@
-name: One-time Foundation Bootstrap Repair
+name: One-time Foundation Bootstrap Finalize
 
 on:
   push:
@@ -11,11 +11,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: one-time-foundation-bootstrap-repair
+  group: one-time-foundation-bootstrap-finalize
   cancel-in-progress: false
 
 jobs:
-  repair:
+  finalize:
     if: github.repository == 'shiroku46/title-kakko-kari'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$BOOTSTRAP_WORKFLOW_TOKEN" ]; then
-            echo "::error::Repository Secret BOOTSTRAP_WORKFLOW_TOKEN is required for the one-time workflow repair."
+            echo "::error::Repository Secret BOOTSTRAP_WORKFLOW_TOKEN is required for the one-time final synchronization."
             exit 1
           fi
 
@@ -38,56 +38,29 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.BOOTSTRAP_WORKFLOW_TOKEN }}
 
-      - name: Correct Claude Queue verification block
+      - name: Merge current main and retain Bootstrap workflow deletion
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('.github/workflows/claude-queue.yml')
-          text = path.read_text(encoding='utf-8')
-          old = (
-              "      - name: Run distributed validation and target-owned tests\n"
-              "      shell: bash\n"
-              "      run: |\n"
-              "        set -euo pipefail\n"
-              "        python -m compileall -q scripts\n"
-              "        python scripts/public_export_guard.py .\n"
-              "        python scripts/validate_repository.py\n"
-              "        if [ -d tests ]; then\n"
-              "python -m unittest discover -s tests\n"
-              "        else\n"
-              "echo \"No target-owned tests/ directory; distributed validation completed.\"\n"
-              "        fi\n"
-          )
-          new = (
-              "      - name: Run distributed validation and target-owned tests\n"
-              "        shell: bash\n"
-              "        run: |\n"
-              "          set -euo pipefail\n"
-              "          python -m compileall -q scripts\n"
-              "          python scripts/public_export_guard.py .\n"
-              "          python scripts/validate_repository.py\n"
-              "          if [ -d tests ]; then\n"
-              "            python -m unittest discover -s tests\n"
-              "          else\n"
-              "            echo \"No target-owned tests/ directory; distributed validation completed.\"\n"
-              "          fi\n"
-          )
-          if text.count(old) != 1:
-              raise SystemExit(f'Expected exactly one malformed Claude Queue block, found {text.count(old)}')
-          path.write_text(text.replace(old, new), encoding='utf-8')
-          PY
-
-      - name: Enforce exact repair scope and push
-        shell: bash
-        run: |
-          set -euo pipefail
-          changed=$(git diff --name-only)
-          test "$changed" = ".github/workflows/claude-queue.yml"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/claude-queue.yml
-          git commit -m "fix: correct Claude Queue verification indentation"
+          git fetch origin main
+
+          merge_status=0
+          git merge --no-commit --no-ff origin/main || merge_status=$?
+
+          unmerged=$(git diff --name-only --diff-filter=U)
+          if [ -n "$unmerged" ]; then
+            test "$unmerged" = ".github/workflows/bootstrap-foundation.yml"
+          fi
+
+          rm -f .github/workflows/bootstrap-foundation.yml
+          git add -A
+
+          if git diff --cached --quiet && [ "$merge_status" -eq 0 ]; then
+            echo "Candidate branch already contains current main and deletes the temporary workflow."
+            exit 0
+          fi
+
+          git commit -m "chore: synchronize Bootstrap branch with current main"
           git push origin HEAD:refs/heads/automation/bootstrap-foundation
