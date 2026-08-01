@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: one-time-foundation-bootstrap
@@ -20,11 +20,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Require scoped Bootstrap token
+        shell: bash
+        env:
+          BOOTSTRAP_WORKFLOW_TOKEN: ${{ secrets.BOOTSTRAP_WORKFLOW_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BOOTSTRAP_WORKFLOW_TOKEN" ]; then
+            echo "::error::Repository Secret BOOTSTRAP_WORKFLOW_TOKEN is required. Use a repository-scoped fine-grained token with Contents: read/write and Workflows: write."
+            exit 1
+          fi
+
       - name: Check out target repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.BOOTSTRAP_WORKFLOW_TOKEN }}
 
       - name: Check out immutable Foundation source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
