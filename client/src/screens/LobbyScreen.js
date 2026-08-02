@@ -9,16 +9,17 @@ import { PaperPanel, StationeryButton, PlayerCard } from '../components/ui';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../hooks/useResponsiveLayout';
 
 const ROUND_OPTIONS = [3, 5, 7, 10];
+const MIN_PLAYERS = (__DEV__ && process.env.EXPO_PUBLIC_ALLOW_THREE_PLAYER_DEV === 'true') ? 3 : 4;
 
 export default function LobbyScreen({ navigation, route }) {
   const { room, player } = route.params;
   const [players, setPlayers] = useState(route.params.allPlayers ?? []);
-  const [gameMode, setGameMode] = useState('player'); // 'player' | 'cpu'
+  const [gameMode, setGameMode] = useState('player');
   const [cpuRounds, setCpuRounds] = useState(5);
   const [starting, setStarting] = useState(false);
   const isHost = player.is_host;
   const socket = getSocket();
-  const { isPC, isMobile, contentPadding } = useResponsiveLayout();
+  const { isPC, contentPadding } = useResponsiveLayout();
 
   useSocketListeners({
     'room:player_joined': ({ allPlayers }) => setPlayers(allPlayers),
@@ -38,8 +39,8 @@ export default function LobbyScreen({ navigation, route }) {
   }, []);
 
   function handleStart() {
-    if (players.length < 2) {
-      return Alert.alert('エラー', `もう${2 - players.length}人参加が必要です`);
+    if (players.length < MIN_PLAYERS) {
+      return Alert.alert('エラー', `もう${MIN_PLAYERS - players.length}人参加が必要です`);
     }
     setStarting(true);
     const timer = setTimeout(() => {
@@ -84,13 +85,12 @@ export default function LobbyScreen({ navigation, route }) {
   const settingsPanel = isHost && (
     <PaperPanel style={styles.settingsCard}>
       <Text style={styles.settingsTitle}>ゲーム設定</Text>
-
       <Text style={styles.settingsLabel}>出題形式</Text>
       <View style={styles.modeRow}>
         {[
-          { key: 'player', label: 'プレイヤー出題', sub: '全員が1回ずつ出題' },
-          { key: 'cpu', label: 'CPU出題', sub: 'Wikipediaが自動出題' },
-        ].map(({ key, label, sub }) => (
+          { key: 'player', label: 'プレイヤー出題' },
+          { key: 'cpu', label: 'CPU出題' },
+        ].map(({ key, label }) => (
           <StationeryButton
             key={key}
             variant={gameMode === key ? 'primary' : 'secondary'}
@@ -103,7 +103,6 @@ export default function LobbyScreen({ navigation, route }) {
           </StationeryButton>
         ))}
       </View>
-
       {gameMode === 'cpu' && (
         <>
           <Text style={styles.settingsLabel}>ラウンド数</Text>
@@ -138,8 +137,8 @@ export default function LobbyScreen({ navigation, route }) {
           >
             ゲームを開始する
           </StationeryButton>
-          {players.length < 2 && (
-            <Text style={styles.hintText}>あと{2 - players.length}人の参加が必要です</Text>
+          {players.length < MIN_PLAYERS && (
+            <Text style={styles.hintText}>あと{MIN_PLAYERS - players.length}人の参加が必要です</Text>
           )}
         </>
       ) : (
@@ -163,20 +162,10 @@ export default function LobbyScreen({ navigation, route }) {
     return (
       <View style={styles.pcRoot}>
         <View style={[styles.pcContent, { maxWidth: CONTENT_MAX_WIDTH }]}>
-          {/* 上部: ルームコード */}
-          <View style={styles.pcHeader}>
-            {roomCodeCard}
-          </View>
-
-          {/* 中部: プレイヤー + 設定 */}
+          <View style={styles.pcHeader}>{roomCodeCard}</View>
           <View style={styles.pcBody}>
-            <View style={styles.pcMain}>
-              {playerGrid}
-            </View>
-            <View style={styles.pcSide}>
-              {settingsPanel}
-              {actionArea}
-            </View>
+            <View style={styles.pcMain}>{playerGrid}</View>
+            <View style={styles.pcSide}>{settingsPanel}{actionArea}</View>
           </View>
         </View>
       </View>
@@ -184,14 +173,8 @@ export default function LobbyScreen({ navigation, route }) {
   }
 
   return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={[styles.mobileContainer, { padding: contentPadding }]}
-    >
-      {roomCodeCard}
-      {playerGrid}
-      {settingsPanel}
-      {actionArea}
+    <ScrollView style={styles.root} contentContainerStyle={[styles.mobileContainer, { padding: contentPadding }]}>
+      {roomCodeCard}{playerGrid}{settingsPanel}{actionArea}
     </ScrollView>
   );
 }
@@ -201,13 +184,7 @@ const styles = StyleSheet.create({
   mobileContainer: { gap: 12, paddingTop: 56, paddingBottom: 32 },
   codeCard: { alignItems: 'center' },
   codeLabel: { fontSize: 11, fontWeight: '600', color: colors.muted, marginBottom: 8, letterSpacing: 0.5 },
-  codeText: {
-    fontFamily: fontFamilies.sans,
-    fontSize: 42,
-    fontWeight: '800',
-    color: colors.navy,
-    letterSpacing: 8,
-  },
+  codeText: { fontFamily: fontFamilies.sans, fontSize: 42, fontWeight: '800', color: colors.navy, letterSpacing: 8 },
   codeHint: { fontSize: 12, color: colors.muted, marginTop: 8 },
   playerCount: { fontSize: 13, color: colors.muted, marginTop: 6 },
   sectionTitle: { fontSize: 12, fontWeight: '600', color: colors.muted, marginBottom: 10, letterSpacing: 0.5 },
@@ -228,21 +205,8 @@ const styles = StyleSheet.create({
   hintText: { textAlign: 'center', color: colors.muted, fontSize: 13, marginTop: 4 },
   exitBtn: { alignSelf: 'center' },
   exitBtnText: { color: colors.muted, fontSize: 13 },
-
-  // PC
-  pcRoot: {
-    flex: 1,
-    backgroundColor: colors.canvas,
-    alignItems: 'center',
-  },
-  pcContent: {
-    flex: 1,
-    width: '100%',
-    paddingHorizontal: 32,
-    paddingTop: 32,
-    paddingBottom: 24,
-    gap: 20,
-  },
+  pcRoot: { flex: 1, backgroundColor: colors.canvas, alignItems: 'center' },
+  pcContent: { flex: 1, width: '100%', paddingHorizontal: 32, paddingTop: 32, paddingBottom: 24, gap: 20 },
   pcHeader: {},
   pcBody: { flex: 1, flexDirection: 'row', gap: 20 },
   pcMain: { flex: 2 },
