@@ -72,10 +72,14 @@ app.get('/health/network', async (req, res) => {
         headers: { 'User-Agent': 'title-kakko-kari-network-check/1.0' },
       }
     );
+    const outbound = { ok: response.ok, httpStatus: response.status };
+    // This diagnostic needs only headers/status. Explicitly dispose the body
+    // before clearing the abort timer so a stalled body cannot retain sockets.
+    if (response.body) await response.body.cancel();
     return res.status(response.ok ? 200 : 502).json({
       status: response.ok ? 'ok' : 'error',
       ...runtimeInfo(),
-      outbound: { ok: response.ok, httpStatus: response.status },
+      outbound,
     });
   } catch (error) {
     const errorName = typeof error?.name === 'string' ? error.name : 'Error';
