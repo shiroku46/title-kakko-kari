@@ -31,11 +31,13 @@ class TestSafeNetworkDiagnostics(unittest.TestCase):
     def test_network_diagnostic_route_exists(self):
         self.assertIn("app.get('/health/network'", self.source)
 
-    def test_network_request_is_bounded(self):
-        self.assertIn("new AbortController()", self.source)
-        self.assertIn("setTimeout(() => controller.abort(), 8000)", self.source)
-        self.assertIn("signal: controller.signal", self.source)
-        self.assertIn("clearTimeout(timeout)", self.source)
+    def test_network_request_is_bounded_and_body_is_disposed(self):
+        route = self._network_route_block()
+        self.assertIn("new AbortController()", route)
+        self.assertIn("setTimeout(() => controller.abort(), 8000)", route)
+        self.assertIn("signal: controller.signal", route)
+        self.assertIn("response.body.cancel()", route)
+        self.assertLess(route.index("response.body.cancel()"), route.index("clearTimeout(timeout)"))
 
     def test_failure_response_is_sanitized(self):
         route = self._network_route_block()
