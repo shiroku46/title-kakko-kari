@@ -94,6 +94,114 @@ app.get('/health/network', async (req, res) => {
   }
 });
 
+function sanitizedErrorCode(error) {
+  return typeof error?.code === 'string'
+    ? error.code
+    : (typeof error?.cause?.code === 'string' ? error.cause.code : null);
+}
+
+async function lookupIpv4Bounded(hostname, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([
+      dns.promises.lookup(hostname, { family: 4 }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error('DNS lookup timed out');
+          error.code = 'ETIMEDOUT';
+          reject(error);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Supabase接続の設定・DNS・HTTP段階だけを安全に切り分ける。
+// URL、hostname、key、headers、response body、raw error message、stackは返さない。
+app.get('/health/supabase', async (req, res) => {
+  const rawUrl = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const config = {
+    urlConfigured: typeof rawUrl === 'string' && rawUrl.trim().length > 0,
+    keyConfigured: typeof serviceKey === 'string' && serviceKey.trim().length > 0,
+    urlValidHttps: false,
+  };
+
+  let parsedUrl = null;
+  if (config.urlConfigured) {
+    try {
+      parsedUrl = new URL(rawUrl);
+      config.urlValidHttps = parsedUrl.protocol === 'https:' && Boolean(parsedUrl.hostname);
+    } catch (_) {
+      parsedUrl = null;
+    }
+  }
+
+  const evidence = {
+    status: 'error',
+    ...runtimeInfo(),
+    config,
+    dns: { ok: false, family: null, errorCode: null },
+    request: { ok: false, httpStatus: null, errorName: null, errorCode: null },
+  };
+
+  if (!config.urlValidHttps) {
+    evidence.request.errorCode = 'INVALID_CONFIG';
+    return res.status(503).json(evidence);
+  }
+
+  try {
+    const lookup = await lookupIpv4Bounded(parsedUrl.hostname, 5000);
+    evidence.dns = { ok: true, family: lookup.family, errorCode: null };
+  } catch (error) {
+    evidence.dns.errorCode = sanitizedErrorCode(error);
+    evidence.request.errorCode = 'DNS_FAILED';
+    return res.status(503).json(evidence);
+  }
+
+  if (!config.keyConfigured) {
+    evidence.request.errorCode = 'INVALID_CONFIG';
+    return res.status(503).json(evidence);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const endpoint = new URL('/rest/v1/rooms?select=id&limit=1', parsedUrl);
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: controller.signal,
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        Accept: 'application/json',
+      },
+    });
+    evidence.request = {
+      ok: response.ok,
+      httpStatus: response.status,
+      errorName: null,
+      errorCode: null,
+    };
+    if (response.body) await response.body.cancel();
+    evidence.status = response.ok ? 'ok' : 'error';
+    return res.status(response.ok ? 200 : 502).json(evidence);
+  } catch (error) {
+    evidence.request = {
+      ok: false,
+      httpStatus: null,
+      errorName: typeof error?.name === 'string' ? error.name : 'Error',
+      errorCode: sanitizedErrorCode(error),
+    };
+    return res.status(503).json(evidence);
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
 // Wikipedia ランダム記事取得エンドポイント（フロントから直接呼び出すためCORSが通るようにサーバー経由にする）
 app.get('/api/random-work', async (req, res) => {
   for (let attempt = 0; attempt < 5; attempt++) {
