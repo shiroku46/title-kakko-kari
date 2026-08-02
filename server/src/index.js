@@ -16,6 +16,15 @@ const { registerSocketHandlers } = require('./socket');
 const app = express();
 const server = http.createServer(app);
 
+const release = (process.env.RENDER_GIT_COMMIT || 'local').slice(0, 12);
+function runtimeInfo() {
+  return {
+    release,
+    node: process.version,
+    dnsOrder: dns.getDefaultResultOrder(),
+  };
+}
+
 // ALLOWED_ORIGINS: カンマ区切りで複数オリジンを指定可能。未設定時は全オリジン許可。
 // 例: ALLOWED_ORIGINS=https://example.vercel.app,http://localhost:8081
 const rawOrigins = process.env.ALLOWED_ORIGINS;
@@ -47,8 +56,39 @@ const io = new Server(server, {
   },
 });
 
-// ヘルスチェック用エンドポイント
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
+// ヘルスチェック用エンドポイント。commit・runtime情報だけを返し、Secretは含めない。
+app.get('/health', (req, res) => res.json({ status: 'ok', ...runtimeInfo() }));
+
+// Render上のoutbound HTTPSを安全に診断する。URL、header、raw message、stack、
+// 環境変数値は返さず、HTTP statusまたは標準化されたerror名/codeだけを返す。
+app.get('/health/network', async (req, res) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(
+      'https://ja.wikipedia.org/api/rest_v1/page/random/summary',
+      {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'title-kakko-kari-network-check/1.0' },
+      }
+    );
+    return res.status(response.ok ? 200 : 502).json({
+      status: response.ok ? 'ok' : 'error',
+      ...runtimeInfo(),
+      outbound: { ok: response.ok, httpStatus: response.status },
+    });
+  } catch (error) {
+    const errorName = typeof error?.name === 'string' ? error.name : 'Error';
+    const errorCode = typeof error?.cause?.code === 'string' ? error.cause.code : null;
+    return res.status(503).json({
+      status: 'error',
+      ...runtimeInfo(),
+      outbound: { ok: false, errorName, errorCode },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
 
 // Wikipedia ランダム記事取得エンドポイント（フロントから直接呼び出すためCORSが通るようにサーバー経由にする）
 app.get('/api/random-work', async (req, res) => {
