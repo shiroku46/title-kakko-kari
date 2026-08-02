@@ -61,7 +61,15 @@ function registerGameHandlers(io, socket) {
       if (room.status !== 'waiting') throw new Error('すでにゲームが開始しています');
 
       const connectedPlayers = room.players.filter((p) => p.is_connected);
-      if (connectedPlayers.length < 2) throw new Error('最低2人が必要です（推奨4〜6人）');
+      const allowThreeDev =
+        process.env.NODE_ENV !== 'production' &&
+        process.env.ALLOW_THREE_PLAYER_DEV === 'true';
+      const minPlayers = allowThreeDev ? 3 : 4;
+      if (connectedPlayers.length < minPlayers) {
+        throw new Error(
+          `ゲームを開始するには${minPlayers}人以上が必要です（現在${connectedPlayers.length}人）`
+        );
+      }
 
       if (mode === 'cpu') {
         // ── CPU出題モード ────────────────────────────────────────
