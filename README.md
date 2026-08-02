@@ -1,39 +1,110 @@
-# AI Development Automation Foundation
+# タイトルの名付け親は誰だ？
 
-A public, reusable, history-free foundation for guarded AI-assisted development on GitHub.
+あらすじだけを見て「本物のタイトル」を当てるオンライン・パーティーゲームです。出題者が選んだ映画・小説・漫画などのあらすじを読み、残りのプレイヤーが本物らしい偽タイトルを考えて投票し合います。本物を見抜くことと、偽タイトルで他の参加者をだますことの両方が得点になります。
 
-## What this repository provides
+## 公開状況
 
-- read-only CI that is safe for forked pull requests;
-- an owner-authorized Claude issue queue;
-- bounded reconciliation for missing trusted checks;
-- a deterministic recovery and merge decision engine;
-- a default-branch-controlled supervisor that never executes proposed-branch code with write permissions;
-- a Bootstrap generator for installing the same controls in another repository;
-- security, export, workflow, and policy regression tests.
+- Webクライアント: `https://title-kakko-kari-46mastei-4511s-projects.vercel.app/`
+- Renderサーバー: `https://title-kakko-kari.onrender.com`
+- Renderの `/health` 応答とVercelの公開は確認済みです。
+- 公開Vercelからの接続を妨げていたCORS / Socket.IO問題はIssue #11で修正され、mainへ反映済みです。部屋作成・参加を含む本番E2E確認が終わるまでは「完全動作確認済み」とは扱いません。
 
-## Safety model
+## 対応人数
 
-Untrusted pull-request code runs only in jobs with `contents: read` and without Secrets, OIDC, or write permissions. Jobs that can comment, relabel, dispatch, close, mark ready, or merge operate only from the default branch, inspect immutable current SHAs, require same-repository provenance, use fixed workflow names and refs, bound their candidate set, and use an expected-head-SHA merge guard.
+| 環境 | 最低人数 | 最大人数 |
+|------|----------|----------|
+| 通常（production / staging / test / その他） | **4人** | 6人 |
+| ローカル開発テスト（明示opt-in） | 3人 | 6人 |
 
-The queue accepts issue creation or an exact standalone `/claude-run` comment only when `github.actor` is the configured owner. A separate default-branch-only trusted dispatch path is available to the supervisor.
+> 3人プレイはローカル開発専用です。Serverは `NODE_ENV=development` かつ `ALLOW_THREE_PLAYER_DEV=true`、Clientは開発ビルドかつ `EXPO_PUBLIC_ALLOW_THREE_PLAYER_DEV=true` の場合だけ3人開始を許可します。2人以下は常に拒否されます。
 
-## Validation
+## ゲーム概要
+
+1. ホストがルームを作成し、6桁のルームコードを参加者へ共有する
+2. 4〜6人が揃ったら、ホストが出題形式を選んでゲームを開始する
+3. 出題者があらすじを提示するか、CPU出題モードでWikipediaから取得する
+4. 回答者が本物らしい偽タイトルを提出する
+5. 本物と偽物が混ざった候補から全員が投票する
+6. 正解点、欺き点、MVPボーナスを加算し、全ラウンド終了後の最多得点者が優勝する
+
+## ローカル起動手順
+
+### Serverの環境変数
+
+`server/.env` に次の変数を設定します。Secretの値はリポジトリへ記録しません。
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `PORT`（省略時は3000）
+- `NODE_ENV=development`
+- `ALLOW_THREE_PLAYER_DEV=true`（3人テストを明示的に許可する場合だけ）
+- `ALLOWED_ORIGINS`（必要に応じて許可するWeb originをカンマ区切りで指定）
+
+```bash
+cd server
+npm install
+npm start
+```
+
+### Client
+
+```bash
+cd client
+npm install
+npx expo start
+```
+
+ブラウザで開く場合は `w` キーを押します。Server URLは現在 `client/src/config.js` のRender URLを既定値として使用し、ホーム画面の「サーバー設定」からローカルURLへ変更できます。
+
+3人テスト用UIを有効にする場合だけ、Clientの開発環境へ次を設定します。
+
+```text
+EXPO_PUBLIC_ALLOW_THREE_PLAYER_DEV=true
+```
+
+`EXPO_PUBLIC_SERVER_URL` は現在の実装では読み込まないため、設定しても接続先は変わりません。
+
+## Webビルド
+
+```bash
+cd client
+npm ci
+npm run build:web
+# 出力: client/dist/
+```
+
+接続済みVercel Projectの Root Directory は `client` です。`client/vercel.json` に同じ静的ビルド、`dist`出力、SPAフォールバックを定義しています。
+
+## 検証
 
 ```bash
 python scripts/public_export_guard.py .
 python scripts/validate_repository.py
 python -m unittest discover -s tests
+cd client && npm ci && npm run build:web
 ```
 
-## Bootstrap
+GitHub ActionsではCIとUnit TestsをPull Requestの固定head SHAに対して実行します。
 
-```bash
-python bootstrap/generator.py --target ../example-repository --owner YOUR_GITHUB_LOGIN
-```
+## デプロイ構成
 
-Review the generated install checklist before enabling write-capable workflows. Repository Secrets are never generated, copied, or printed.
+| コンポーネント | ホスティング | 状況 |
+|---|---|---|
+| Client（Expo Web） | Vercel | 公開済み。Project Root Directoryは`client`。main更新時の本番再デプロイ対象 |
+| Server（Express / Socket.IO） | Render | `/health` 応答確認済み。CORS / Socket.IO修正はmain反映済み |
+| データストア | Supabase | Serverの環境変数で接続 |
 
-## Project status
+公開URL、未確認事項、Figma残件は [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md) にまとめています。
 
-This public repository is the implementation source of truth. Earlier private sandboxes remain archives and are not imported into this history.
+## デザイン
+
+PC・スマートフォンの両方に対応した文具風レスポンシブUIを実装済みです。Figmaでは基礎デザインシステムと主要コンポーネントまで作成済みで、全画面の清書は残っていますが、コード公開のブロッカーにはしていません。
+
+## 開発・自動化基盤
+
+- GitHub ActionsによるCI / Unit Tests
+- Claude CodeによるIssueドリブン実装
+- 固定head SHAのCodexレビュー
+- expected-head-SHAを使った保護付きマージ
+
+詳細な運用規則は `AGENTS.md` と `docs/OPERATING_RULES.md` を参照してください。

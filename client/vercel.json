@@ -1,0 +1,8 @@
+{
+  "buildCommand": "npm ci && npm run build:web",
+  "outputDirectory": "dist",
+  "framework": null,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

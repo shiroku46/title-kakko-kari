@@ -9,6 +9,7 @@ import { PaperPanel, StationeryButton, PlayerCard } from '../components/ui';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../hooks/useResponsiveLayout';
 
 const ROUND_OPTIONS = [3, 5, 7, 10];
+const MIN_PLAYERS = (__DEV__ && process.env.EXPO_PUBLIC_ALLOW_THREE_PLAYER_DEV === 'true') ? 3 : 4;
 
 export default function LobbyScreen({ navigation, route }) {
   const { room, player } = route.params;
@@ -38,8 +39,8 @@ export default function LobbyScreen({ navigation, route }) {
   }, []);
 
   function handleStart() {
-    if (players.length < 2) {
-      return Alert.alert('エラー', `もう${2 - players.length}人参加が必要です`);
+    if (players.length < MIN_PLAYERS) {
+      return Alert.alert('エラー', `もう${MIN_PLAYERS - players.length}人参加が必要です`);
     }
     setStarting(true);
     const timer = setTimeout(() => {
@@ -138,8 +139,8 @@ export default function LobbyScreen({ navigation, route }) {
           >
             ゲームを開始する
           </StationeryButton>
-          {players.length < 2 && (
-            <Text style={styles.hintText}>あと{2 - players.length}人の参加が必要です</Text>
+          {players.length < MIN_PLAYERS && (
+            <Text style={styles.hintText}>あと{MIN_PLAYERS - players.length}人の参加が必要です</Text>
           )}
         </>
       ) : (
