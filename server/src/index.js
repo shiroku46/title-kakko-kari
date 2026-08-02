@@ -11,9 +11,18 @@ const server = http.createServer(app);
 // ALLOWED_ORIGINS: カンマ区切りで複数オリジンを指定可能。未設定時は全オリジン許可。
 // 例: ALLOWED_ORIGINS=https://example.vercel.app,http://localhost:8081
 const rawOrigins = process.env.ALLOWED_ORIGINS;
-const corsOrigin = rawOrigins
+const allowedOrigins = rawOrigins
   ? rawOrigins.split(',').map((s) => s.trim()).filter(Boolean)
-  : '*';
+  : null;
+const corsOrigin = allowedOrigins || '*';
+
+function isAllowedOrigin(origin) {
+  // Expo/native clients and non-browser tools may not send Origin.
+  if (!origin) return true;
+  // Keep the existing MVP default when no allowlist is configured.
+  if (!allowedOrigins) return true;
+  return allowedOrigins.includes(origin);
+}
 
 app.use(cors({ origin: corsOrigin }));
 
@@ -21,6 +30,12 @@ const io = new Server(server, {
   cors: {
     origin: corsOrigin,
     methods: ['GET', 'POST'],
+  },
+  // Browser CORS headers alone do not protect direct WebSocket upgrades.
+  // Apply the same allowlist at the Engine.IO request boundary while
+  // preserving originless Expo/native clients.
+  allowRequest: (req, callback) => {
+    callback(null, isAllowedOrigin(req.headers.origin));
   },
 });
 
