@@ -1,0 +1,28 @@
+{
+  "audit": {
+    "alternative_connected_paths": "trusted-checks.yml:active:325255603;ci-reconcile.yml:active:325255601;supervisor.yml:active:325255602;claude-queue.yml:active:325236843",
+    "changed_and_renamed_paths": "[\"README.md\",\"client/package.json\",\"client/src/screens/LobbyScreen.js\",\"docs/RELEASE_STATUS.md\",\"server/src/socket/gameHandlers.js\",\"tests/__init__.py\",\"tests/test_player_count.py\",\"vercel.json\"]",
+    "check_evidence": "[{\"app\":\"vercel\",\"conclusion\":\"success\",\"name\":\"Vercel Preview Comments\",\"status\":\"completed\"},{\"app\":\"github-actions\",\"conclusion\":\"success\",\"name\":\"test\",\"status\":\"completed\"},{\"app\":\"github-actions\",\"conclusion\":\"success\",\"name\":\"validate\",\"status\":\"completed\"}]",
+    "exact_head_sha": "ca8097e67729ff29f6ada74b24b8d851f3cdacb2",
+    "human_only_connected_evidence": "not-applicable",
+    "idempotency": "automation-stops/pr-10/ca8097e67729ff29f6ada74b24b8d851f3cdacb2/UNAUTHORIZED_CHANGED_PATH.json",
+    "issue": "#8",
+    "mergeability": "mergeable=True,mergeable_state=unstable",
+    "native_pull_request_workflow_evidence": "{\"clean\":false,\"runs\":[]}",
+    "permissions_and_credentials": "automation_owner_permission=admin,secret_values_not_requested=true",
+    "pull_request": "#10",
+    "reason_code": "UNAUTHORIZED_CHANGED_PATH",
+    "repository_metadata": "visibility=public,default_branch=main,initial_and_final_head_confirmed=true",
+    "review_and_provenance": "codex=pending,codex_timestamp=None,trusted_request_timestamp=None,unresolved_threads=False",
+    "scope_and_authorization": "issue=state=open,trusted_author=True,authorization=all_paths=False,protected_paths=True",
+    "workflow_run_and_job_evidence": "[]"
+  },
+  "detail": "Changed or renamed paths exceed the trusted Issue allowlist.",
+  "exact_head_sha": "ca8097e67729ff29f6ada74b24b8d851f3cdacb2",
+  "issue_number": 8,
+  "notification": false,
+  "pull_request_number": 10,
+  "reason_code": "UNAUTHORIZED_CHANGED_PATH",
+  "required_human_action": null,
+  "schema_version": 1
+}
