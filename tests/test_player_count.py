@@ -4,7 +4,6 @@ Validates server-side and client-side player count rules without running server 
 """
 import json
 import os
-import re
 import unittest
 
 
@@ -143,8 +142,8 @@ class TestVercelConfig(unittest.TestCase):
     def test_build_command_includes_build_web(self):
         self.assertIn("build:web", self.config["buildCommand"])
 
-    def test_output_directory_is_client_dist(self):
-        self.assertEqual(self.config["outputDirectory"], "client/dist")
+    def test_output_directory_matches_client_root_project(self):
+        self.assertEqual(self.config["outputDirectory"], "dist")
 
     def test_spa_fallback_rewrites(self):
         rewrites = self.config.get("rewrites", [])
