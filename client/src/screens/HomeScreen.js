@@ -1,11 +1,21 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert,
+  View, Text, TextInput, StyleSheet, ActivityIndicator, Alert,
   KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { connectSocket, disconnectSocket, getCurrentUrl } from '../hooks/useSocket';
 import { DEFAULT_SERVER_URL } from '../config';
+import { colors, radii, spacing } from '../theme';
+import { fontFamilies } from '../theme/typography';
+import { PaperPanel, StationeryButton, StickyNote, Stamp } from '../components/ui';
+import { MaskingTape, Pencil, Eraser } from '../components/decor/StationeryDecor';
+import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../hooks/useResponsiveLayout';
+
+const SAMPLE_TITLES = [
+  'キラキラ光る海の底で',
+  '夜明けまでの三角関係',
+  '彼女は最終バスに乗る',
+];
 
 export default function HomeScreen({ navigation }) {
   const [nickname, setNickname] = useState('');
@@ -15,13 +25,13 @@ export default function HomeScreen({ navigation }) {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [serverUrl, setServerUrl] = useState(getCurrentUrl());
+  const { isPC, isMobile, contentPadding } = useResponsiveLayout();
 
   async function startConnect(action) {
     const targetUrl = (serverUrl.trim() || DEFAULT_SERVER_URL).replace(/\/$/, '');
     setLoading(true);
     setLoadingMsg('接続中...');
 
-    // Phase 1: HTTP でサーバーを起こす（コールドスタート対応・最大90秒）
     const slowTimer = setTimeout(() => {
       setLoadingMsg('サーバーを起動中（最大90秒）...');
     }, 4000);
@@ -40,7 +50,6 @@ export default function HomeScreen({ navigation }) {
     clearTimeout(slowTimer);
     clearTimeout(healthTimer);
 
-    // Phase 2: サーバー起動済みなのでソケット接続（通常数秒で完了）
     setLoadingMsg('ルームを準備中...');
     const socket = connectSocket(targetUrl);
 
@@ -75,7 +84,6 @@ export default function HomeScreen({ navigation }) {
   function handleCreate() {
     const nick = nickname.trim();
     if (!nick) return Alert.alert('エラー', 'ニックネームを入力してください');
-
     startConnect((socket, done) => {
       socket.emit('room:create', { nickname: nick }, (res) => {
         done();
@@ -94,7 +102,6 @@ export default function HomeScreen({ navigation }) {
     const code = roomCode.trim().toUpperCase();
     if (!nick) return Alert.alert('エラー', 'ニックネームを入力してください');
     if (!code) return Alert.alert('エラー', 'ルームコードを入力してください');
-
     startConnect((socket, done) => {
       socket.emit('room:join', { nickname: nick, code }, (res) => {
         done();
@@ -108,171 +115,304 @@ export default function HomeScreen({ navigation }) {
     });
   }
 
+  const formPanel = (
+    <PaperPanel variant="elevated" style={styles.formPanel}>
+      <Text style={styles.formHeading}>
+        {mode === 'join' ? 'ルームに参加する' : 'ゲームをはじめる'}
+      </Text>
+
+      <Text style={styles.fieldLabel}>ニックネーム</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="例: 山田太郎"
+        placeholderTextColor={colors.muted}
+        value={nickname}
+        onChangeText={setNickname}
+        maxLength={12}
+        accessibilityLabel="ニックネーム入力欄"
+      />
+
+      {mode === 'join' && (
+        <>
+          <Text style={styles.fieldLabel}>ルームコード</Text>
+          <TextInput
+            style={[styles.input, styles.codeInput]}
+            placeholder="例: ABC123"
+            placeholderTextColor={colors.muted}
+            value={roomCode}
+            onChangeText={setRoomCode}
+            autoCapitalize="characters"
+            maxLength={6}
+            accessibilityLabel="ルームコード入力欄"
+          />
+        </>
+      )}
+
+      {loading ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator color={colors.navy} size="large" />
+          {loadingMsg ? <Text style={styles.loadingMsg}>{loadingMsg}</Text> : null}
+        </View>
+      ) : mode === 'home' ? (
+        <>
+          <StationeryButton
+            variant="primary"
+            onPress={handleCreate}
+            accessibilityLabel="ルームを作る"
+            style={styles.btnMain}
+          >
+            ルームを作る
+          </StationeryButton>
+          <StationeryButton
+            variant="secondary"
+            onPress={() => setMode('join')}
+            accessibilityLabel="ルームに参加する"
+            style={styles.btnSub}
+          >
+            ルームに参加する
+          </StationeryButton>
+        </>
+      ) : (
+        <>
+          <StationeryButton
+            variant="primary"
+            onPress={handleJoin}
+            accessibilityLabel="参加する"
+            style={styles.btnMain}
+          >
+            参加する
+          </StationeryButton>
+          <StationeryButton
+            variant="ghost"
+            onPress={() => setMode('home')}
+            accessibilityLabel="戻る"
+          >
+            ← 戻る
+          </StationeryButton>
+        </>
+      )}
+
+      <StationeryButton
+        variant="ghost"
+        onPress={() => navigation.navigate('Rules')}
+        accessibilityLabel="ルールを確認する"
+        style={styles.rulesBtn}
+        textStyle={styles.rulesBtnText}
+      >
+        ルールを確認する
+      </StationeryButton>
+    </PaperPanel>
+  );
+
+  if (isPC) {
+    return (
+      <View style={styles.pcRoot}>
+        <View style={[styles.pcInner, { maxWidth: CONTENT_MAX_WIDTH }]}>
+          {/* 左: ヒーロー */}
+          <View style={styles.pcHero}>
+            <View style={styles.logoArea}>
+              <View style={styles.logoStampRow}>
+                <Stamp type="仮" size="sm" style={styles.logoStamp} />
+              </View>
+              <Text style={styles.pcTitle}>タイトルの名付け親は誰だ？</Text>
+              <Text style={styles.pcSubtitle}>命名系クイズゲーム</Text>
+            </View>
+
+            <View style={styles.stickyArea}>
+              {SAMPLE_TITLES.map((t, i) => (
+                <StickyNote key={i} color={['mustard', 'blue', 'rose'][i % 3]} style={styles.stickyNote}>
+                  {t}
+                </StickyNote>
+              ))}
+            </View>
+
+            <View style={styles.decorRow}>
+              <Pencil style={styles.decorItem} />
+              <MaskingTape color={colors.mustard} angle={-2} style={styles.decorItem} />
+              <Eraser style={styles.decorItem} />
+            </View>
+
+            <Text style={styles.pcDescription}>
+              実在する作品のあらすじを聞いて、{'\n'}
+              本物のタイトルを見抜く言葉のゲーム。{'\n'}
+              偽タイトルで仲間を騙し、得点を競え！
+            </Text>
+          </View>
+
+          {/* 右: フォーム */}
+          <View style={styles.pcFormArea}>
+            {formPanel}
+
+            {/* サーバー設定 */}
+            <StationeryButton
+              variant="ghost"
+              onPress={() => setShowSettings(!showSettings)}
+              accessibilityLabel="サーバー設定"
+              style={styles.settingsToggle}
+              textStyle={styles.settingsToggleText}
+            >
+              {showSettings ? '▲ サーバー設定を閉じる' : '⚙ サーバー設定'}
+            </StationeryButton>
+            {showSettings && <SettingsCard serverUrl={serverUrl} setServerUrl={setServerUrl} />}
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[styles.mobileContainer, { padding: contentPadding }]}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* ヒーロー */}
-        <View style={styles.hero}>
-          <Text style={styles.title}>タイトル(仮)</Text>
-          <Text style={styles.subtitle}>あらすじ当てゲーム</Text>
-        </View>
-
-        {/* メインカード */}
-        <View style={styles.card}>
-          <Text style={styles.fieldLabel}>ニックネーム</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="例: 山田太郎"
-            placeholderTextColor="#C0C0C0"
-            value={nickname}
-            onChangeText={setNickname}
-            maxLength={12}
-          />
-
-          {mode === 'join' && (
-            <>
-              <Text style={styles.fieldLabel}>ルームコード</Text>
-              <TextInput
-                style={[styles.input, styles.codeInput]}
-                placeholder="例: ABC123"
-                placeholderTextColor="#C0C0C0"
-                value={roomCode}
-                onChangeText={setRoomCode}
-                autoCapitalize="characters"
-                maxLength={6}
-              />
-            </>
-          )}
-
-          {loading ? (
-            <View style={{ alignItems: 'center', marginTop: 20 }}>
-              <ActivityIndicator color="#FF3B5C" size="large" />
-              {loadingMsg ? <Text style={styles.loadingMsg}>{loadingMsg}</Text> : null}
-            </View>
-          ) : mode === 'home' ? (
-            <>
-              <TouchableOpacity style={styles.btnPrimary} onPress={handleCreate}>
-                <Text style={styles.btnPrimaryText}>ルームを作る</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.btnSecondary} onPress={() => setMode('join')}>
-                <Text style={styles.btnSecondaryText}>ルームに参加する</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity style={styles.btnPrimary} onPress={handleJoin}>
-                <Text style={styles.btnPrimaryText}>参加する</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.btnGhost} onPress={() => setMode('home')}>
-                <Text style={styles.btnGhostText}>← 戻る</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-
-        {/* ルール */}
-        <TouchableOpacity style={styles.rulesBtn} onPress={() => navigation.navigate('Rules')}>
-          <Text style={styles.rulesBtnText}>ルールを確認する</Text>
-        </TouchableOpacity>
-
-        {/* サーバー設定（折りたたみ） */}
-        <TouchableOpacity style={styles.settingsToggle} onPress={() => setShowSettings(!showSettings)}>
-          <Text style={styles.settingsToggleText}>
-            {showSettings ? '▲ サーバー設定を閉じる' : '⚙ サーバー設定'}
-          </Text>
-        </TouchableOpacity>
-
-        {showSettings && (
-          <View style={styles.settingsCard}>
-            <Text style={styles.fieldLabel}>サーバーURL</Text>
-            <TextInput
-              style={styles.input}
-              value={serverUrl}
-              onChangeText={setServerUrl}
-              placeholder={DEFAULT_SERVER_URL}
-              placeholderTextColor="#C0C0C0"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Text style={styles.settingsNote}>
-              スマートフォン実機でテストする場合はPCのローカルIPに変更してください。{'\n'}
-              例: http://192.168.1.10:3000{'\n'}
-              （PCで ipconfig → IPv4アドレス を確認）
-            </Text>
-            <TouchableOpacity
-              style={styles.btnReset}
-              onPress={() => setServerUrl(DEFAULT_SERVER_URL)}
-            >
-              <Text style={styles.btnResetText}>デフォルトに戻す</Text>
-            </TouchableOpacity>
+        <View style={styles.mobileHero}>
+          <View style={styles.logoStampRow}>
+            <Stamp type="仮" size="sm" style={styles.logoStamp} />
           </View>
-        )}
+          <Text style={styles.mobileTitle}>タイトルの名付け親は誰だ？</Text>
+          <Text style={styles.mobileSubtitle}>命名系クイズゲーム</Text>
+
+          <View style={styles.mobileStickyRow}>
+            {SAMPLE_TITLES.slice(0, 2).map((t, i) => (
+              <StickyNote key={i} color={['mustard', 'rose'][i]} style={styles.mobileStickyNote}>
+                {t}
+              </StickyNote>
+            ))}
+          </View>
+        </View>
+
+        {formPanel}
+
+        <StationeryButton
+          variant="ghost"
+          onPress={() => setShowSettings(!showSettings)}
+          accessibilityLabel="サーバー設定"
+          style={styles.settingsToggle}
+          textStyle={styles.settingsToggleText}
+        >
+          {showSettings ? '▲ サーバー設定を閉じる' : '⚙ サーバー設定'}
+        </StationeryButton>
+
+        {showSettings && <SettingsCard serverUrl={serverUrl} setServerUrl={setServerUrl} />}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
+function SettingsCard({ serverUrl, setServerUrl }) {
+  return (
+    <PaperPanel style={styles.settingsCard}>
+      <Text style={styles.fieldLabel}>サーバーURL</Text>
+      <TextInput
+        style={styles.input}
+        value={serverUrl}
+        onChangeText={setServerUrl}
+        placeholder={DEFAULT_SERVER_URL}
+        placeholderTextColor={colors.muted}
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel="サーバーURL入力欄"
+      />
+      <Text style={styles.settingsNote}>
+        スマートフォン実機でテストする場合はPCのローカルIPに変更してください。{'\n'}
+        例: http://192.168.1.10:3000{'\n'}
+        （PCで ipconfig → IPv4アドレス を確認）
+      </Text>
+      <StationeryButton
+        variant="ghost"
+        onPress={() => setServerUrl(DEFAULT_SERVER_URL)}
+        accessibilityLabel="デフォルトURLに戻す"
+        textStyle={styles.resetBtnText}
+      >
+        デフォルトに戻す
+      </StationeryButton>
+    </PaperPanel>
+  );
+}
+
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F7F7F7' },
-  container: { flexGrow: 1, justifyContent: 'center', padding: 24 },
-  hero: { alignItems: 'center', marginBottom: 32 },
-  title: { fontSize: 36, fontWeight: '800', color: '#1A1A1A', letterSpacing: -1 },
-  subtitle: { fontSize: 14, color: '#999', marginTop: 4 },
-  card: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+  root: { flex: 1, backgroundColor: colors.canvas },
+  mobileContainer: { flexGrow: 1, justifyContent: 'center', gap: 16 },
+  mobileHero: { alignItems: 'center', marginBottom: 8 },
+  logoStampRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 8 },
+  logoStamp: { opacity: 0.7 },
+  mobileTitle: {
+    fontFamily: fontFamilies.serif,
+    fontSize: 26,
+    fontWeight: '700',
+    color: colors.ink,
+    textAlign: 'center',
+    lineHeight: 38,
   },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: '#999', marginBottom: 6, marginTop: 4 },
+  mobileSubtitle: { fontSize: 13, color: colors.muted, marginTop: 4, textAlign: 'center' },
+  mobileStickyRow: { flexDirection: 'row', gap: 8, marginTop: 16, flexWrap: 'wrap', justifyContent: 'center' },
+  mobileStickyNote: { maxWidth: 160 },
+  formPanel: {},
+  formHeading: { fontSize: 16, fontWeight: '700', color: colors.navy, marginBottom: 16 },
+  fieldLabel: { fontSize: 11, fontWeight: '600', color: colors.muted, marginBottom: 6, letterSpacing: 0.5 },
   input: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
+    backgroundColor: colors.canvas,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: 14,
     fontSize: 16,
-    color: '#1A1A1A',
-    marginBottom: 16,
+    color: colors.ink,
+    marginBottom: 14,
   },
   codeInput: { letterSpacing: 4, fontWeight: '700', fontSize: 20, textAlign: 'center' },
-  btnPrimary: {
-    backgroundColor: '#FF3B5C',
-    borderRadius: 12,
-    padding: 16,
+  loadingBox: { alignItems: 'center', marginTop: 16, marginBottom: 8 },
+  loadingMsg: { fontSize: 12, color: colors.muted, marginTop: 8 },
+  btnMain: { marginBottom: 8 },
+  btnSub: { marginBottom: 4 },
+  rulesBtn: { marginTop: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 },
+  rulesBtnText: { color: colors.navy, fontSize: 13 },
+  settingsToggle: { alignSelf: 'center', marginTop: 8 },
+  settingsToggleText: { fontSize: 12, color: colors.muted },
+  settingsCard: { marginTop: 8 },
+  settingsNote: { fontSize: 11, color: colors.muted, lineHeight: 18, marginBottom: 12 },
+  resetBtnText: { color: colors.muted, fontSize: 13 },
+
+  // PC
+  pcRoot: {
+    flex: 1,
+    backgroundColor: colors.canvas,
     alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 10,
+    justifyContent: 'center',
   },
-  btnPrimaryText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  btnSecondary: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
-    padding: 16,
+  pcInner: {
+    flex: 1,
+    width: '100%',
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 48,
+    paddingVertical: 32,
+    gap: 48,
   },
-  btnSecondaryText: { color: '#1A1A1A', fontSize: 16, fontWeight: '600' },
-  btnGhost: { padding: 14, alignItems: 'center' },
-  btnGhostText: { color: '#999', fontSize: 15 },
-  rulesBtn: { alignItems: 'center', paddingVertical: 12 },
-  rulesBtnText: { fontSize: 14, color: '#FF3B5C', fontWeight: '600' },
-  settingsToggle: { alignItems: 'center', paddingVertical: 16 },
-  settingsToggleText: { fontSize: 13, color: '#BBB' },
-  settingsCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#EBEBEB',
+  pcHero: { flex: 1, paddingRight: 16 },
+  logoArea: { marginBottom: 32 },
+  pcTitle: {
+    fontFamily: fontFamilies.serif,
+    fontSize: 36,
+    fontWeight: '700',
+    color: colors.ink,
+    lineHeight: 50,
+    marginBottom: 8,
   },
-  settingsNote: { fontSize: 11, color: '#BBB', lineHeight: 18, marginBottom: 12 },
-  btnReset: { alignItems: 'center', padding: 8 },
-  btnResetText: { fontSize: 13, color: '#C0C0C0' },
-  loadingMsg: { fontSize: 12, color: '#999', marginTop: 8 },
+  pcSubtitle: { fontSize: 14, color: colors.muted },
+  stickyArea: { gap: 12, marginBottom: 32, maxWidth: 360 },
+  stickyNote: {},
+  decorRow: { flexDirection: 'row', gap: 16, alignItems: 'center', marginBottom: 24 },
+  decorItem: {},
+  pcDescription: {
+    fontSize: 14,
+    color: colors.muted,
+    lineHeight: 24,
+  },
+  pcFormArea: { width: 380 },
 });

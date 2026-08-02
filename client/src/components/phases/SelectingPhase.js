@@ -4,7 +4,8 @@ import {
   StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform,
   ActivityIndicator,
 } from 'react-native';
-import RoundHeader from '../RoundHeader';
+import { colors, radii } from '../../theme';
+import { PaperPanel, StationeryButton, RoundHeader } from '../ui';
 import { getCurrentUrl } from '../../hooks/useSocket';
 
 export default function SelectingPhase({
@@ -99,56 +100,59 @@ export default function SelectingPhase({
   const canAdvance = allDeclared && !hasKnown;
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <RoundHeader currentRound={currentRound} totalRounds={totalRounds} questioner={questioner} phase="作品を選択中" />
 
         {isQuestioner ? (
           !submitted ? (
-            <View style={styles.card}>
+            <PaperPanel variant="elevated">
               <Text style={styles.cardTitle}>あらすじを入力</Text>
-              <Text style={styles.cardNote}>実在するマイナーな作品のあらすじを入力してください。本物タイトルは他のプレイヤーには見えません。</Text>
-
-              {/* Wikipedia 自動取得ボタン */}
-              <TouchableOpacity
-                style={[styles.btnWiki, fetching && styles.btnDisabled]}
+              <Text style={styles.cardNote}>
+                実在するマイナーな作品のあらすじを入力してください。本物タイトルは他のプレイヤーには見えません。
+              </Text>
+              <StationeryButton
+                variant="secondary"
                 onPress={handleAutoFetch}
-                disabled={fetching}
+                loading={fetching}
+                accessibilityLabel="Wikipediaからランダム取得"
+                style={styles.wikiBtn}
               >
-                {fetching ? (
-                  <ActivityIndicator color="#FFF" size="small" />
-                ) : (
-                  <Text style={styles.btnWikiText}>Wikipediaからランダム取得</Text>
-                )}
-              </TouchableOpacity>
-              {(synopsisText || realTitle) && (
+                Wikipediaからランダム取得
+              </StationeryButton>
+              {(synopsisText || realTitle) ? (
                 <Text style={styles.wikiNote}>取得後に自由に編集できます</Text>
-              )}
-
+              ) : null}
               <Text style={styles.fieldLabel}>あらすじ</Text>
               <TextInput
                 style={[styles.input, styles.textarea]}
                 placeholder="ここにあらすじを入力..."
-                placeholderTextColor="#C0C0C0"
+                placeholderTextColor={colors.muted}
                 value={synopsisText}
                 onChangeText={setSynopsisText}
                 multiline
                 numberOfLines={5}
+                accessibilityLabel="あらすじ入力欄"
               />
               <Text style={styles.fieldLabel}>本物のタイトル（非公開）</Text>
               <TextInput
                 style={styles.input}
                 placeholder="本物のタイトル"
-                placeholderTextColor="#C0C0C0"
+                placeholderTextColor={colors.muted}
                 value={realTitle}
                 onChangeText={setRealTitle}
+                accessibilityLabel="本物タイトル入力欄"
               />
-              <TouchableOpacity style={styles.btnPrimary} onPress={handleSubmitSynopsis}>
-                <Text style={styles.btnPrimaryText}>あらすじを提示する</Text>
-              </TouchableOpacity>
-            </View>
+              <StationeryButton
+                variant="primary"
+                onPress={handleSubmitSynopsis}
+                accessibilityLabel="あらすじを提示する"
+              >
+                あらすじを提示する
+              </StationeryButton>
+            </PaperPanel>
           ) : (
-            <View style={styles.card}>
+            <PaperPanel variant="elevated">
               <Text style={styles.cardTitle}>あらすじを提示しました</Text>
               <View style={styles.synopsisBox}>
                 <Text style={styles.synopsisText}>{synopsisText}</Text>
@@ -167,31 +171,46 @@ export default function SelectingPhase({
                 <Text style={styles.cardNote}>全員の回答を待っています...</Text>
               )}
               {canAdvance && (
-                <Text style={styles.allOkNote}>全員が「知らない」と回答しました</Text>
+                <View style={styles.allOkBox}>
+                  <Text style={styles.allOkNote}>全員が「知らない」と回答しました</Text>
+                </View>
               )}
 
-              <TouchableOpacity style={styles.btnSecondary} onPress={handleReselect}>
-                <Text style={styles.btnSecondaryText}>作品を選び直す</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.btnPrimary, { marginTop: 8 }, !canAdvance && styles.btnDisabled]}
-                onPress={handleStartSubmitting}
-                disabled={!canAdvance}
-              >
-                <Text style={styles.btnPrimaryText}>偽タイトル提出フェーズへ →</Text>
-              </TouchableOpacity>
-            </View>
+              <View style={styles.btnStack}>
+                <StationeryButton
+                  variant="secondary"
+                  onPress={handleReselect}
+                  accessibilityLabel="作品を選び直す"
+                >
+                  作品を選び直す
+                </StationeryButton>
+                <StationeryButton
+                  variant="primary"
+                  onPress={handleStartSubmitting}
+                  disabled={!canAdvance}
+                  accessibilityLabel="タイトル案提出フェーズへ進む"
+                  style={styles.mt8}
+                >
+                  タイトル案提出フェーズへ →
+                </StationeryButton>
+              </View>
+            </PaperPanel>
           )
         ) : (
-          <View style={styles.card}>
+          <PaperPanel>
             {!synopsis ? (
               <>
-                <Text style={styles.cardTitle}>{questioner.nickname} が作品を選んでいます</Text>
+                <Text style={styles.cardTitle}>{questioner?.nickname} が作品を選んでいます</Text>
                 <Text style={styles.waitingText}>しばらくお待ちください...</Text>
                 {isHost && (
-                  <TouchableOpacity style={[styles.btnSecondary, { marginTop: 20 }]} onPress={handleSkipRound}>
-                    <Text style={styles.btnSecondaryText}>このラウンドをスキップ（ホスト）</Text>
-                  </TouchableOpacity>
+                  <StationeryButton
+                    variant="secondary"
+                    onPress={handleSkipRound}
+                    accessibilityLabel="このラウンドをスキップ"
+                    style={styles.mt20}
+                  >
+                    このラウンドをスキップ（ホスト）
+                  </StationeryButton>
                 )}
               </>
             ) : (
@@ -200,15 +219,24 @@ export default function SelectingPhase({
                 <View style={styles.synopsisBox}>
                   <Text style={styles.synopsisText}>{synopsis}</Text>
                 </View>
-
                 {declared === null ? (
                   <View style={styles.declareRow}>
-                    <TouchableOpacity style={styles.btnKnown} onPress={handleDeclareKnown}>
-                      <Text style={styles.btnPrimaryText}>知ってる！</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.btnUnknown} onPress={handleDeclareUnknown}>
-                      <Text style={styles.btnUnknownText}>知らない</Text>
-                    </TouchableOpacity>
+                    <StationeryButton
+                      variant="secondary"
+                      onPress={handleDeclareKnown}
+                      accessibilityLabel="知ってると宣言"
+                      style={styles.flex1}
+                    >
+                      知ってる！
+                    </StationeryButton>
+                    <StationeryButton
+                      variant="primary"
+                      onPress={handleDeclareUnknown}
+                      accessibilityLabel="知らないと回答"
+                      style={styles.flex1}
+                    >
+                      知らない
+                    </StationeryButton>
                   </View>
                 ) : declared === 'known' ? (
                   <View style={styles.declaredBox}>
@@ -217,13 +245,13 @@ export default function SelectingPhase({
                   </View>
                 ) : (
                   <View style={styles.declaredBox}>
-                    <Text style={styles.declaredUnknownText}>「知らない」と回答しました</Text>
+                    <Text style={styles.declaredText}>「知らない」と回答しました</Text>
                     <Text style={styles.declaredNote}>全員の回答が揃うのを待っています...</Text>
                   </View>
                 )}
               </>
             )}
-          </View>
+          </PaperPanel>
         )}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -231,71 +259,68 @@ export default function SelectingPhase({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F7F7' },
+  flex: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.canvas },
   content: { padding: 16, paddingBottom: 40 },
-  card: {
-    backgroundColor: '#FFF', borderRadius: 16, padding: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
-  },
-  cardTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
-  cardNote: { fontSize: 12, color: '#999', lineHeight: 18, marginBottom: 16 },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: '#999', marginBottom: 6 },
+  cardTitle: { fontSize: 17, fontWeight: '700', color: colors.ink, marginBottom: 8 },
+  cardNote: { fontSize: 12, color: colors.muted, lineHeight: 18, marginBottom: 16 },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: colors.muted, marginBottom: 6 },
   input: {
-    backgroundColor: '#F5F5F5', borderRadius: 10, padding: 12,
-    fontSize: 15, color: '#1A1A1A', marginBottom: 16,
+    backgroundColor: colors.canvas,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    fontSize: 15,
+    color: colors.ink,
+    marginBottom: 16,
   },
   textarea: { minHeight: 110, textAlignVertical: 'top' },
   synopsisBox: {
-    backgroundColor: '#F5F5F5', borderRadius: 12, padding: 16, marginBottom: 16,
+    backgroundColor: colors.canvas,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 16,
+    marginBottom: 16,
   },
-  synopsisText: { fontSize: 15, color: '#1A1A1A', lineHeight: 24 },
-  // Wikipedia 取得ボタン
-  btnWiki: {
-    backgroundColor: '#3D7EAA', borderRadius: 10, padding: 12,
-    alignItems: 'center', marginBottom: 8,
-  },
-  btnWikiText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
-  wikiNote: { fontSize: 11, color: '#999', textAlign: 'center', marginBottom: 12 },
-  btnPrimary: {
-    backgroundColor: '#FF3B5C', borderRadius: 12, padding: 15, alignItems: 'center',
-  },
-  btnDisabled: { backgroundColor: '#E0E0E0' },
-  btnPrimaryText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
-  btnSecondary: {
-    backgroundColor: '#F5F5F5', borderRadius: 12, padding: 15, alignItems: 'center',
-  },
-  btnSecondaryText: { color: '#1A1A1A', fontSize: 15, fontWeight: '600' },
-  declareRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
-  btnKnown: {
-    flex: 1, backgroundColor: '#FF3B5C', borderRadius: 12,
-    padding: 15, alignItems: 'center',
-  },
-  btnUnknown: {
-    flex: 1, backgroundColor: '#F5F5F5', borderRadius: 12,
-    padding: 15, alignItems: 'center',
-    borderWidth: 1.5, borderColor: '#E0E0E0',
-  },
-  btnUnknownText: { color: '#555', fontSize: 15, fontWeight: '700' },
-  declaredBox: {
-    borderRadius: 12, padding: 14, alignItems: 'center', marginBottom: 12,
-    backgroundColor: '#F5F5F5',
-  },
-  declaredKnownText: { color: '#FF3B5C', fontWeight: '700', fontSize: 14, marginBottom: 4 },
-  declaredUnknownText: { color: '#555', fontWeight: '700', fontSize: 14, marginBottom: 4 },
-  declaredNote: { fontSize: 12, color: '#999' },
+  synopsisText: { fontSize: 15, color: colors.ink, lineHeight: 24 },
+  wikiBtn: { marginBottom: 8 },
+  wikiNote: { fontSize: 11, color: colors.muted, textAlign: 'center', marginBottom: 12 },
   knownBox: {
-    backgroundColor: '#FFF8E8', borderRadius: 12,
-    padding: 14, marginBottom: 14,
-    borderWidth: 1, borderColor: '#FFD966',
+    backgroundColor: '#FBF5E6',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.mustard,
+    padding: 14,
+    marginBottom: 14,
   },
-  knownTitle: { fontSize: 13, fontWeight: '700', color: '#B8860B', marginBottom: 6 },
-  knownName: { fontSize: 14, color: '#8B6914', marginBottom: 2 },
-  knownNote: { fontSize: 12, color: '#B8860B', marginTop: 6 },
-  allOkNote: {
-    fontSize: 13, color: '#2E7D32', fontWeight: '600',
-    textAlign: 'center', marginBottom: 12,
-    backgroundColor: '#F1F8E9', borderRadius: 10, padding: 10,
+  knownTitle: { fontSize: 13, fontWeight: '700', color: colors.mustard, marginBottom: 6 },
+  knownName: { fontSize: 14, color: colors.ink, marginBottom: 2 },
+  knownNote: { fontSize: 12, color: colors.mustard, marginTop: 6 },
+  allOkBox: {
+    backgroundColor: '#EFF6F2',
+    borderRadius: radii.md,
+    padding: 10,
+    marginBottom: 12,
   },
-  waitingText: { color: '#BBB', textAlign: 'center', fontSize: 14, marginTop: 8 },
+  allOkNote: { fontSize: 13, color: colors.green, fontWeight: '600', textAlign: 'center' },
+  btnStack: { gap: 8 },
+  mt8: { marginTop: 0 },
+  mt20: { marginTop: 20 },
+  declareRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  flex1: { flex: 1 },
+  declaredBox: {
+    borderRadius: radii.md,
+    padding: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+    backgroundColor: colors.canvas,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  declaredKnownText: { color: colors.vermilion, fontWeight: '700', fontSize: 14, marginBottom: 4 },
+  declaredText: { color: colors.navy, fontWeight: '700', fontSize: 14, marginBottom: 4 },
+  declaredNote: { fontSize: 12, color: colors.muted },
+  waitingText: { color: colors.muted, textAlign: 'center', fontSize: 14, marginTop: 8 },
 });
