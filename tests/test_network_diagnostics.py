@@ -38,12 +38,14 @@ class TestSafeNetworkDiagnostics(unittest.TestCase):
         self.assertIn("clearTimeout(timeout)", self.source)
 
     def test_failure_response_is_sanitized(self):
-        self.assertIn("errorName", self.source)
-        self.assertIn("errorCode", self.source)
-        self.assertIn("error?.cause?.code", self.source)
-        self.assertNotIn("stack:", self.source)
-        self.assertNotIn("message: error", self.source)
-        self.assertNotIn("headers:", self._network_route_block())
+        route = self._network_route_block()
+        self.assertIn("errorName", route)
+        self.assertIn("errorCode", route)
+        self.assertIn("error?.cause?.code", route)
+        self.assertNotIn("stack:", route)
+        self.assertNotIn("message: error", route)
+        self.assertNotIn("error.message", route)
+        self.assertNotIn("error.stack", route)
 
     def test_diagnostics_do_not_return_sensitive_environment_values(self):
         route = self._network_route_block()
