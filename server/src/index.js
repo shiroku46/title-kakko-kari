@@ -172,6 +172,7 @@ app.get('/health/supabase', async (req, res) => {
     const endpoint = new URL('/rest/v1/rooms?select=id&limit=1', parsedUrl);
     const response = await fetch(endpoint, {
       method: 'GET',
+      redirect: 'manual',
       signal: controller.signal,
       headers: {
         apikey: serviceKey,
