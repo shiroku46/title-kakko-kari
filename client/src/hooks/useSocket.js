@@ -8,7 +8,7 @@ let currentUrl = DEFAULT_SERVER_URL;
 export function getSocket() {
   if (!sharedSocket) {
     sharedSocket = io(currentUrl, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       autoConnect: false,
     });
   }
