@@ -1,14 +1,14 @@
 import React from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { disconnectSocket } from '../hooks/useSocket';
-import { colors, radii, spacing } from '../theme';
+import { colors } from '../theme';
 import { fontFamilies } from '../theme/typography';
 import { PaperPanel, StationeryButton, ScoreRow, Stamp } from '../components/ui';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../hooks/useResponsiveLayout';
 
 export default function ResultScreen({ navigation, route }) {
   const { finalScores, winner } = route.params;
-  const { isPC, contentPadding } = useResponsiveLayout();
+  const { isPC } = useResponsiveLayout();
 
   return (
     <View style={styles.root}>
@@ -25,15 +25,21 @@ export default function ResultScreen({ navigation, route }) {
         {/* スコア一覧 */}
         <PaperPanel style={styles.scoreListCard}>
           <Text style={styles.sectionTitle}>最終スコア</Text>
-          {finalScores.map((item, index) => (
-            <ScoreRow
-              key={item.id}
-              rank={index + 1}
-              nickname={item.nickname}
-              score={item.score}
-              isWinner={index === 0}
-            />
-          ))}
+          <FlatList
+            data={finalScores}
+            keyExtractor={(item) => String(item.id)}
+            renderItem={({ item, index }) => (
+              <ScoreRow
+                rank={index + 1}
+                nickname={item.nickname}
+                score={item.score}
+                isWinner={index === 0}
+              />
+            )}
+            style={styles.scoreList}
+            contentContainerStyle={styles.scoreListContent}
+            showsVerticalScrollIndicator
+          />
         </PaperPanel>
 
         {/* アクション */}
@@ -84,7 +90,9 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   winnerScore: { fontSize: 20, color: colors.vermilion, fontWeight: '700', marginTop: 6 },
-  scoreListCard: { flex: 1 },
+  scoreListCard: { flex: 1, minHeight: 0 },
+  scoreList: { flex: 1 },
+  scoreListContent: { paddingBottom: 4 },
   sectionTitle: {
     fontSize: 12,
     fontWeight: '600',
