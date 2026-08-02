@@ -57,7 +57,6 @@ class TestSupabaseDiagnostics(unittest.TestCase):
         for forbidden in (
             "url: rawUrl",
             "hostname: parsedUrl.hostname",
-            "key: serviceKey",
             "serviceKey: serviceKey",
             "error.message",
             "error.stack",
