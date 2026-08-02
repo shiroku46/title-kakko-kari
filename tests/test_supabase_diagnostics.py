@@ -47,6 +47,7 @@ class TestSupabaseDiagnostics(unittest.TestCase):
     def test_authenticated_read_only_request(self):
         self.assertIn("/rest/v1/rooms?select=id&limit=1", self.route)
         self.assertIn("method: 'GET'", self.route)
+        self.assertIn("redirect: 'manual'", self.route)
         self.assertIn("apikey: serviceKey", self.route)
         self.assertIn("Authorization: `Bearer ${serviceKey}`", self.route)
 
