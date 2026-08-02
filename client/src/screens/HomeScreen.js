@@ -68,6 +68,7 @@ export default function HomeScreen({ navigation }) {
 
     const socketTimer = setTimeout(() => {
       socket.off('connect', onConnect);
+      socket.off('connect_error', onConnectError);
       setLoading(false);
       setLoadingMsg('');
       Alert.alert('接続エラー', 'ソケット接続に失敗しました。再試行してください。');
@@ -76,9 +77,21 @@ export default function HomeScreen({ navigation }) {
 
     function onConnect() {
       clearTimeout(socketTimer);
+      socket.off('connect_error', onConnectError);
       proceed();
     }
+
+    function onConnectError(err) {
+      clearTimeout(socketTimer);
+      socket.off('connect', onConnect);
+      setLoading(false);
+      setLoadingMsg('');
+      Alert.alert('接続エラー', `ソケット接続に失敗しました。\n再試行してください。`);
+      disconnectSocket();
+    }
+
     socket.once('connect', onConnect);
+    socket.once('connect_error', onConnectError);
   }
 
   function handleCreate() {
