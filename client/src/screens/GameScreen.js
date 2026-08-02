@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
 import { useSocketListeners, getSocket } from '../hooks/useSocket';
+import { colors } from '../theme';
 
 import ConfirmingPhase from '../components/phases/ConfirmingPhase';
 import SelectingPhase from '../components/phases/SelectingPhase';
@@ -19,9 +20,8 @@ export default function GameScreen({ navigation, route }) {
   const [totalRounds, setTotalRounds] = useState(gameData.totalRounds);
   const [questioner, setQuestioner] = useState(gameData.questioner);
 
-  // 各フェーズのデータ
   const [synopsis, setSynopsis] = useState(null);
-  const [fetchedSynopsis, setFetchedSynopsis] = useState(null); // CPU モード: ホストのみ
+  const [fetchedSynopsis, setFetchedSynopsis] = useState(null);
   const [choices, setChoices] = useState([]);
   const [revealData, setRevealData] = useState(null);
   const [fakeSubmittedCount, setFakeSubmittedCount] = useState(0);
@@ -61,7 +61,6 @@ export default function GameScreen({ navigation, route }) {
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
     },
-    // CPU モード: ホストのみ受信するあらすじプレビュー
     'round:synopsis_fetched': (data) => {
       setFetchedSynopsis(data.synopsis);
     },
@@ -85,7 +84,6 @@ export default function GameScreen({ navigation, route }) {
       setSelectingKey((k) => k + 1);
     },
     'round:submitting_started': () => {
-      // CPU モード確定時は fetchedSynopsis をあらすじとして使う
       if (mode === 'cpu' && fetchedSynopsis) setSynopsis(fetchedSynopsis);
       setPhase('submitting');
     },
@@ -123,8 +121,6 @@ export default function GameScreen({ navigation, route }) {
     },
   });
 
-  // round:submitting_started イベント時に fetchedSynopsis が state に反映される前に
-  // 参照できるよう、mode と fetchedSynopsis を useEffect で監視して synopsis をセット
   useEffect(() => {
     if (phase === 'submitting' && mode === 'cpu' && fetchedSynopsis && !synopsis) {
       setSynopsis(fetchedSynopsis);
@@ -214,5 +210,5 @@ export default function GameScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e' },
+  container: { flex: 1, backgroundColor: colors.canvas },
 });

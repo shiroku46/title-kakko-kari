@@ -1,80 +1,104 @@
 import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { disconnectSocket } from '../hooks/useSocket';
-
-const MEDALS = ['🥇', '🥈', '🥉'];
+import { colors } from '../theme';
+import { fontFamilies } from '../theme/typography';
+import { PaperPanel, StationeryButton, ScoreRow, Stamp } from '../components/ui';
+import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../hooks/useResponsiveLayout';
 
 export default function ResultScreen({ navigation, route }) {
   const { finalScores, winner } = route.params;
+  const { isPC } = useResponsiveLayout();
 
   return (
-    <View style={styles.container}>
-      <View style={styles.winnerCard}>
-        <Text style={styles.winnerEmoji}>🏆</Text>
-        <Text style={styles.winnerLabel}>優勝</Text>
-        <Text style={styles.winnerName}>{winner?.nickname}</Text>
-        <Text style={styles.winnerScore}>{winner?.score} pt</Text>
+    <View style={styles.root}>
+      <View style={[styles.content, isPC && styles.contentPC, { maxWidth: isPC ? CONTENT_MAX_WIDTH : undefined }]}>
+
+        {/* 優勝 */}
+        <PaperPanel variant="elevated" style={styles.winnerCard}>
+          <Stamp type="得" size="lg" style={styles.winnerStamp} />
+          <Text style={styles.winnerLabel}>優勝</Text>
+          <Text style={styles.winnerName}>{winner?.nickname}</Text>
+          <Text style={styles.winnerScore}>{winner?.score} pt</Text>
+        </PaperPanel>
+
+        {/* スコア一覧 */}
+        <PaperPanel style={styles.scoreListCard}>
+          <Text style={styles.sectionTitle}>最終スコア</Text>
+          <FlatList
+            data={finalScores}
+            keyExtractor={(item) => String(item.id)}
+            renderItem={({ item, index }) => (
+              <ScoreRow
+                rank={index + 1}
+                nickname={item.nickname}
+                score={item.score}
+                isWinner={index === 0}
+              />
+            )}
+            style={styles.scoreList}
+            contentContainerStyle={styles.scoreListContent}
+            showsVerticalScrollIndicator
+          />
+        </PaperPanel>
+
+        {/* アクション */}
+        <View style={styles.actions}>
+          <StationeryButton
+            variant="primary"
+            onPress={() => { disconnectSocket(); navigation.replace('Home'); }}
+            accessibilityLabel="タイトル画面へ戻る"
+          >
+            タイトルへ戻る
+          </StationeryButton>
+        </View>
       </View>
-
-      <Text style={styles.sectionTitle}>最終スコア</Text>
-      <FlatList
-        data={finalScores}
-        keyExtractor={(p) => p.id}
-        style={styles.list}
-        contentContainerStyle={{ gap: 8 }}
-        renderItem={({ item, index }) => (
-          <View style={[styles.scoreRow, index === 0 && styles.topRow]}>
-            <Text style={styles.medal}>{MEDALS[index] ?? `${index + 1}`}</Text>
-            <Text style={[styles.name, index === 0 && styles.nameTop]}>{item.nickname}</Text>
-            <Text style={[styles.score, index === 0 && styles.scoreTop]}>{item.score} pt</Text>
-          </View>
-        )}
-      />
-
-      <TouchableOpacity
-        style={styles.btnHome}
-        onPress={() => { disconnectSocket(); navigation.replace('Home'); }}
-      >
-        <Text style={styles.btnHomeText}>タイトルへ戻る</Text>
-      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F7F7', paddingTop: 60, paddingHorizontal: 16 },
-  winnerCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 20,
-    padding: 32,
+  root: {
+    flex: 1,
+    backgroundColor: colors.canvas,
     alignItems: 'center',
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
   },
-  winnerEmoji: { fontSize: 48, marginBottom: 8 },
-  winnerLabel: { fontSize: 13, color: '#999', fontWeight: '600' },
-  winnerName: { fontSize: 30, fontWeight: '800', color: '#1A1A1A', marginTop: 4 },
-  winnerScore: { fontSize: 18, color: '#FF3B5C', fontWeight: '700', marginTop: 4 },
-  sectionTitle: { fontSize: 13, fontWeight: '600', color: '#999', marginBottom: 10 },
-  list: { flex: 1 },
-  scoreRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#FFF', borderRadius: 12, padding: 16,
+  content: {
+    flex: 1,
+    width: '100%',
+    paddingHorizontal: 16,
+    paddingTop: 60,
+    paddingBottom: 32,
+    gap: 16,
   },
-  topRow: { borderWidth: 1.5, borderColor: '#FF3B5C' },
-  medal: { fontSize: 20, width: 36 },
-  name: { flex: 1, fontSize: 16, color: '#1A1A1A', fontWeight: '500' },
-  nameTop: { fontWeight: '700' },
-  score: { fontSize: 16, color: '#999', fontWeight: '600' },
-  scoreTop: { color: '#FF3B5C', fontSize: 18, fontWeight: '800' },
-  btnHome: {
-    backgroundColor: '#1A1A1A', borderRadius: 12,
-    padding: 16, alignItems: 'center',
-    marginVertical: 20,
+  contentPC: {
+    paddingHorizontal: 32,
+    maxWidth: 600,
+    alignSelf: 'center',
   },
-  btnHomeText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  winnerCard: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  winnerStamp: { marginBottom: 12 },
+  winnerLabel: { fontSize: 12, color: colors.muted, fontWeight: '600', letterSpacing: 0.5 },
+  winnerName: {
+    fontFamily: fontFamilies.serif,
+    fontSize: 32,
+    fontWeight: '800',
+    color: colors.ink,
+    marginTop: 6,
+  },
+  winnerScore: { fontSize: 20, color: colors.vermilion, fontWeight: '700', marginTop: 6 },
+  scoreListCard: { flex: 1, minHeight: 0 },
+  scoreList: { flex: 1 },
+  scoreListContent: { paddingBottom: 4 },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    marginBottom: 12,
+    letterSpacing: 0.5,
+  },
+  actions: { gap: 8 },
 });
