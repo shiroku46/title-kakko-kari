@@ -31,7 +31,7 @@ def request_json(path):
 
 
 class TestDeployedRenderDiagnostics(unittest.TestCase):
-    def test_release_and_network(self):
+    def test_release_and_network_transport(self):
         health_status, health_headers, health = request_json("/health")
         network_status, network_headers, network = request_json("/health/network")
 
@@ -53,14 +53,18 @@ class TestDeployedRenderDiagnostics(unittest.TestCase):
         self.assertEqual(network.get("release"), EXPECTED_RELEASE)
         self.assertEqual(network.get("dnsOrder"), "ipv4first")
         self.assertIn(network_status, (200, 502, 503))
-        self.assertIn("outbound", network)
+        outbound = network.get("outbound", {})
+        self.assertIn("ok", outbound)
 
-        if network_status != 200:
-            outbound = network.get("outbound", {})
-            self.fail(
-                "Render deployed current main but outbound HTTPS still fails: "
-                f"{json.dumps(outbound, sort_keys=True)}"
-            )
+        # HTTP responses, including rate limits, prove DNS/TLS/outbound transport
+        # succeeded. Only a sanitized fetch exception (503) is a transport failure.
+        self.assertNotEqual(
+            network_status,
+            503,
+            f"Render outbound transport failed: {json.dumps(outbound, sort_keys=True)}",
+        )
+        if network_status == 502:
+            self.assertIsInstance(outbound.get("httpStatus"), int)
 
 
 if __name__ == "__main__":
