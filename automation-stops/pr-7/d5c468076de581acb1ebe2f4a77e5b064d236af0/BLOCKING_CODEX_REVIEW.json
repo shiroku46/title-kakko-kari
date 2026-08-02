@@ -1,0 +1,28 @@
+{
+  "audit": {
+    "alternative_connected_paths": "trusted-checks.yml:active:325255603;ci-reconcile.yml:active:325255601;supervisor.yml:active:325255602;claude-queue.yml:active:325236843",
+    "changed_and_renamed_paths": "[\"client/App.js\",\"client/src/components/decor/StationeryDecor.js\",\"client/src/components/phases/ConfirmingPhase.js\",\"client/src/components/phases/RevealedPhase.js\",\"client/src/components/phases/SelectingPhase.js\",\"client/src/components/phases/SubmittingPhase.js\",\"client/src/components/phases/VotingPhase.js\",\"client/src/components/ui/PaperPanel.js\",\"client/src/components/ui/PlayerCard.js\",\"client/src/components/ui/RoundHeader.js\",\"client/src/components/ui/ScoreRow.js\",\"client/src/components/ui/Stamp.js\",\"client/src/components/ui/StationeryButton.js\",\"client/src/components/ui/StickyNote.js\",\"client/src/components/ui/TitleCard.js\",\"client/src/components/ui/TitleInputSheet.js\",\"client/src/components/ui/VoteOption.js\",\"client/src/components/ui/index.js\",\"client/src/hooks/useResponsiveLayout.js\",\"client/src/screens/GameScreen.js\",\"client/src/screens/HomeScreen.js\",\"client/src/screens/LobbyScreen.js\",\"client/src/screens/ResultScreen.js\",\"client/src/screens/RulesScreen.js\",\"client/src/theme/index.js\",\"client/src/theme/tokens.js\",\"client/src/theme/typography.js\",\"docs/UI_DESIGN_SPEC.md\"]",
+    "check_evidence": "[{\"app\":\"github-actions\",\"conclusion\":\"success\",\"name\":\"test\",\"status\":\"completed\"},{\"app\":\"github-actions\",\"conclusion\":\"success\",\"name\":\"validate\",\"status\":\"completed\"}]",
+    "exact_head_sha": "d5c468076de581acb1ebe2f4a77e5b064d236af0",
+    "human_only_connected_evidence": "not-applicable",
+    "idempotency": "automation-stops/pr-7/d5c468076de581acb1ebe2f4a77e5b064d236af0/BLOCKING_CODEX_REVIEW.json",
+    "issue": "#3",
+    "mergeability": "mergeable=True,mergeable_state=clean",
+    "native_pull_request_workflow_evidence": "{\"clean\":true,\"runs\":[{\"conclusion\":\"success\",\"display_name\":\"CI\",\"run_id\":30744623399,\"status\":\"completed\",\"updated_at\":\"2026-08-02T10:53:17Z\",\"workflow\":\"ci.yml\",\"workflow_id\":325209425},{\"conclusion\":\"success\",\"display_name\":\"Unit Tests\",\"run_id\":30744623374,\"status\":\"completed\",\"updated_at\":\"2026-08-02T10:53:18Z\",\"workflow\":\"unit-tests.yml\",\"workflow_id\":325209424}]}",
+    "permissions_and_credentials": "automation_owner_permission=admin,secret_values_not_requested=true",
+    "pull_request": "#7",
+    "reason_code": "BLOCKING_CODEX_REVIEW",
+    "repository_metadata": "visibility=public,default_branch=main,initial_and_final_head_confirmed=true",
+    "review_and_provenance": "codex=blocking,codex_timestamp=2026-08-02T10:59:18Z,trusted_request_timestamp=None,unresolved_threads=True",
+    "scope_and_authorization": "issue=state=open,trusted_author=True,authorization=all_paths=True,protected_paths=True",
+    "workflow_run_and_job_evidence": "[{\"active\":false,\"complete\":true,\"run_id\":30742525305,\"success\":true,\"updated_at\":\"2026-08-02T09:49:53Z\"}]"
+  },
+  "detail": "Exact-head Codex evidence contains a blocking finding or unresolved review thread.",
+  "exact_head_sha": "d5c468076de581acb1ebe2f4a77e5b064d236af0",
+  "issue_number": 3,
+  "notification": false,
+  "pull_request_number": 7,
+  "reason_code": "BLOCKING_CODEX_REVIEW",
+  "required_human_action": null,
+  "schema_version": 1
+}
