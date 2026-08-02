@@ -57,7 +57,6 @@ class TestServerPlayerCount(unittest.TestCase):
         self.assertLess(2, _server_min_players("production", "false"))
 
     def test_two_players_always_denied_dev(self):
-        # Even with opt-in, min is 3 not 2
         self.assertLess(2, _server_min_players("development", "true"))
 
 
@@ -79,19 +78,22 @@ class TestClientPlayerCount(unittest.TestCase):
 class TestServerClientConsistency(unittest.TestCase):
 
     def test_production_consistent(self):
-        server = _server_min_players("production", "false")
-        client = _client_min_players(False, "false")
-        self.assertEqual(server, client)
+        self.assertEqual(
+            _server_min_players("production", "false"),
+            _client_min_players(False, "false"),
+        )
 
     def test_dev_opt_in_consistent(self):
-        server = _server_min_players("development", "true")
-        client = _client_min_players(True, "true")
-        self.assertEqual(server, client)
+        self.assertEqual(
+            _server_min_players("development", "true"),
+            _client_min_players(True, "true"),
+        )
 
     def test_dev_no_opt_in_consistent(self):
-        server = _server_min_players("development", "false")
-        client = _client_min_players(True, "false")
-        self.assertEqual(server, client)
+        self.assertEqual(
+            _server_min_players("development", "false"),
+            _client_min_players(True, "false"),
+        )
 
 
 class TestServerSourceCode(unittest.TestCase):
@@ -109,7 +111,6 @@ class TestServerSourceCode(unittest.TestCase):
         self.assertIn("minPlayers", self.src)
 
     def test_no_hardcoded_two_player_start(self):
-        # The old "< 2" check must be replaced; connectedPlayers.length < 2 should not appear
         self.assertNotIn("connectedPlayers.length < 2", self.src)
 
 
@@ -134,7 +135,12 @@ class TestClientSourceCode(unittest.TestCase):
 class TestVercelConfig(unittest.TestCase):
 
     def setUp(self):
-        self.config = json.loads(_read("vercel.json"))
+        self.config_path = "client/vercel.json"
+        self.config = json.loads(_read(self.config_path))
+
+    def test_config_lives_under_connected_project_root(self):
+        self.assertTrue(os.path.exists(os.path.join(REPO_ROOT, self.config_path)))
+        self.assertFalse(os.path.exists(os.path.join(REPO_ROOT, "vercel.json")))
 
     def test_build_command_includes_npm_ci(self):
         self.assertIn("npm ci", self.config["buildCommand"])
@@ -152,8 +158,7 @@ class TestVercelConfig(unittest.TestCase):
         self.assertIn("/index.html", destinations)
 
     def test_no_secrets_in_config(self):
-        raw = _read("vercel.json")
-        lower = raw.lower()
+        lower = _read(self.config_path).lower()
         for word in ("secret", "password", "token", "key"):
             self.assertNotIn(word, lower)
 

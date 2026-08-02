@@ -73,7 +73,7 @@ npm run build:web
 # 出力: client/dist/
 ```
 
-リポジトリルートの `vercel.json` には同じ静的ビルドとSPAフォールバックが定義されています。
+接続済みVercel Projectの Root Directory は `client` です。`client/vercel.json` に同じ静的ビルド、`dist`出力、SPAフォールバックを定義しています。
 
 ## 検証
 
@@ -90,7 +90,7 @@ GitHub ActionsではCIとUnit TestsをPull Requestの固定head SHAに対して�
 
 | コンポーネント | ホスティング | 状況 |
 |---|---|---|
-| Client（Expo Web） | Vercel | 公開済み。main更新時の本番再デプロイ対象 |
+| Client（Expo Web） | Vercel | 公開済み。Project Root Directoryは`client`。main更新時の本番再デプロイ対象 |
 | Server（Express / Socket.IO） | Render | `/health` 応答確認済み。CORS / Socket.IO修正はmain反映済み |
 | データストア | Supabase | Serverの環境変数で接続 |
 
