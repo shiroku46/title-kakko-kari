@@ -74,7 +74,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
-          EVENT_PATH: ${{ github.event_path }}
           DISPATCH_ISSUE: ${{ inputs.issue_number }}
           TRUSTED_SUPERVISOR: ${{ inputs.trusted_supervisor }}
           TRUSTED_RUN_ID: ${{ inputs.trusted_run_id }}
@@ -94,7 +93,16 @@ jobs:
           from pathlib import Path
 
           event_name = os.environ["EVENT_NAME"]
-          event = json.loads(Path(os.environ["EVENT_PATH"]).read_text())
+          event = {}
+          if event_name in {"issues", "issue_comment"}:
+              event_path = Path(os.environ.get("GITHUB_EVENT_PATH", ""))
+              if not event_path.is_file():
+                  raise SystemExit("GitHub event payload is missing or is not a file")
+              try:
+                  event = json.loads(event_path.read_text(encoding="utf-8"))
+              except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                  raise SystemExit("GitHub event payload is unreadable or invalid") from exc
+
           actor = os.environ["ACTOR"]
           owner = os.environ["OWNER"]
           configured_owner = os.environ.get("CONFIGURED_OWNER", "")
