@@ -1,39 +1,98 @@
-# AI Development Automation Foundation
+# タイトルの名付け親は誰だ？
 
-A public, reusable, history-free foundation for guarded AI-assisted development on GitHub.
+あらすじだけを見て「本物のタイトル」を当てるパーティーゲームです。出題者が選んだ映画・小説・漫画などのあらすじを読み、残りのプレイヤーがそれっぽい偽タイトルを考えて投票し合います。一番多く票を集めた偽タイトルの作者がポイントを獲得します。
 
-## What this repository provides
+## 対応人数
 
-- read-only CI that is safe for forked pull requests;
-- an owner-authorized Claude issue queue;
-- bounded reconciliation for missing trusted checks;
-- a deterministic recovery and merge decision engine;
-- a default-branch-controlled supervisor that never executes proposed-branch code with write permissions;
-- a Bootstrap generator for installing the same controls in another repository;
-- security, export, workflow, and policy regression tests.
+| 環境 | 最低人数 | 最大人数 |
+|------|----------|----------|
+| 通常（production / staging / test / その他） | **4人** | 6人 |
+| ローカル開発テスト（明示opt-in） | 3人 | 6人 |
 
-## Safety model
+> **注意**: 3人プレイはローカル開発・テスト専用です。`NODE_ENV=development` かつ `ALLOW_THREE_PLAYER_DEV=true` の明示的な opt-in が必要です。2人以下での開始はすべての環境で禁止されています。
 
-Untrusted pull-request code runs only in jobs with `contents: read` and without Secrets, OIDC, or write permissions. Jobs that can comment, relabel, dispatch, close, mark ready, or merge operate only from the default branch, inspect immutable current SHAs, require same-repository provenance, use fixed workflow names and refs, bound their candidate set, and use an expected-head-SHA merge guard.
+## ゲーム概要
 
-The queue accepts issue creation or an exact standalone `/claude-run` comment only when `github.actor` is the configured owner. A separate default-branch-only trusted dispatch path is available to the supervisor.
+1. ホストがルームを作成し、ルームコードを参加者に共有する
+2. 4〜6人が揃ったらホストがゲームを開始する
+3. 出題形式を選ぶ（プレイヤー出題 or CPU出題）
+4. 出題者があらすじを提示し、回答者が偽タイトルを考えて提出する
+5. 全員が投票し、本物タイトルを当てたプレイヤーと、票を集めた偽タイトル作者がポイント獲得
+6. 全ラウンド終了後、最多ポイントのプレイヤーが優勝
 
-## Validation
+## ローカル起動手順
+
+### 必要な環境変数
+
+`.env` ファイルを作成し、以下の変数名を設定してください（値はご自身の環境に合わせて設定してください。Secretを含むため値をここに記載しません）:
+
+**Server** (`server/.env`):
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `PORT`（省略時: 3000）
+- `NODE_ENV`
+- `ALLOW_THREE_PLAYER_DEV`（3人プレイを許可する場合のみ `true`）
+
+**Client** (`client/.env`):
+- `EXPO_PUBLIC_SERVER_URL`（ServerのURL）
+- `EXPO_PUBLIC_ALLOW_THREE_PLAYER_DEV`（3人プレイUIを有効にする場合のみ `true`）
+
+### Server起動
 
 ```bash
+cd server
+npm install
+npm start
+```
+
+### Client起動
+
+```bash
+cd client
+npm install
+npx expo start
+```
+
+ブラウザで開く場合は `w` キーを押してください。
+
+## Webビルド手順
+
+```bash
+cd client
+npm ci
+npm run build:web
+# 出力: client/dist/
+```
+
+または、リポジトリルートから Vercel 等の静的ホスティングへデプロイする場合は、`vercel.json` の設定に従って自動的にビルド・公開されます。
+
+## 検証手順
+
+```bash
+# リポジトリガード・バリデーション
 python scripts/public_export_guard.py .
 python scripts/validate_repository.py
+
+# ユニットテスト
 python -m unittest discover -s tests
+
+# Client依存関係のインストールとWebビルド
+cd client && npm ci && npm run build:web
 ```
 
-## Bootstrap
+## デプロイ状況
 
-```bash
-python bootstrap/generator.py --target ../example-repository --owner YOUR_GITHUB_LOGIN
-```
+| コンポーネント | 状況 | URL |
+|--------------|------|-----|
+| Server | Render にデプロイ済み | `https://title-kakko-kari.onrender.com` |
+| Client（Web） | Vercel公開の準備完了（人間によるVercel Project接続が必要） | 未確認 |
 
-Review the generated install checklist before enabling write-capable workflows. Repository Secrets are never generated, copied, or printed.
+> Vercel公開には Vercel アカウントでのプロジェクト接続が必要です。リポジトリ側の設定（`vercel.json`）は完了しています。詳細は `docs/RELEASE_STATUS.md` を参照してください。
 
-## Project status
+## 開発・自動化基盤
 
-This public repository is the implementation source of truth. Earlier private sandboxes remain archives and are not imported into this history.
+- GitHub Actions による CI（`ci.yml`、`unit-tests.yml`）
+- Claude Code による Issue ドリブン実装
+- Supabase をデータストアとして使用
+
+詳細なリリース状況・Figma残件・デプロイ操作手順は [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md) を参照してください。
