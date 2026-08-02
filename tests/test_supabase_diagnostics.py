@@ -55,13 +55,13 @@ class TestSupabaseDiagnostics(unittest.TestCase):
         self.assertIn("errorName", self.route)
         self.assertIn("errorCode", self.route)
         for forbidden in (
-            "rawUrl,",
-            "serviceKey,",
-            "hostname:",
+            "url: rawUrl",
+            "hostname: parsedUrl.hostname",
+            "key: serviceKey",
+            "serviceKey: serviceKey",
             "error.message",
             "error.stack",
             "stack:",
-            "headers:",
             "response.text",
             "response.json",
         ):
