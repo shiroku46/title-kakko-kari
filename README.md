@@ -7,7 +7,7 @@
 - Webクライアント: `https://title-kakko-kari-46mastei-4511s-projects.vercel.app/`
 - Renderサーバー: `https://title-kakko-kari.onrender.com`
 - Renderの `/health` 応答とVercelの公開は確認済みです。
-- 公開Vercelからの部屋作成は、Issue #11のCORS / Socket.IO接続修正が本番へ反映されるまで未確認です。現時点では「完全動作確認済み」とは扱いません。
+- 公開Vercelからの接続を妨げていたCORS / Socket.IO問題はIssue #11で修正され、mainへ反映済みです。部屋作成・参加を含む本番E2E確認が終わるまでは「完全動作確認済み」とは扱いません。
 
 ## 対応人数
 
@@ -38,6 +38,7 @@
 - `PORT`（省略時は3000）
 - `NODE_ENV=development`
 - `ALLOW_THREE_PLAYER_DEV=true`（3人テストを明示的に許可する場合だけ）
+- `ALLOWED_ORIGINS`（必要に応じて許可するWeb originをカンマ区切りで指定）
 
 ```bash
 cd server
@@ -90,7 +91,7 @@ GitHub ActionsではCIとUnit TestsをPull Requestの固定head SHAに対して�
 | コンポーネント | ホスティング | 状況 |
 |---|---|---|
 | Client（Expo Web） | Vercel | 公開済み。main更新時の本番再デプロイ対象 |
-| Server（Express / Socket.IO） | Render | `/health` 応答確認済み。Issue #11修正のmain反映後に再デプロイ対象 |
+| Server（Express / Socket.IO） | Render | `/health` 応答確認済み。CORS / Socket.IO修正はmain反映済み |
 | データストア | Supabase | Serverの環境変数で接続 |
 
 公開URL、未確認事項、Figma残件は [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md) にまとめています。
