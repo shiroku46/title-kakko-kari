@@ -29,6 +29,20 @@ class TestServerCorsConfig(unittest.TestCase):
         self.assertIn("ALLOWED_ORIGINS", self.server_index,
                       "CORS origin must be configurable via ALLOWED_ORIGINS env var")
 
+    def test_websocket_upgrade_uses_allow_request(self):
+        self.assertIn("allowRequest:", self.server_index,
+                      "Engine.IO must enforce the origin policy during upgrades")
+        self.assertIn("isAllowedOrigin(req.headers.origin)", self.server_index,
+                      "allowRequest must validate the request Origin")
+
+    def test_originless_native_clients_are_preserved(self):
+        self.assertIn("if (!origin) return true", self.server_index,
+                      "originless Expo/native clients must remain supported")
+
+    def test_configured_origins_are_checked_exactly(self):
+        self.assertIn("allowedOrigins.includes(origin)", self.server_index,
+                      "configured browser origins must be matched against the allowlist")
+
 
 class TestClientSocketConfig(unittest.TestCase):
     def setUp(self):
