@@ -1,4 +1,12 @@
 require('dotenv').config();
+
+// Render's Node runtime can receive working inbound traffic while outbound
+// Undici/fetch attempts fail when DNS returns an unreachable IPv6 address
+// first. Prefer IPv4 before importing modules that construct Supabase clients
+// or perform any other outbound request.
+const dns = require('node:dns');
+dns.setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
