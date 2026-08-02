@@ -1,0 +1,28 @@
+{
+  "audit": {
+    "alternative_connected_paths": "trusted-checks.yml:active:325255603;ci-reconcile.yml:active:325255601;supervisor.yml:active:325255602;claude-queue.yml:active:325236843",
+    "changed_and_renamed_paths": "[\"server/package.json\",\"server/src/index.js\",\"tests/test_network_config.py\"]",
+    "check_evidence": "[{\"app\":\"vercel\",\"conclusion\":\"success\",\"name\":\"Vercel Preview Comments\",\"status\":\"completed\"}]",
+    "exact_head_sha": "432759994b3fb4bd5b8751a2edd24fddf4fe948c",
+    "human_only_connected_evidence": "not-applicable",
+    "idempotency": "automation-stops/pr-22/432759994b3fb4bd5b8751a2edd24fddf4fe948c/NO_MEANINGFUL_PROGRESS.json",
+    "issue": "#20",
+    "mergeability": "mergeable=False,mergeable_state=dirty",
+    "native_pull_request_workflow_evidence": "{\"clean\":false,\"runs\":[{\"conclusion\":\"action_required\",\"display_name\":\"CI\",\"run_id\":30760840569,\"status\":\"completed\",\"updated_at\":\"2026-08-02T18:19:05Z\",\"workflow\":\"ci.yml\",\"workflow_id\":325209425},{\"conclusion\":\"action_required\",\"display_name\":\"Unit Tests\",\"run_id\":30760840572,\"status\":\"completed\",\"updated_at\":\"2026-08-02T18:19:05Z\",\"workflow\":\"unit-tests.yml\",\"workflow_id\":325209424}]}",
+    "permissions_and_credentials": "automation_owner_permission=admin,secret_values_not_requested=true",
+    "pull_request": "#22",
+    "reason_code": "NO_MEANINGFUL_PROGRESS",
+    "repository_metadata": "visibility=public,default_branch=main,initial_and_final_head_confirmed=true",
+    "review_and_provenance": "codex=pending,codex_timestamp=None,trusted_request_timestamp=None,unresolved_threads=False",
+    "scope_and_authorization": "issue=state=closed,trusted_author=True,authorization=all_paths=True,protected_paths=True",
+    "workflow_run_and_job_evidence": "[{\"active\":false,\"complete\":true,\"run_id\":30762232076,\"success\":true,\"updated_at\":\"2026-08-02T18:56:25Z\"}]"
+  },
+  "detail": "Fixed native pull-request workflow evidence remained incomplete or unsuccessful for the bounded interval.",
+  "exact_head_sha": "432759994b3fb4bd5b8751a2edd24fddf4fe948c",
+  "issue_number": 20,
+  "notification": false,
+  "pull_request_number": 22,
+  "reason_code": "NO_MEANINGFUL_PROGRESS",
+  "required_human_action": null,
+  "schema_version": 1
+}
