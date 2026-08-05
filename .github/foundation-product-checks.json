@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "name": "Product CI",
+      "workflow": ".github/workflows/product-ci.yml"
+    }
+  ],
+  "schema_version": 1
+}
