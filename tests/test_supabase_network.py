@@ -47,6 +47,7 @@ class SupabaseIpv4FetchTest(unittest.TestCase):
         self.assertIn("fetch: supabaseFetch", self.supabase)
 
     def test_workaround_does_not_change_global_network_or_tls_policy(self):
+        low = self.supabase.casefold()
         for forbidden in (
             "setGlobalDispatcher",
             "setDefaultResultOrder",
@@ -55,7 +56,7 @@ class SupabaseIpv4FetchTest(unittest.TestCase):
             "http_proxy",
             "https_proxy",
         ):
-            self.assertNotIn(forbidden, self.supabase.casefold())
+            self.assertNotIn(forbidden.casefold(), low)
         self.assertNotIn("undici", self.package.get("dependencies", {}))
 
     def test_custom_fetch_preserves_bodyless_response_semantics_and_rejects_redirects(self):
