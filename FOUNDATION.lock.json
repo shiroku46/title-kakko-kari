@@ -1,7 +1,7 @@
 {
   "generator_version": "2.0.0",
   "installation_mode": "existing-product",
-  "installed_at": "2026-08-05T19:48:00Z",
+  "installed_at": "2026-08-10T06:00:00Z",
   "managed_files": [
     {
       "path": ".github/ISSUE_TEMPLATE/ai-task.yml",
@@ -41,7 +41,7 @@
     },
     {
       "path": "INSTALL_CHECKLIST.md",
-      "sha256": "f13c5751a5b0646e68a2fc531fc27f1fc8a311ee564788c72a7825c5e6c5fa41"
+      "sha256": "37f30336560b0c71a0f60ac8cab0978fad23f0384ef043bf90b9911dc896187d"
     },
     {
       "path": "LICENSE",
@@ -50,6 +50,18 @@
     {
       "path": "SECURITY.md",
       "sha256": "bf977f615a572f658cc8945808377273cb4a8e0e694106d8daaabefc2b37bbaf"
+    },
+    {
+      "path": "docs/AUTH_BOOTSTRAP.md",
+      "sha256": "16cfe22d9bbb8114dbc3bdb2a8317b186ea94650278f389074257a95c4b7f5e9"
+    },
+    {
+      "path": "docs/AUTH_DETECT.md",
+      "sha256": "443f0ce81548816dc14c753efb9776e73e8af0ea7e798349fbe452c3e4b2b58c"
+    },
+    {
+      "path": "docs/AUTH_SETUP.md",
+      "sha256": "e2d88508b164be27967ac02b3ba8e5fabc3ea18178d062ebc80f61dc91322d26"
     },
     {
       "path": "docs/MINIMUM_SAFETY_PROFILE.md",
@@ -66,6 +78,18 @@
     {
       "path": "docs/PUBLIC_SECURITY_MODEL.md",
       "sha256": "842b4414faa101d660d61d9c35cb0443f0200d4cced33e1360fa90bc29267f84"
+    },
+    {
+      "path": "scripts/auth_bootstrap.py",
+      "sha256": "352f27cd162b4673d68deeadc3025f4decec5cb6533ff1cfded582c27c1794ff"
+    },
+    {
+      "path": "scripts/auth_detect.py",
+      "sha256": "b29f92b8731cb502c7363d7493cbda56cec2931f4ddd7844f25065aea94b252e"
+    },
+    {
+      "path": "scripts/auth_setup.py",
+      "sha256": "4331bd6f4488e4dfd92e2e8a22d79a8d3c5006537d48d3e99fc3ef3a35779dd7"
     },
     {
       "path": "scripts/foundation_drift.py",
@@ -85,7 +109,7 @@
     },
     {
       "path": "scripts/public_export_guard.py",
-      "sha256": "945757798e063d82191e2457a7efc7cb755049e5bda76d538deb22705a0fa52a"
+      "sha256": "327bdce726a61e8069add1e06172ca4c0a761e2e68b0eab24a28cbdd4fdbe532"
     },
     {
       "path": "scripts/queue_event_guard.py",
@@ -114,5 +138,5 @@
   ],
   "schema_version": 1,
   "source_repository": "shiroku46/ai-dev-automation-foundation",
-  "source_sha": "c2b747b720552137d9d02efd96a692a97699afcc"
+  "source_sha": "82a74e4d4b96e6767c11e76f60fa6fcc2621048a"
 }
