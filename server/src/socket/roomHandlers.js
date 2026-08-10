@@ -1,5 +1,67 @@
 const supabase = require('../db/supabase');
 
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ETIMEDOUT',
+  'CERT_HAS_EXPIRED',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
+]);
+
+function collectSafeNetworkDiagnostics(error) {
+  const diagnostics = new Set();
+  const queue = [error, error?.cause];
+  if (Array.isArray(error?.errors)) queue.push(...error.errors);
+  if (Array.isArray(error?.cause?.errors)) queue.push(...error.cause.errors);
+
+  for (const candidate of queue) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    for (const field of ['code', 'errno', 'syscall']) {
+      const value = candidate[field];
+      if (typeof value !== 'string' && typeof value !== 'number') continue;
+      const normalized = String(value);
+      if (/^[A-Za-z0-9_.:-]{1,80}$/.test(normalized)) {
+        diagnostics.add(`${field}=${normalized}`);
+      }
+    }
+  }
+
+  return [...diagnostics].sort().join(', ');
+}
+
+function isNetworkFailure(error) {
+  const messages = [error?.message, error?.cause?.message]
+    .filter((value) => typeof value === 'string')
+    .join(' ');
+  const codes = [error?.code, error?.cause?.code, error?.errno, error?.cause?.errno]
+    .filter((value) => typeof value === 'string');
+
+  return (
+    error?.name === 'SupabaseNetworkError' ||
+    messages.includes('Supabase network request failed') ||
+    messages.includes('fetch failed') ||
+    codes.some((code) => NETWORK_ERROR_CODES.has(code))
+  );
+}
+
+function reportRoomError(event, error) {
+  if (isNetworkFailure(error)) {
+    const diagnostics = collectSafeNetworkDiagnostics(error);
+    console.error(`[${event}] database network request failed${diagnostics ? ` [${diagnostics}]` : ''}`);
+    return 'データベースへの接続に失敗しました。しばらくしてからもう一度お試しください';
+  }
+
+  const message = typeof error?.message === 'string' ? error.message : '処理に失敗しました';
+  console.error(`[${event}]`, message);
+  return message;
+}
+
 function registerRoomHandlers(io, socket) {
   // ----------------------------------------------------------
   // ルーム作成
@@ -43,8 +105,7 @@ function registerRoomHandlers(io, socket) {
       console.log(`[Room] 作成: ${code} / ホスト: ${trimmedNickname}`);
       callback({ ok: true, room, player });
     } catch (err) {
-      console.error('[room:create]', err.message);
-      callback({ ok: false, error: err.message });
+      callback({ ok: false, error: reportRoomError('room:create', err) });
     }
   });
 
@@ -110,8 +171,7 @@ function registerRoomHandlers(io, socket) {
       console.log(`[Room] 参加: ${upperCode} / ${trimmedNickname}`);
       callback({ ok: true, room, player, allPlayers });
     } catch (err) {
-      console.error('[room:join]', err.message);
-      callback({ ok: false, error: err.message });
+      callback({ ok: false, error: reportRoomError('room:join', err) });
     }
   });
 
@@ -132,8 +192,7 @@ function registerRoomHandlers(io, socket) {
 
       callback({ ok: true, room });
     } catch (err) {
-      console.error('[room:get_state]', err.message);
-      callback({ ok: false, error: err.message });
+      callback({ ok: false, error: reportRoomError('room:get_state', err) });
     }
   });
 }
