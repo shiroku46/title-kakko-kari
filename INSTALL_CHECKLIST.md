@@ -13,6 +13,17 @@
 
 Codex and Claude setup is optional. Provider environment, credential, quota, account, setup or connection is not required for GitHub-only acceptance or product development.
 
+## Optional local provider authentication
+
+- [ ] Use `python scripts/auth_bootstrap.py <provider>` to plan a provider route from explicit non-secret capabilities; the planner never reads credential values.
+- [ ] Use `python scripts/auth_detect.py <provider>` to detect an existing GitHub CLI, Vercel CLI, or Wrangler login from exit status only; provider output is discarded.
+- [ ] Use `python scripts/auth_setup.py <provider>` to preview setup. Existing authenticated sessions are reused automatically and no login runs by default.
+- [ ] Only on a local interactive terminal, opt in to browser/device authentication with `python scripts/auth_setup.py <provider> --interactive`.
+- [ ] Missing provider CLIs are reported as `install_required`; Foundation never auto-installs them.
+- [ ] For Cloudflare deployment, prefer Workers Builds Git integration; after Git integration authorization, Cloudflare generates and manages the build API token by default.
+- [ ] The first Cloudflare/GitHub Git integration authorization can still require one interactive dashboard step.
+- [ ] Use Cloudflare GitHub Actions API-token/account setup only as an explicit external-CI fallback; it remains outside this automatic setup.
+
 ## Installation identity
 
 - installation mode: `existing-product`
