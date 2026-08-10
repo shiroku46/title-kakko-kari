@@ -38,7 +38,12 @@ async function supabaseFetch(input, init) {
   const request = new Request(input, init);
   const target = new URL(request.url);
 
-  if (target.protocol !== 'https:' || target.origin !== supabaseOrigin) {
+  if (
+    target.protocol !== 'https:' ||
+    target.origin !== supabaseOrigin ||
+    target.username ||
+    target.password
+  ) {
     throw new Error('Supabase request target is outside the configured HTTPS origin');
   }
 
@@ -70,8 +75,11 @@ async function supabaseFetch(input, init) {
             return;
           }
 
+          const responseBody = [204, 205, 304].includes(status)
+            ? null
+            : Buffer.concat(chunks);
           resolve(
-            new Response(Buffer.concat(chunks), {
+            new Response(responseBody, {
               status,
               statusText: incoming.statusMessage || '',
               headers
