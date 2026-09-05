@@ -12,6 +12,8 @@ import RevealedPhase from '../components/phases/RevealedPhase';
 export default function GameScreen({ navigation, route }) {
   const { room, player, gameData } = route.params;
   const socket = getSocket();
+  const [isHost, setIsHost] = useState(player.is_host);
+  const [synopsisError, setSynopsisError] = useState(null);
 
   const [mode, setMode] = useState(gameData.mode ?? 'player');
   const [phase, setPhase] = useState(gameData.mode === 'cpu' ? 'confirming' : 'selecting');
@@ -53,6 +55,7 @@ export default function GameScreen({ navigation, route }) {
       setPhase(data.mode === 'cpu' ? 'confirming' : 'selecting');
       setSynopsis(null);
       setFetchedSynopsis(null);
+      setSynopsisError(null);
       setChoices([]);
       setRevealData(null);
       setFakeSubmittedCount(0);
@@ -61,7 +64,9 @@ export default function GameScreen({ navigation, route }) {
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
     },
+    'round:synopsis_fetch_failed': (data) => setSynopsisError(data.error),
     'round:synopsis_fetched': (data) => {
+      setSynopsisError(null);
       setFetchedSynopsis(data.synopsis);
     },
     'round:synopsis_presented': (data) => {
@@ -110,6 +115,9 @@ export default function GameScreen({ navigation, route }) {
       navigation.replace('Result', { finalScores: data.finalScores, winner: data.winner });
     },
     'room:player_disconnected': ({ nickname }) => {
+      socket.emit('room:get_state', null, (res) => {
+        if (res.ok) setIsHost(Boolean(res.room.players.find((p) => p.id === player.id)?.is_host));
+      });
       Alert.alert('プレイヤー退出', `${nickname} が退出しました`);
     },
     'game:questioner_disconnected': ({ nickname: qNickname, fallbackHostId, roundStatus }) => {
@@ -137,7 +145,8 @@ export default function GameScreen({ navigation, route }) {
             currentRound={currentRound}
             totalRounds={totalRounds}
             fetchedSynopsis={fetchedSynopsis}
-            isHost={player.is_host}
+            synopsisError={synopsisError}
+            isHost={isHost}
             socket={socket}
           />
         );
@@ -151,7 +160,7 @@ export default function GameScreen({ navigation, route }) {
             questioner={questioner}
             synopsis={synopsis}
             isQuestioner={amQuestioner}
-            isHost={player.is_host}
+            isHost={isHost}
             playerId={player.id}
             knownDeclarations={knownDeclarations}
             allDeclared={allDeclared}
@@ -195,7 +204,7 @@ export default function GameScreen({ navigation, route }) {
             totalRounds={totalRounds}
             revealData={revealData}
             isQuestioner={amQuestioner}
-            isHost={player.is_host}
+            isHost={isHost}
             playerId={player.id}
             mvpData={mvpData}
             socket={socket}

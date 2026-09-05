@@ -29,7 +29,7 @@ class TestDnsStartupOrdering(unittest.TestCase):
         self.assertLess(
             dns_position,
             socket_position,
-            "DNS ordering must be configured before Socket handlers import Supabase",
+            "DNS ordering must be configured before Socket handlers perform outbound requests",
         )
 
     def test_dns_configuration_precedes_any_fetch(self):

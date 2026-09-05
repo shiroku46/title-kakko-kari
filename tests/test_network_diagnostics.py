@@ -67,7 +67,7 @@ class TestSafeNetworkDiagnostics(unittest.TestCase):
 
     def _network_route_block(self):
         start = self.source.index("app.get('/health/network'")
-        end = self.source.index("function sanitizedErrorCode", start)
+        end = self.source.index("// Wikipedia ランダム記事取得エンドポイント", start)
         return self.source[start:end]
 
 
