@@ -1,110 +1,82 @@
-# タイトルの名付け親は誰だ？
+# タイトルたほいや（仮）
 
-あらすじだけを見て「本物のタイトル」を当てるオンライン・パーティーゲームです。出題者が選んだ映画・小説・漫画などのあらすじを読み、残りのプレイヤーが本物らしい偽タイトルを考えて投票し合います。本物を見抜くことと、偽タイトルで他の参加者をだますことの両方が得点になります。
+あらすじだけを見て「本物のタイトル」を当てるオンライン・パーティーゲームです。出題者が選んだ作品のあらすじを読み、回答者が本物らしい偽タイトルを提出して投票します。
 
-## 公開状況
+仕様・制作方針の正本は Notion「タイトルたほいや｜命名クイズゲーム制作」、実装状態の正本はこのリポジトリです。
 
-- Webクライアント: `https://title-kakko-kari-46mastei-4511s-projects.vercel.app/`
-- Renderサーバー: `https://title-kakko-kari.onrender.com`
-- Renderの `/health` 応答とVercelの公開は確認済みです。
-- 公開Vercelからの接続を妨げていたCORS / Socket.IO問題はIssue #11で修正され、mainへ反映済みです。部屋作成・参加を含む本番E2E確認が終わるまでは「完全動作確認済み」とは扱いません。
+## 現在の構成
+
+- Client: Expo Web / React Native、公開先はVercel。
+- Server: Express / Socket.IO、公開先はRender。
+- ゲーム中の部屋、参加者、ラウンド、提出、投票、得点はサーバーのメモリで管理します。**Supabase、データベースの接続設定、新しい保存サービスは不要です。**
+- **サーバーは1プロセス・1インスタンスで運用します。再起動・休止・再デプロイ時には部屋と得点が消えるため、部屋を作り直してください。** 最後の参加者が切断した部屋は削除します。
+- 途中切断後の本人確認付き復帰、履歴保存、複数インスタンスでの状態共有は未対応です。現行クライアントと同様、切断後はホームへ戻り、新しい接続として扱います。
+
+移行理由・責務の棚卸し・検証範囲は [移行記録](docs/SUPABASE_REMOVAL.md)、公開版との区別は [Release Status](docs/RELEASE_STATUS.md) を参照してください。
 
 ## 対応人数
 
 | 環境 | 最低人数 | 最大人数 |
-|------|----------|----------|
+|---|---|---|
 | 通常（production / staging / test / その他） | **4人** | 6人 |
 | ローカル開発テスト（明示opt-in） | 3人 | 6人 |
 
-> 3人プレイはローカル開発専用です。Serverは `NODE_ENV=development` かつ `ALLOW_THREE_PLAYER_DEV=true`、Clientは開発ビルドかつ `EXPO_PUBLIC_ALLOW_THREE_PLAYER_DEV=true` の場合だけ3人開始を許可します。2人以下は常に拒否されます。
+3人プレイはServerが `NODE_ENV=development` かつ `ALLOW_THREE_PLAYER_DEV=true`、Clientが開発ビルドかつ `EXPO_PUBLIC_ALLOW_THREE_PLAYER_DEV=true` の場合だけ有効です。2人以下は常に拒否します。
 
-## ゲーム概要
+## 遊び方
 
-1. ホストがルームを作成し、6桁のルームコードを参加者へ共有する
-2. 4〜6人が揃ったら、ホストが出題形式を選んでゲームを開始する
-3. 出題者があらすじを提示するか、CPU出題モードでWikipediaから取得する
-4. 回答者が本物らしい偽タイトルを提出する
-5. 本物と偽物が混ざった候補から全員が投票する
-6. 正解点、欺き点、MVPボーナスを加算し、全ラウンド終了後の最多得点者が優勝する
+1. ホストが部屋を作り、6桁コードを共有する。
+2. 4〜6人でプレイヤー出題またはCPU出題を開始する。
+3. プレイヤー出題は、あらすじを提示し、全員の「知らない」宣言後に進む。「知ってる」があれば選び直す。CPU出題はホストがWikipediaのあらすじを確認する。
+4. 回答者が偽タイトルを提出し、本物と混ざった候補から投票する。出題者は回答・投票を行わない。
+5. 正解に1点、偽タイトルに投票された数だけ加点する。プレイヤー出題では出題者がMVPに1点を贈れる。
+6. プレイヤー出題は全員1回ずつ、CPU出題は指定ラウンドを終えたら最終順位を表示する。
 
-## ローカル起動手順
+## ローカル起動
 
-### Serverの環境変数
-
-`server/.env` に次の変数を設定します。Secretの値はリポジトリへ記録しません。
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `PORT`（省略時は3000）
-- `NODE_ENV=development`
-- `ALLOW_THREE_PLAYER_DEV=true`（3人テストを明示的に許可する場合だけ）
-- `ALLOWED_ORIGINS`（必要に応じて許可するWeb originをカンマ区切りで指定）
+Node.js 20〜24を使用します。データベースの準備は不要です。
 
 ```bash
 cd server
-npm install
+npm ci
 npm start
 ```
 
-### Client
+`server/.env` は任意です。使える設定は `PORT`（既定3000）、`NODE_ENV`、`ALLOW_THREE_PLAYER_DEV`、`ALLOWED_ORIGINS`（カンマ区切りのWeb origin）です。公開運用では `ALLOWED_ORIGINS` にClientのURLを指定してください。古いSupabaseの環境変数は読み込みません。Secret値をリポジトリへ記録しないでください。
 
-```bash
-cd client
-npm install
-npx expo start
-```
-
-ブラウザで開く場合は `w` キーを押します。Server URLは現在 `client/src/config.js` のRender URLを既定値として使用し、ホーム画面の「サーバー設定」からローカルURLへ変更できます。
-
-3人テスト用UIを有効にする場合だけ、Clientの開発環境へ次を設定します。
-
-```text
-EXPO_PUBLIC_ALLOW_THREE_PLAYER_DEV=true
-```
-
-`EXPO_PUBLIC_SERVER_URL` は現在の実装では読み込まないため、設定しても接続先は変わりません。
-
-## Webビルド
+別のターミナルでClientを起動します。
 
 ```bash
 cd client
 npm ci
-npm run build:web
-# 出力: client/dist/
+npm run web
 ```
 
-接続済みVercel Projectの Root Directory は `client` です。`client/vercel.json` に同じ静的ビルド、`dist`出力、SPAフォールバックを定義しています。
+ホームの「サーバー設定」で接続先を `http://localhost:3000` に変更してください。スマートフォン実機ではPCのLAN上のIPを指定します。既定の接続先は `client/src/config.js` のRender URLです。`EXPO_PUBLIC_SERVER_URL` は読み込みません。
 
-## 検証
+## 検証とWebビルド
 
 ```bash
 python scripts/public_export_guard.py .
 python scripts/validate_repository.py
 python -m unittest discover -s tests
-cd client && npm ci && npm run build:web
+npm ci --prefix server
+npm ci --prefix client
+npm test --prefix server
+npm run build:web --prefix client
 ```
 
-GitHub ActionsではCIとUnit TestsをPull Requestの固定head SHAに対して実行します。
+通信テストは実際のExpress / Socket.IOサーバーを起動し、4・5・6人の両出題モードを最終順位まで検証します。CPUのWikipedia応答だけは固定データに差し替えます。Socket.IOテストクライアントは既存のClient依存を使うため、両方の `npm ci` が必要です。
 
-## デプロイ構成
+Web出力は `client/dist/` です。VercelのProject Root Directoryは `client`。単一Renderサーバーへの接続とWebSocket / polling双方の許可が必要です。
 
-| コンポーネント | ホスティング | 状況 |
-|---|---|---|
-| Client（Expo Web） | Vercel | 公開済み。Project Root Directoryは`client`。main更新時の本番再デプロイ対象 |
-| Server（Express / Socket.IO） | Render | `/health` 応答確認済み。CORS / Socket.IO修正はmain反映済み |
-| データストア | Supabase | Serverの環境変数で接続 |
+## 公開版
 
-公開URL、未確認事項、Figma残件は [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md) にまとめています。
+- [Web Client](https://title-kakko-kari-46mastei-4511s-projects.vercel.app/)
+- [Server health](https://title-kakko-kari.onrender.com/health)
 
-## デザイン
+Supabase撤去版の公開反映・公開環境E2Eは未完了です。ローカル検証成功を公開版完成とは扱いません。Issue #37は公開環境で最終順位まで確認するまで継続します。
 
-PC・スマートフォンの両方に対応した文具風レスポンシブUIを実装済みです。Figmaでは基礎デザインシステムと主要コンポーネントまで作成済みで、全画面の清書は残っていますが、コード公開のブロッカーにはしていません。
+## デザイン・開発運用
 
-## 開発・自動化基盤
-
-- GitHub ActionsによるCI / Unit Tests
-- Claude CodeによるIssueドリブン実装
-- 固定head SHAのCodexレビュー
-- expected-head-SHAを使った保護付きマージ
-
-詳細な運用規則は `AGENTS.md` と `docs/OPERATING_RULES.md` を参照してください。
+PC・スマートフォンに対応した文具風UIを継続使用します。Figma全画面清書は残件ですが、今回の移行を止める条件ではありません。開発運用は `AGENTS.md` と `docs/OPERATING_RULES.md` を参照してください。
