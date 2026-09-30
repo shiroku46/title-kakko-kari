@@ -10,9 +10,9 @@
 - Server: Express / Socket.IO、公開先はRender。
 - ゲーム中の部屋、参加者、ラウンド、提出、投票、得点はサーバーのメモリで管理します。**Supabase、データベースの接続設定、新しい保存サービスは不要です。**
 - **サーバーは1プロセス・1インスタンスで運用します。再起動・休止・再デプロイ時には部屋と得点が消えるため、部屋を作り直してください。** 最後の参加者が切断した部屋は削除します。
-- 途中切断後の本人確認付き復帰、履歴保存、複数インスタンスでの状態共有は未対応です。現行クライアントと同様、切断後はホームへ戻り、新しい接続として扱います。
+- 途中切断後の本人確認付き復帰、履歴保存、複数インスタンスでの状態共有は未対応です。切断後はホームへ戻り、新しい接続として扱います。
 
-移行理由・責務の棚卸し・検証範囲は [移行記録](docs/SUPABASE_REMOVAL.md)、公開版との区別は [Release Status](docs/RELEASE_STATUS.md) を参照してください。
+移行理由・責務の棚卸し・検証範囲は [移行記録](docs/SUPABASE_REMOVAL.md)、公開版の状況は [Release Status](docs/RELEASE_STATUS.md) を参照してください。
 
 ## 対応人数
 
@@ -31,6 +31,17 @@
 4. 回答者が偽タイトルを提出し、本物と混ざった候補から投票する。出題者は回答・投票を行わない。
 5. 正解に1点、偽タイトルに投票された数だけ加点する。プレイヤー出題では出題者がMVPに1点を贈れる。
 6. プレイヤー出題は全員1回ずつ、CPU出題は指定ラウンドを終えたら最終順位を表示する。
+
+## 公開版（試遊可能）
+
+- [Web Client](https://title-kakko-kari.vercel.app/)
+- [Server health](https://title-kakko-kari.onrender.com/health)
+
+2026年9月30日、非Supabase版をVercel / Renderへ反映し、公開環境で4人のプレイヤー出題モードを全4ラウンド実行しました。部屋作成、参加、あらすじ提示、未知宣言、偽タイトル提出、投票、結果、MVP、最終順位まで完走しています。
+
+試遊には4〜6人が必要です。Renderが休止状態の場合は、最初の接続だけ起動に時間がかかることがあります。サーバー再起動・休止・再デプロイ時には進行中の部屋が消えるため、同じ時間帯に一続きで遊んでください。
+
+CPU出題モードはローカル通信E2Eでは検証済みですが、実Wikipediaを使った公開環境での全ラウンド完走は未確認です。現時点の公開試遊では、まずプレイヤー出題モードを使用してください。
 
 ## ローカル起動
 
@@ -70,13 +81,6 @@ npm run build:web --prefix client
 
 Web出力は `client/dist/` です。VercelのProject Root Directoryは `client`。単一Renderサーバーへの接続とWebSocket / polling双方の許可が必要です。
 
-## 公開版
-
-- [Web Client](https://title-kakko-kari-46mastei-4511s-projects.vercel.app/)
-- [Server health](https://title-kakko-kari.onrender.com/health)
-
-Supabase撤去版の公開反映・公開環境E2Eは未完了です。ローカル検証成功を公開版完成とは扱いません。Issue #37は公開環境で最終順位まで確認するまで継続します。
-
 ## デザイン・開発運用
 
-PC・スマートフォンに対応した文具風UIを継続使用します。Figma全画面清書は残件ですが、今回の移行を止める条件ではありません。開発運用は `AGENTS.md` と `docs/OPERATING_RULES.md` を参照してください。
+PC・スマートフォンに対応した文具風UIを継続使用します。Figma全画面清書は残件ですが、公開試遊のブロッカーにはしません。開発運用は `AGENTS.md` と `docs/OPERATING_RULES.md` を参照してください。
