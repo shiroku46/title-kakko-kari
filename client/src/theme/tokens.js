@@ -1,21 +1,34 @@
 export const colors = {
-  paper: '#FFFDF8',
-  canvas: '#F7F1E4',
-  paperSubtle: '#E9DECB',
-  wood: '#D8C3A5',
-  ink: '#25211D',
-  navy: '#18344B',
-  vermilion: '#B83A2F',
-  green: '#47745C',
-  blue: '#5B86A5',
-  mustard: '#C99A3D',
-  rose: '#C88982',
-  muted: '#8E8B84',
-  border: '#D9CFC1',
+  navy: '#0B2D4D',
+  navyDeep: '#071F36',
+  navySoft: '#163F66',
+  cream: '#FFF7E8',
+  paper: '#FFFCF5',
+  canvas: '#EAF4F6',
+  sky: '#D9F0F4',
+  cyan: '#4FC4D4',
+  blue: '#2F87D7',
+  yellow: '#FFD45B',
+  red: '#EB4057',
+  redDark: '#C92F45',
+  pink: '#FF9DBB',
+  green: '#68BE86',
+  ink: '#13263D',
+  muted: '#65778A',
+  border: '#B9CBD7',
   white: '#FFFFFF',
+  black: '#08131F',
+
+  // Compatibility aliases retained while the UI migration is in progress.
+  paperSubtle: '#F2E8D6',
+  wood: '#FFD45B',
+  vermilion: '#EB4057',
+  mustard: '#F4B942',
+  rose: '#FF9DBB',
 };
 
 export const spacing = {
+  xxs: 2,
   xs: 4,
   sm: 8,
   md: 16,
@@ -25,25 +38,34 @@ export const spacing = {
 };
 
 export const radii = {
-  sm: 6,
-  md: 10,
-  lg: 16,
-  xl: 24,
+  xs: 6,
+  sm: 10,
+  md: 14,
+  lg: 20,
+  xl: 28,
+  pill: 999,
 };
 
 export const shadows = {
   paper: {
-    shadowColor: '#B0A080',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
+    shadowColor: '#071F36',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
     shadowRadius: 8,
     elevation: 3,
   },
   elevated: {
-    shadowColor: '#8B7050',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
+    shadowColor: '#071F36',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
     shadowRadius: 16,
-    elevation: 6,
+    elevation: 7,
+  },
+  button: {
+    shadowColor: '#071F36',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 4,
   },
 };

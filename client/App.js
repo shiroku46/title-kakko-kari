@@ -3,11 +3,12 @@ import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import HomeScreen   from './src/screens/HomeScreen';
-import LobbyScreen  from './src/screens/LobbyScreen';
-import GameScreen   from './src/screens/GameScreen';
+import HomeScreen from './src/screens/HomeScreen';
+import LobbyScreen from './src/screens/LobbyScreen';
+import GameScreen from './src/screens/GameScreen';
 import ResultScreen from './src/screens/ResultScreen';
-import RulesScreen  from './src/screens/RulesScreen';
+import RulesScreen from './src/screens/RulesScreen';
+import { colors } from './src/theme';
 
 const Stack = createNativeStackNavigator();
 
@@ -18,15 +19,15 @@ export default function App() {
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: '#F7F1E4' },
-          animation: 'slide_from_right',
+          contentStyle: { backgroundColor: colors.canvas },
+          animation: 'fade_from_bottom',
         }}
       >
-        <Stack.Screen name="Home"   component={HomeScreen} />
-        <Stack.Screen name="Lobby"  component={LobbyScreen} />
-        <Stack.Screen name="Game"   component={GameScreen} />
+        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Lobby" component={LobbyScreen} />
+        <Stack.Screen name="Game" component={GameScreen} />
         <Stack.Screen name="Result" component={ResultScreen} />
-        <Stack.Screen name="Rules"  component={RulesScreen} />
+        <Stack.Screen name="Rules" component={RulesScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
