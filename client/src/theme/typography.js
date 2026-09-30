@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 
 export const fontFamilies = Platform.select({
   ios: {
-    serif: 'HiraMinProN-W3',
+    serif: 'HiraMinProN-W6',
     serifBold: 'HiraMinProN-W6',
     sans: 'HiraginoSans-W3',
     sansBold: 'HiraginoSans-W6',
@@ -11,7 +11,7 @@ export const fontFamilies = Platform.select({
     serif: 'serif',
     serifBold: 'serif',
     sans: 'sans-serif',
-    sansBold: 'sans-serif',
+    sansBold: 'sans-serif-condensed',
   },
   default: {
     serif: "'BIZ UDPMincho', 'Noto Serif JP', serif",
@@ -22,11 +22,12 @@ export const fontFamilies = Platform.select({
 });
 
 export const typeScale = {
-  titleXl: { fontSize: 36, lineHeight: 50 },
-  titleLg: { fontSize: 28, lineHeight: 40 },
-  titleMd: { fontSize: 22, lineHeight: 32 },
-  titleSm: { fontSize: 18, lineHeight: 28 },
-  bodyLg: { fontSize: 16, lineHeight: 26 },
+  display: { fontSize: 46, lineHeight: 54 },
+  titleXl: { fontSize: 36, lineHeight: 44 },
+  titleLg: { fontSize: 28, lineHeight: 36 },
+  titleMd: { fontSize: 22, lineHeight: 30 },
+  titleSm: { fontSize: 18, lineHeight: 26 },
+  bodyLg: { fontSize: 16, lineHeight: 25 },
   body: { fontSize: 14, lineHeight: 22 },
   bodySm: { fontSize: 13, lineHeight: 20 },
   caption: { fontSize: 12, lineHeight: 18 },

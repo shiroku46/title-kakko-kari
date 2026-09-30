@@ -1,25 +1,41 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, radii, spacing } from '../../theme';
-import Stamp from './Stamp';
+import { colors, radii } from '../../theme';
+
+const AVATAR_COLORS = [colors.yellow, colors.cyan, colors.pink, colors.green, '#B7A8FF', '#FFB46A'];
+
+function colorForName(name = '') {
+  const sum = [...name].reduce((total, ch) => total + ch.charCodeAt(0), 0);
+  return AVATAR_COLORS[sum % AVATAR_COLORS.length];
+}
 
 export default function PlayerCard({ player, isMe = false, isHost = false, status, style }) {
-  const initial = (player?.nickname ?? '?').charAt(0);
+  const nickname = player?.nickname ?? '参加待ち';
+  const initial = nickname === '参加待ち' ? '?' : nickname.charAt(0);
+  const empty = nickname === '参加待ち' || !player;
 
   return (
-    <View style={[styles.base, isMe && styles.baseMe, style]}>
-      <View style={[styles.avatar, isHost && styles.avatarHost]}>
-        <Text style={[styles.initial, isHost && styles.initialHost]}>{initial}</Text>
+    <View style={[styles.base, isMe && styles.baseMe, empty && styles.empty, style]}>
+      <View style={[styles.avatar, { backgroundColor: empty ? '#E8EDF0' : colorForName(nickname) }]}>
+        <Text style={[styles.initial, empty && styles.initialEmpty]}>{initial}</Text>
+        {isHost && (
+          <View style={styles.crown}>
+            <Text style={styles.crownText}>★</Text>
+          </View>
+        )}
       </View>
       <View style={styles.info}>
         <Text style={styles.name} numberOfLines={1}>
-          {player?.nickname ?? '—'}
-          {isMe ? ' (あなた)' : ''}
+          {nickname}
+          {isMe ? '（あなた）' : ''}
         </Text>
-        {isHost && <Text style={styles.hostLabel}>ホスト</Text>}
+        <Text style={styles.meta}>
+          {isHost ? 'ホスト' : status === 'submitted' ? '提出済み' : empty ? '空席' : '参加中'}
+        </Text>
       </View>
-      {status === 'ready' && <Stamp type="準備OK" size="sm" />}
-      {status === 'submitted' && <Stamp type="封" size="sm" />}
+      {status && !empty && (
+        <View style={[styles.statusDot, status === 'submitted' && styles.statusSubmitted]} />
+      )}
     </View>
   );
 }
@@ -28,28 +44,58 @@ const styles = StyleSheet.create({
   base: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.paper,
+    backgroundColor: colors.white,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
-    padding: spacing.sm + 4,
-    gap: spacing.sm,
+    padding: 12,
+    gap: 10,
+    minHeight: 68,
   },
   baseMe: {
-    borderColor: colors.navy,
+    borderColor: colors.red,
+    backgroundColor: '#FFF3F6',
+  },
+  empty: {
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(255,255,255,0.55)',
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.paperSubtle,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: colors.navy,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  initial: { fontSize: 17, fontWeight: '900', color: colors.navy },
+  initialEmpty: { color: colors.muted },
+  crown: {
+    position: 'absolute',
+    top: -10,
+    right: -7,
+    backgroundColor: colors.yellow,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.navy,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarHost: { backgroundColor: colors.navy },
-  initial: { fontSize: 16, fontWeight: '700', color: colors.ink },
-  initialHost: { color: colors.white },
-  info: { flex: 1 },
-  name: { fontSize: 14, fontWeight: '500', color: colors.ink },
-  hostLabel: { fontSize: 10, color: colors.muted, marginTop: 2 },
+  crownText: { color: colors.navy, fontSize: 10, fontWeight: '900' },
+  info: { flex: 1, minWidth: 0 },
+  name: { fontSize: 14, fontWeight: '800', color: colors.navy },
+  meta: { fontSize: 11, color: colors.muted, marginTop: 2 },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.green,
+    borderWidth: 1,
+    borderColor: colors.navy,
+  },
+  statusSubmitted: { backgroundColor: colors.red },
 });

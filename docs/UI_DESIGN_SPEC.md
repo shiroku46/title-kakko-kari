@@ -1,214 +1,278 @@
-# UI Design Specification — 文具風レスポンシブUI
+# UI Design Specification — ポップゲームUI（2026-09-30）
 
-## Design concept
+## Status
 
-「文房具に囲まれたタイトル企画会議」。ユーザーが紙にタイトルを書き、候補を並べ、印を押して本物を選ぶ感覚。Webアプリとしての可読性・操作性・レスポンシブ性を優先。
+- **採用方向**：ポップな2DゲームUI
+- **適用範囲**：ホーム、ロビー、ゲーム各フェーズ、結果、最終順位、ルール、ホーム内接続設定
+- **旧方向**：机上の紙コラージュ／写真風文具UIは不採用
+- **目的**：親しみやすく、ゲーム進行が即座に理解でき、PCとスマートフォンで同じ視覚文法を使えるUIへ再制作する
 
 ---
 
-## Color tokens (`client/src/theme/tokens.js`)
+## Core concept
+
+「言葉を使って、みんなで遊ぶ」が一目で伝わる日本製パーティーゲーム風UI。
+
+- 物理的な机・木目・コーヒー・写真表現を使わない
+- フラットな2Dグラフィックを基本にする
+- 濃紺を土台に、クリーム、赤、黄、水色、ピンク、緑を状態色として使う
+- 太く読みやすい見出しと、大きな主要操作を優先する
+- 紙・ノート・テープ・カードのモチーフは、現実物の再現ではなく平面的な図形として使う
+- 画面ごとに役割は変えても、枠線、角丸、影、文字階層、色の意味を統一する
+
+---
+
+## Color tokens
+
+`client/src/theme/tokens.js`を正本とする。
 
 | Token | Value | Usage |
-|-------|-------|-------|
-| `paper` | `#FFFDF8` | カード・パネル背景 |
-| `canvas` | `#F7F1E4` | 画面全体の背景 |
-| `paperSubtle` | `#E9DECB` | secondary ボタン、入力背景のサブ |
-| `wood` | `#D8C3A5` | 文具装飾 |
-| `ink` | `#25211D` | 通常本文 |
-| `navy` | `#18344B` | 補助見出し・副操作・ホスト強調 |
-| `vermilion` | `#B83A2F` | 主要操作・提出・投票選択・正解・判子 |
-| `green` | `#47745C` | 成功状態 |
-| `blue` | `#5B86A5` | 補助情報 |
-| `mustard` | `#C99A3D` | MVP・付箋 |
-| `rose` | `#C88982` | 装飾・付箋 |
-| `muted` | `#8E8B84` | 補助テキスト・無効状態 |
-| `border` | `#D9CFC1` | 罫線・枠 |
-| `white` | `#FFFFFF` | テキストの反転 |
+|---|---:|---|
+| `navy` | `#0B2D4D` | ヘッダー、主要見出し、強い枠線 |
+| `navyDeep` | `#071F36` | 背景・濃い境界 |
+| `cream` | `#FFF7E8` | 紙面、フォーム、説明面 |
+| `paper` | `#FFFCF5` | 一般パネル |
+| `canvas` | `#EAF4F6` | 画面背景 |
+| `cyan` | `#4FC4D4` | 補助情報、待機、説明 |
+| `blue` | `#2F87D7` | 参加・副操作 |
+| `yellow` | `#FFD45B` | 選択、注目、ロビー、MVP |
+| `red` | `#EB4057` | 主要CTA、正解、確定 |
+| `pink` | `#FF9DBB` | 注意、知っている宣言、装飾 |
+| `green` | `#68BE86` | 成功・完了 |
+| `ink` | `#13263D` | 本文 |
+| `muted` | `#65778A` | 補助文 |
+| `border` | `#B9CBD7` | 弱い境界 |
+| `white` | `#FFFFFF` | 反転文字・明るい面 |
+
+### Semantic rules
+
+- 赤：確定、提出、次へ、正解
+- 青：参加、補助操作
+- 黄：選択中、注目、MVP
+- 水色：説明、待機、情報
+- 緑：成功、完了
+- 色だけで意味を示さず、文言・枠・記号を併用する
 
 ---
 
-## Typography (`client/src/theme/typography.js`)
+## Geometry
 
-| 用途 | フォントファミリー |
-|------|------------------|
-| タイトル・お題・正解 | iOS: `HiraMinProN-W3/W6` / Android: `serif` / Web: `BIZ UDPMincho`, `Noto Serif JP`, `serif` |
-| UI見出し・本文・ボタン | iOS: `HiraginoSans-W3/W6` / Android: `sans-serif` / Web: `BIZ UDPGothic`, `Noto Sans JP`, `sans-serif` |
-
-外部フォントのネットワーク読み込みは必須としない。システムフォントフォールバックで動作する。
-
----
-
-## Responsive breakpoints
-
-| 名称 | 幅 | レイアウト |
-|------|----|----------|
-| Mobile | < 768px | 1カラム |
-| Tablet | 768–1023px | 2カラム |
-| PC | ≥ 1024px | 2〜3カラム |
-
-- PC最大コンテンツ幅: `1280px`
-- Mobile基準: `390px`
-- PC基準: `1440px`
-- 主要操作の最小タップ領域: `44×44px`
-
-`useResponsiveLayout` hook (`client/src/hooks/useResponsiveLayout.js`) で一元管理。各画面での独立した幅判定を禁止。
+- パネル角丸：20px前後
+- 操作ボタン角丸：14px
+- 小ラベル角丸：10px
+- ピル：状態・人数・短い補助表示だけ
+- 主要枠：2pxの濃紺
+- 大きな結果面：3pxまで許可
+- 影：濃紺由来の弱い下方向シャドウ
+- 多重カード、ガラス表現、過度なグラデーションは禁止
 
 ---
 
-## Shared components (`client/src/components/ui/`)
+## Typography
 
-### PaperPanel
-- `variant: flat | elevated`
-- 生成り紙色 (`#FFFDF8`)、罫線 (`#D9CFC1`)、軽い影
-- 全カード・情報パネルに使用
+- UIはゴシック系を基本にする
+- タイトルロゴ・大見出しは太字、本文は可読性を優先
+- 外部Webフォントは必須にしない
+- ボタン、入力、ラベルをブラウザ既定サイズに任せない
+- PCとMobileで階層は維持し、サイズだけ縮小する
 
-### StationeryButton
-- `variant: primary | secondary | ghost | disabled | loading`
-- primary: vermilion背景・白テキスト
-- secondary: paperSubtle背景・border枠・inkテキスト
-- ghost: 透明背景・mutedテキスト
-- 最小高さ: 44px
-- `accessibilityRole="button"`, `accessibilityState={{ disabled }}`
+### Scale
 
-### Stamp
-- type: `仮 | 封 | 推 | 真 | 得 | 準備OK`
-- 朱色丸印（`仮 封 推 真 得`）または横長印（`準備OK`）
-- `animate` prop でスプリングアニメーション（提出・投票・公開の山場）
-- 装飾として `accessibilityElementsHidden`
-
-### StickyNote
-- `color: blue | mustard | rose | green`
-- 左border accent + 半透明背景
-- 装飾用途: `accessibilityElementsHidden`
-
-### PlayerCard
-- `isMe`, `isHost`, `status: ready | submitted`
-- ホストはnavyアバター
-- 自分は navy枠
-
-### TitleCard
-- `variant: hidden | revealed | selected | correct | fake`
-- correct時: vermilion枠 + `真` 判子
-- selected時: vermilion枠 + `推` 判子
-- 長いタイトルを `numberOfLines={4}` で安全に表示
-
-### VoteOption
-- `selected` 時: vermilion枠 + `推` 判子
-- `accessibilityRole="radio"`, `accessibilityState={{ checked, disabled }}`
-
-### TitleInputSheet
-- お題（あらすじ）→ 罫線 → 入力欄 → 文字数 → 提出ボタン
-- 提出後: `封` 判子 + 提出済みタイトル表示
-
-### ScoreRow
-- 順位・名前・増減・得点・（1位には `得` 判子）
-- `isMe` で navy強調
-
-### RoundHeader
-- ラウンド数ピル（paperSubtle背景 navy文字）
-- フェーズ名（大きめ）
-- 出題者名（小さめ muted）
+- ロゴ：44px
+- 画面大見出し：28–38px
+- パネル見出し：18–24px
+- 本文：14–16px
+- 補助文：10–12px
+- 主要CTA：15px以上、太字
 
 ---
 
-## Decorative components (`client/src/components/decor/StationeryDecor.js`)
+## Shared component families
 
-- `Clip`: ダブルクリップ模倣（View 矩形+内枠）
-- `MaskingTape`: 半透明帯（色・角度変更可）
-- `Pencil`: 鉛筆形（mustard 長方形 + 三角tip）
-- `Eraser`: 消しゴム（rose 矩形）
-- `Bookmark`: しおり（vermilion 帯）
+### `GameLogo`
 
-すべて `accessibilityElementsHidden`。外部画像URLに非依存。
+- 「タイトル」は濃紺、「たほいや」は赤
+- 太く、短時間で判読できる
+- compact版をヘッダー、full版をホームに使用
+
+### `PopBackdrop`
+
+- canvas背景
+- 水色・ピンクの大きな淡色形
+- 小さな紙片・ラインを少数配置
+- 操作領域を隠さない
+- 写真や木目は使用しない
+
+### `PaperPanel`
+
+- `tone`: white / cream / sky / yellow / pink / navy
+- 原則2px枠
+- elevatedは主要操作面だけ
+- すべてをカード化せず、画面構造上必要なまとまりに限定
+
+### `StationeryButton`
+
+- `primary`: 赤、主要確定
+- `secondary`: 青、参加・副操作
+- `yellow`: 選択・強調
+- `neutral`: 白、戻る・再取得
+- `ghost`: 弱い補助導線
+- 最小高さ50px
+
+### `PlayerCard`
+
+- 文字イニシャルのアバター
+- 名前から色を決定し、同一人物は同じ色
+- ホストは星印
+- 自分、空席、提出済みを枠・文言・点で区別
+
+### `RoundHeader`
+
+- 濃紺のフェーズ見出し
+- ラウンド数、出題者、現在フェーズ
+- 下部の赤・黄・水色ラインを共通モチーフにする
+
+### `VoteOption`
+
+- 選択前は白
+- 選択時は黄色
+- ラジオ、文言、選択ラベルを併用
+- 自分の案へ投票できない等の既存制約は通信側を維持
+
+### `ScoreRow`
+
+- 順位バッジ、名前、得点
+- 1位は黄色
+- 自分は水色
+- 表としての読みやすさを優先
 
 ---
 
-## Screen layouts
+## Screen anatomy
 
-### HomeScreen
-**Mobile**: ロゴ（明朝）→ 付箋2枚 → PaperPanel（ニックネーム・CTA）→ ルールリンク → サーバー設定（折りたたみ）
-**PC**: 左: ロゴ・説明・付箋・装飾ヒーロー領域 / 右: `width: 380px` フォームパネル
+### Home
 
-### LobbyScreen
-**Mobile**: ルームコード（navy大文字）→ 参加者リスト → 設定パネル（ホストのみ）→ アクション
-**PC**: 上部ルームコードカード / 左: プレイヤーグリッド（flex-wrap 3列）/ 右: 設定＋アクション
+- 上部：ロゴ、遊び方、接続設定
+- 左：ゲーム説明、サンプルタイトル、3つの特徴
+- 右：ニックネーム、ルーム作成・参加
+- Mobile：縦積み
+- 接続設定は折りたたみ
+- 主要CTAは「ルームを作る」「ルームに参加する」
 
-### GameScreen (ConfirmingPhase)
-- ホスト: あらすじ確認 → 再取得 / 進む
-- 非ホスト: 待機表示
+### Lobby
 
-### GameScreen (SelectingPhase)
-- 出題者: あらすじ入力（Wikipedia自動取得）→ 提示 → 知ってる宣言待ち → 提出フェーズへ
-- 回答者: あらすじ表示 → 知ってる！/ 知らない
+- ルームコードを最上位に表示
+- 6人分の参加枠を常に表示
+- ホストは出題モード・CPUラウンド数を設定
+- 非ホストは待機状態
+- 4人未満の開始拒否を明示
 
-### GameScreen (SubmittingPhase)
-- 回答者: `TitleInputSheet` が主役
-- 提出後: `封` 判子 + 提出済み表示
-- 出題者: 提出数カウント表示
+### CPU synopsis confirmation
 
-### GameScreen (VotingPhase)
-**Mobile**: 候補縦リスト → 投票確定CTA
-**PC**: 左main: あらすじ + 投票候補 / 右side: 進捗パネル
-- 選択: `推` 判子 + vermilion枠
+- ホストだけが確認・再取得・確定
+- 非ホストは待機面
+- あらすじ本文を主役にする
 
-### GameScreen (RevealedPhase)
-- 本物タイトル: navy背景 + `真` 判子（animate）
-- PC: 左: 投票結果 + MVP / 右: 自分の得点 + スコアボード + 次ラウンドCTA
-- Mobile: 縦積み同内容
+### Player synopsis / knowledge declaration
 
-### ResultScreen
-- 優勝カード: `得` 判子 + 明朝大タイトル
-- 全順位 ScoreRow リスト
-- PC: 中央 maxWidth:600
+- 出題者：作品・あらすじ・本物タイトルを入力
+- 回答者：あらすじを読み「知ってる」「知らない」
+- 全員の宣言状況を成功・注意面で表示
 
-### RulesScreen
-- ノート番号付き手順（PaperPanel × セクション数）
-- StickyNote で攻略ヒント
-- PC: maxWidth:800 中央
+### Fake title submission
+
+- 入力面を主役にする
+- 文字数、提出、提出済み状態
+- 出題者は提出人数だけを見る
+
+### Voting
+
+- あらすじ、候補、投票状況
+- 選択時は黄色
+- 確定CTAは赤
+- 出題者は進行状況を見る
+
+### Round result
+
+- 正解タイトルを濃紺の大面で表示
+- 候補・作者・票数
+- 自分の得点
+- 現在順位
+- 出題者のみMVP
+- 次ラウンド／最終結果
+
+### Final result
+
+- 優勝者を黄色の大面
+- 全順位
+- もう一度遊ぶ
+- ホームへ戻る
+
+### Rules
+
+- 6ステップのフロー
+- 得点ルール
+- 2つのコツ
+- カードは情報単位として使用し、装飾目的で増やさない
+
+---
+
+## Responsive rules
+
+- Mobile：`<768px`
+- Tablet：`768–1023px`
+- PC：`>=1024px`
+- 最大コンテンツ幅：1280px
+- Mobileは1カラム
+- PCは主情報と進行情報の2カラム
+- 横スクロールを発生させない
+- 主要タップ領域は44px以上
+- 390×844、1024×768、1440×900を基準に確認
 
 ---
 
 ## Motion
 
-- StampコンポーネントのSpringアニメーション: 80ms遅延 → 1.15倍 → 1.0倍
-- 全体的に 150〜300ms 以内のフェード・スプリング
-- 常時揺れる装飾・背景動画なし
-
----
-
-## Accessibility
-
-- 主要 Touchable: `minHeight: 44`
-- `accessibilityRole`, `accessibilityLabel`, `accessibilityState` を全ボタン・入力に付与
-- 装飾要素: `accessibilityElementsHidden / importantForAccessibility="no-hide-descendants"`
-- 色だけで状態を示さず、判子・枠・文言を併用
-- `focusable` フォーカス枠: RN Web のデフォルト `:focus-visible` を維持
+- 画面遷移：短いfade
+- 正解・MVP・提出完了：scale + opacity
+- 常時動く装飾は禁止
+- 操作を待たせる演出は禁止
+- OSのモーション低減設定を妨げない
 
 ---
 
 ## Prohibited patterns
 
-- `#FF3B5C` など旧メイン色の直書き禁止
-- 外部画像URL・外部Webフォント必須化 禁止
-- `server/**`, `supabase/**`, `.github/**` 変更禁止
-- Socketイベント名・Navigation route名の変更禁止
-- PC幅で中央にスマホ幅UIを置くだけの実装禁止
+- 木目、机上写真、コーヒー、万年筆などのフォトリアル背景
+- 物理的な紙束のコラージュ
+- 紫〜青のAI風グラデーション
+- ガラスモーフィズム
+- すべてを同じ丸角カードへ入れる
+- 絵文字を主要UIアイコンとして乱用する
+- 英語ラベルだけで意味を伝える
+- 外部画像URL、外部フォント必須化
+- 通信イベント、payload、採点、人数条件、Navigation routeの変更
 
 ---
 
-## Allowed paths (from Issue #3)
+## Implementation boundary
 
-```
-docs/UI_DESIGN_SPEC.md
-client/App.js
-client/src/theme/**
-client/src/components/ui/**
-client/src/components/decor/**
-client/src/hooks/useResponsiveLayout.js
-client/src/screens/HomeScreen.js
-client/src/screens/LobbyScreen.js
-client/src/screens/GameScreen.js
-client/src/screens/ResultScreen.js
-client/src/screens/RulesScreen.js
-client/src/components/phases/**
-```
+変更対象：
+
+- `docs/UI_DESIGN_SPEC.md`
+- `client/App.js`
+- `client/src/theme/**`
+- `client/src/components/ui/**`
+- `client/src/screens/**`
+- `client/src/components/phases/**`
+
+変更しないもの：
+
+- `server/**`
+- Socket.IOイベント名とpayload
+- 採点
+- ラウンド進行
+- 人数条件
+- Provider設定
+- Secrets
+- Workflow

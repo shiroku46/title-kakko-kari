@@ -1,49 +1,50 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, radii, shadows } from '../../theme';
+import { colors, radii } from '../../theme';
 
-const ACCENT = {
-  blue: colors.blue,
-  mustard: colors.mustard,
-  rose: colors.rose,
-  green: colors.green,
-};
-
-const BG = {
-  blue: '#EFF4FA',
-  mustard: '#FBF5E6',
-  rose: '#FAF0EF',
-  green: '#EFF6F2',
+const PALETTES = {
+  blue: { backgroundColor: '#DDF5F8', borderColor: colors.cyan, text: colors.navy },
+  mustard: { backgroundColor: '#FFF1B3', borderColor: colors.yellow, text: colors.navy },
+  rose: { backgroundColor: '#FFE2EC', borderColor: colors.pink, text: colors.navy },
+  green: { backgroundColor: '#E0F4E6', borderColor: colors.green, text: colors.navy },
 };
 
 export default function StickyNote({ children, color = 'mustard', style }) {
-  const accent = ACCENT[color] ?? colors.mustard;
-  const bg = BG[color] ?? BG.mustard;
-
+  const palette = PALETTES[color] ?? PALETTES.mustard;
   return (
     <View
-      style={[styles.base, { backgroundColor: bg, borderLeftColor: accent }, style]}
+      style={[styles.base, palette, style]}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
+      <View style={[styles.tape, { backgroundColor: palette.borderColor }]} />
       {typeof children === 'string' ? (
-        <Text style={[styles.text, { color: accent }]}>{children}</Text>
-      ) : (
-        children
-      )}
+        <Text style={[styles.text, { color: palette.text }]}>{children}</Text>
+      ) : children}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
-    borderLeftWidth: 4,
+    position: 'relative',
     borderRadius: radii.sm,
-    padding: 12,
-    ...shadows.paper,
+    borderWidth: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  tape: {
+    position: 'absolute',
+    width: 34,
+    height: 8,
+    top: -6,
+    left: 16,
+    opacity: 0.72,
+    transform: [{ rotate: '-4deg' }],
   },
   text: {
     fontSize: 13,
     lineHeight: 20,
+    fontWeight: '700',
   },
 });

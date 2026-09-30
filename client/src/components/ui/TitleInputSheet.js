@@ -19,14 +19,15 @@ export default function TitleInputSheet({
 
   if (submitted) {
     return (
-      <PaperPanel>
+      <PaperPanel tone="yellow" variant="elevated">
         <View style={styles.submittedRow}>
           <Stamp type="封" size="md" animate />
           <View style={styles.submittedInfo}>
             <Text style={styles.submittedLabel}>タイトル案を提出しました</Text>
             <Text style={styles.submittedTitle} numberOfLines={3}>
-              「{submittedTitle}」
+              {submittedTitle}
             </Text>
+            <Text style={styles.submittedNote}>ほかの参加者の提出を待っています。</Text>
           </View>
         </View>
       </PaperPanel>
@@ -34,64 +35,127 @@ export default function TitleInputSheet({
   }
 
   return (
-    <PaperPanel>
+    <PaperPanel tone="cream" variant="elevated">
+      <View style={styles.headingRow}>
+        <View>
+          <Text style={styles.kicker}>YOUR TITLE</Text>
+          <Text style={styles.heading}>それっぽいタイトルを考える</Text>
+        </View>
+        <View style={styles.pencilBadge}>
+          <Text style={styles.pencilText}>✎</Text>
+        </View>
+      </View>
+
       {synopsis ? (
-        <>
+        <View style={styles.synopsisBox}>
           <Text style={styles.fieldLabel}>お題のあらすじ</Text>
           <Text style={styles.synopsis}>{synopsis}</Text>
-          <View style={styles.divider} />
-        </>
+        </View>
       ) : null}
-      <Text style={styles.fieldLabel}>タイトル案を記入</Text>
+
+      <Text style={styles.fieldLabel}>タイトル案</Text>
       <TextInput
         style={styles.input}
-        placeholder="本物らしいタイトルを考えて..."
+        placeholder="本物らしいタイトルを入力"
         placeholderTextColor={colors.muted}
         value={value}
         onChangeText={onChangeText}
         maxLength={maxLength}
         accessibilityLabel="タイトル案の入力欄"
       />
-      <Text style={styles.charCount}>{charCount} / {maxLength}</Text>
+      <View style={styles.metaRow}>
+        <Text style={styles.hint}>短くても、長くてもOK。</Text>
+        <Text style={styles.charCount}>{charCount} / {maxLength}</Text>
+      </View>
       <StationeryButton
         variant="primary"
         onPress={onSubmit}
         loading={loading}
         disabled={!value?.trim()}
         accessibilityLabel="タイトル案を提出する"
-        style={styles.submitBtn}
       >
-        提出する
+        タイトル案を提出する →
       </StationeryButton>
     </PaperPanel>
   );
 }
 
 const styles = StyleSheet.create({
-  fieldLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.muted,
-    marginBottom: 6,
-    letterSpacing: 0.5,
+  headingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 16,
   },
-  synopsis: { fontSize: 15, color: colors.ink, lineHeight: 24, marginBottom: 16 },
-  divider: { height: 1, backgroundColor: colors.border, marginBottom: 16 },
-  input: {
-    backgroundColor: colors.canvas,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
-    fontSize: 16,
-    color: colors.ink,
-    minHeight: 50,
+  kicker: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.6,
+    color: colors.red,
     marginBottom: 4,
   },
-  charCount: { fontSize: 11, color: colors.muted, textAlign: 'right', marginBottom: 14 },
-  submitBtn: {},
+  heading: {
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: '900',
+    color: colors.navy,
+  },
+  pencilBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: colors.cyan,
+    borderWidth: 2,
+    borderColor: colors.navy,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ rotate: '5deg' }],
+  },
+  pencilText: { fontSize: 21, color: colors.navy, fontWeight: '900' },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: colors.navy,
+    marginBottom: 7,
+    letterSpacing: 0.5,
+  },
+  synopsisBox: {
+    backgroundColor: colors.white,
+    borderRadius: radii.md,
+    borderWidth: 2,
+    borderColor: colors.border,
+    padding: 14,
+    marginBottom: 16,
+  },
+  synopsis: { fontSize: 14, color: colors.ink, lineHeight: 22 },
+  input: {
+    backgroundColor: colors.white,
+    borderRadius: radii.md,
+    borderWidth: 2,
+    borderColor: colors.navy,
+    paddingHorizontal: 15,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: colors.ink,
+    minHeight: 54,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    marginBottom: 14,
+  },
+  hint: { fontSize: 11, color: colors.muted },
+  charCount: { fontSize: 11, color: colors.muted, fontWeight: '700' },
   submittedRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   submittedInfo: { flex: 1 },
-  submittedLabel: { fontSize: 12, color: colors.muted, marginBottom: 4 },
-  submittedTitle: { fontSize: 17, fontWeight: '700', color: colors.ink, lineHeight: 26 },
+  submittedLabel: { fontSize: 12, color: colors.muted, marginBottom: 5 },
+  submittedTitle: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: colors.navy,
+    lineHeight: 27,
+  },
+  submittedNote: { fontSize: 11, color: colors.muted, marginTop: 6 },
 });

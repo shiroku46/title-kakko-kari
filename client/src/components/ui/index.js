@@ -8,3 +8,5 @@ export { default as VoteOption } from './VoteOption';
 export { default as TitleInputSheet } from './TitleInputSheet';
 export { default as ScoreRow } from './ScoreRow';
 export { default as RoundHeader } from './RoundHeader';
+export { default as GameLogo } from './GameLogo';
+export { default as PopBackdrop } from './PopBackdrop';
