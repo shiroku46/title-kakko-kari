@@ -1,76 +1,50 @@
-# Release Status
+# Release Status — タイトルたほいや（仮）
 
-最終更新: 2026-08-03
+最終更新: 2026-09-05
 
-## 公開URL
+## 現在の判定
 
-- Web Client: `https://title-kakko-kari-46mastei-4511s-projects.vercel.app/`
-- Server: `https://title-kakko-kari.onrender.com`
-- Health check: `https://title-kakko-kari.onrender.com/health`
+**Supabase撤去版を実装し、ローカルの通信E2Eとブラウザでの通常プレイを検証済み。公開反映・公開環境E2Eは未完了。** Issue #37は継続します。2026-08のSupabase接続修復は現在の完成条件ではありません。
 
-VercelのDeployment Protectionは解除済みで、Renderの `/health` は `status: ok` を確認済みです。公開Vercelからの接続を妨げていたCORS / Socket.IO問題はIssue #11で修正され、mainへ反映済みです。部屋作成・参加を含む本番E2E確認が終わるまでは「完全動作確認済み」とは扱いません。
+## 今回の実装
 
-## 実装済み
+- Supabaseクライアント、環境変数、DB通信、専用診断経路を撤去。
+- 部屋・参加者・ラウンド・宣言・回答・投票・採点をサーバー内のセッションとして管理。
+- 既存Socket.IOイベントと結果の表示形式を維持。正解1点、欺き票数分、MVP1点。
+- 同時参加の最大6人、重複提出・投票、MVPの重複加点、別ラウンドへの投票を防止。
+- CPUあらすじ確定時に全回答者へ配信。取得失敗時の再取得、切断後のホスト交代を接続。
+- ホーム・アプリ名・ブラウザタイトル・テスト画面を「タイトルたほいや」へ統一。
 
-- ゲームコアロジック（Socket.IOベース）
-- Supabaseによるルーム・プレイヤー・ラウンド管理
-- プレイヤー出題モード / CPU出題モード（Wikipedia連携）
-- タイトル提出、投票、採点、MVP、ゲーム終了フロー
-- 文具風レスポンシブUI（モバイル・PC対応）
-- 公開Web接続のCORS / Socket.IO対策
-- 参加人数バリデーション
-  - 通常: 4〜6人
-  - 開発opt-in: 3〜6人
-  - 2人以下: 常時拒否
-- Expo Web静的ビルドとSPAフォールバック
-- 製品向けREADME
+## 検証
 
-## 検証済み
+| 検証 | 結果 | 範囲 |
+|---|---|---|
+| Pythonテスト | PASS（62件） | 人数・接続設定・安全なネットワーク診断 |
+| Socket.IO E2E | PASS（13件） | production設定、4/5/6人×両モード、採点・MVP・最終順位、同時操作、切断、CPU取得失敗 |
+| 公開origin相当の通信 | PASS（ローカル） | HTTP CORS、WebSocket/polling、許可以外のorigin拒否 |
+| ブラウザ通常プレイ | PASS | Chrome 4コンテキスト、4ラウンド、提出→投票→MVP→最終順位 |
+| 画面・実行時エラー | PASS | 1440×1000 / 390×844、白画面・エラー表示なし、console/page errorsなし |
+| Expo Web build | PASS | client/dist出力 |
+| 公開用ファイル検査・Repository検査 | PASS | Foundationファイルの内容変更なし |
+| 公開URLでの移行版E2E | 未実施 | 公開版へ未反映 |
 
-- 通常環境では4人未満をClient / Serverの両方で拒否する実装
-- `NODE_ENV=development` と明示opt-inの組み合わせだけ3人を許可する実装
-- unset / test / staging / production / typo / その他環境は4人へfail closed
-- CI / Unit Tests
-- Expo Web build
-- Vercel公開
-- Render health check
-- CORS / Socket.IO修正のmain反映
+ブラウザ検証はBrowser pluginが利用できないため、同梱PlaywrightとローカルChromeを使用。対象は `http://127.0.0.1:8087`（Web）と `http://127.0.0.1:3177`（Server）。CPU通信E2EのWikipediaは固定応答であり、実際のWikipedia疎通・公開環境の成功証拠ではありません。既存GitHub Product CIはPython・Web build・Server構文を実行し、新しいSocket.IO E2Eは今回ローカルで実行しました。
 
-## 現在の未完了項目
+## 運用上の境界
 
-### 公開環境E2E確認
+- 単一プロセス・単一インスタンスが必要。Renderの再起動、休止、デプロイでゲーム状態は失われます。
+- 最後の参加者の切断で部屋を削除。画面更新・再接続から旧プレイヤーへ復帰する機能はありません。
+- 複数インスタンス、ゲーム履歴、再起動後の続行は未対応。必要性が確定した場合だけ永続保存方式を選び直します。
+- 仮タイトルであり、正式タイトル確定ではありません。同梱の旧ルールブックPDFは参考原本として保持します。
 
-残る確認は、最新mainがVercel / Renderへ反映された公開環境で次の操作が成立することです。
+## 公開後の確認項目
 
-- Vercel originから `/health` を取得できる
-- Socket.IO handshakeが成功する
-- 「ルームを作る」で6桁コードを持つLobbyへ遷移する
-- 別ブラウザまたは別端末から同じコードで参加する
-- 4人未満では本番ゲーム開始を拒否し、4〜6人で開始できる
+1. [Vercel Web](https://title-kakko-kari-46mastei-4511s-projects.vercel.app/) と [Render health](https://title-kakko-kari.onrender.com/health) が対象コミットを反映していること。
+2. Vercel originからの接続とSocket.IO通信が成立すること。
+3. 部屋作成→3人参加→4人開始→提出→投票→採点・MVP→最終順位まで成立すること。
+4. CPUモードが実Wikipediaの応答で同じ流れを完走し、あらすじが全員へ届くこと。
+5. 4人未満の開始拒否、最大6人、切断、再起動後の部屋作り直しを確認すること。
 
-この確認が終わるまでは、MVPを「完全動作確認済み」とは扱いません。
+今回、デプロイ・本番設定・Secret・課金・Repository設定は変更していません。公開確認が終わるまでMVP完成とは判定しません。
 
-## Server URLの設定方法
-
-現在のClientは `client/src/config.js` にあるRender URLを既定値として使用します。ホーム画面の「サーバー設定」から接続先を変更できます。
-
-`EXPO_PUBLIC_SERVER_URL` は現在の実装では読み込まないため、Vercelやローカル環境へ設定しても接続先変更には使われません。
-
-## Figma残件
-
-- 完了: 基礎デザイントークン、タイポグラフィ、主要UIコンポーネント
-- 未完了: 全スマートフォン画面・PC画面のFigma上での高精度な清書
-- 判断: Figma全画面清書はドキュメント残件であり、コード公開や部屋作成修正のブロッカーにはしない
-
-## デプロイ後の確認項目
-
-1. 公開URLをシークレットウィンドウで開ける
-2. ニックネームを入力してルームを作成できる
-3. 別ブラウザまたは別端末から6桁コードで参加できる
-4. 4人未満では本番ゲームを開始できない
-5. 4〜6人でプレイヤー出題 / CPU出題を開始できる
-6. 提出、投票、結果発表、最終順位まで進行できる
-
-## 人間操作が必要になる可能性がある箇所
-
-GitHub連携によるVercel / Renderの自動デプロイが有効なら、mainへのマージ後は通常自動で反映されます。自動デプロイされない場合に限り、各サービスのダッシュボードから最新mainの再デプロイが必要です。Secret値をチャットやIssueへ記載してはいけません。
+Figmaの残件は全画面の清書です。接続先はホームの「サーバー設定」から変更でき、`EXPO_PUBLIC_SERVER_URL` は未対応です。

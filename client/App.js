@@ -13,7 +13,7 @@ const Stack = createNativeStackNavigator();
 
 export default function App() {
   return (
-    <NavigationContainer>
+    <NavigationContainer documentTitle={{ formatter: () => 'タイトルたほいや' }}>
       <StatusBar style="dark" />
       <Stack.Navigator
         screenOptions={{

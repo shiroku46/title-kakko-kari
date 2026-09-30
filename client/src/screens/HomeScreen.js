@@ -227,7 +227,7 @@ export default function HomeScreen({ navigation }) {
               <View style={styles.logoStampRow}>
                 <Stamp type="仮" size="sm" style={styles.logoStamp} />
               </View>
-              <Text style={styles.pcTitle}>タイトルの名付け親は誰だ？</Text>
+              <Text style={styles.pcTitle}>タイトルたほいや</Text>
               <Text style={styles.pcSubtitle}>命名系クイズゲーム</Text>
             </View>
 
@@ -287,7 +287,7 @@ export default function HomeScreen({ navigation }) {
           <View style={styles.logoStampRow}>
             <Stamp type="仮" size="sm" style={styles.logoStamp} />
           </View>
-          <Text style={styles.mobileTitle}>タイトルの名付け親は誰だ？</Text>
+          <Text style={styles.mobileTitle}>タイトルたほいや</Text>
           <Text style={styles.mobileSubtitle}>命名系クイズゲーム</Text>
 
           <View style={styles.mobileStickyRow}>

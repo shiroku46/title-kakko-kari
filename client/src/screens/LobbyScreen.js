@@ -17,16 +17,24 @@ export default function LobbyScreen({ navigation, route }) {
   const [gameMode, setGameMode] = useState('player'); // 'player' | 'cpu'
   const [cpuRounds, setCpuRounds] = useState(5);
   const [starting, setStarting] = useState(false);
-  const isHost = player.is_host;
+  const [isHost, setIsHost] = useState(player.is_host);
   const socket = getSocket();
   const { isPC, isMobile, contentPadding } = useResponsiveLayout();
 
   useSocketListeners({
     'room:player_joined': ({ allPlayers }) => setPlayers(allPlayers),
-    'room:player_disconnected': ({ playerId }) =>
-      setPlayers((prev) => prev.filter((p) => p.id !== playerId)),
+    'room:player_disconnected': ({ playerId }) => {
+      setPlayers((prev) => prev.filter((p) => p.id !== playerId));
+      socket.emit('room:get_state', null, (res) => {
+        if (!res.ok) return;
+        setIsHost(Boolean(res.room.players.find((p) => p.id === player.id)?.is_host));
+        setPlayers(res.room.players.filter((p) => p.is_connected).map((p) => ({
+          id: p.id, nickname: p.nickname, score: p.score, isHost: p.is_host,
+        })));
+      });
+    },
     'game:started': (data) =>
-      navigation.replace('Game', { room, player, gameData: data }),
+      navigation.replace('Game', { room, player: { ...player, is_host: isHost }, gameData: data }),
   });
 
   useEffect(() => {

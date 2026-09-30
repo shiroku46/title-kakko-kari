@@ -8,7 +8,7 @@ import { PaperPanel, StationeryButton, RoundHeader } from '../ui';
 
 export default function ConfirmingPhase({
   currentRound, totalRounds,
-  fetchedSynopsis, isHost, socket,
+  fetchedSynopsis, synopsisError, isHost, socket,
 }) {
   function handleConfirm() {
     socket.emit('round:confirm_synopsis', null, (res) => {
@@ -35,8 +35,13 @@ export default function ConfirmingPhase({
         <PaperPanel variant="elevated">
           {!fetchedSynopsis ? (
             <View style={styles.loadingBox}>
-              <ActivityIndicator color={colors.navy} size="large" />
-              <Text style={styles.loadingText}>Wikipediaから作品を取得中...</Text>
+              {!synopsisError && <ActivityIndicator color={colors.navy} size="large" />}
+              <Text style={styles.loadingText}>{synopsisError || 'Wikipediaから作品を取得中...'}</Text>
+              {synopsisError && (
+                <StationeryButton onPress={handleReroll} accessibilityLabel="あらすじを再取得">
+                  再取得
+                </StationeryButton>
+              )}
             </View>
           ) : (
             <>
