@@ -42,7 +42,9 @@ function handleDisconnect(io, socket) {
   }
   if (round.questioner_id === null && round.status === 'selecting' && round.synopsis) {
     const host = connectedPlayers.find((p) => p.is_host);
-    io.to(host.socket_id).emit('round:synopsis_fetched', { roundId: round.id, synopsis: round.synopsis });
+    io.to(host.socket_id).emit('round:synopsis_fetched', {
+      roundId: round.id, synopsis: round.synopsis, contentType: round.contentType,
+    });
   }
   checkRoundProgress(io, room, round);
 }

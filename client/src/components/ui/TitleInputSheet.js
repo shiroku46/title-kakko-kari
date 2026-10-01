@@ -50,7 +50,7 @@ export default function TitleInputSheet({
 
       {synopsis ? (
         <View style={styles.synopsisBox}>
-          <Text style={styles.fieldLabel}>お題のあらすじ</Text>
+          <Text style={styles.fieldLabel}>お題の作品紹介</Text>
           <Text style={styles.synopsis}>{synopsis}</Text>
         </View>
       ) : null}

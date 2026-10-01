@@ -296,8 +296,9 @@ export default function HomeScreen({ navigation }) {
                 ウソの題名をつくって、{!isPC && '\n'}本物を見ぬこう。
               </Text>
               <Text style={[styles.heroCopy, isPC && styles.heroCopyPC]}>
-                あらすじを読んで、ありそうな題名を考える。
+                作品の紹介文から、ありそうな題名を考える。
                 {'\n'}みんなで選んで、答え合わせ。
+                {'\n'}小説・映画・漫画・アニメ・音楽・ゲームなど。
               </Text>
               {isPC && illustration}
             </View>

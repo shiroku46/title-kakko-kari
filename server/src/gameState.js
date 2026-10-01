@@ -9,7 +9,7 @@ function createRoom() {
   do { code = String(randomInt(0, 1000000)).padStart(6, '0'); } while (rooms.has(code));
   const room = {
     id: randomUUID(), code, status: 'waiting', settings: {},
-    current_round: 0, total_rounds: 0, players: [], rounds: [],
+    current_round: 0, total_rounds: 0, players: [], rounds: [], usedQuestionIds: [],
   };
   rooms.set(code, room);
   return room;
@@ -42,12 +42,12 @@ function connectedAnswerers(room, round) {
 // Keep the existing wire fields; never expose answers, votes, declarations or
 // the real title through room:get_state / game:started / game:round_started.
 function publicRoom(room) {
-  const { rounds, ...view } = room;
+  const { rounds, usedQuestionIds, ...view } = room;
   return view;
 }
 
 function publicRound(round) {
-  const { answers, votes, declarations, fetchVersion, mvpAnswerId, ...view } = round;
+  const { answers, votes, declarations, fetchVersion, fetchError, mvpAnswerId, sourceQuestion, ...view } = round;
   return { ...view, real_title: null };
 }
 

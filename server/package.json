@@ -4,12 +4,13 @@
   "description": "タイトルたほいや - ゲームサーバー",
   "main": "src/index.js",
   "engines": {
-    "node": ">=20.0.0 <25"
+    "node": ">=20.3.0 <25"
   },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test ../tests/game-e2e.cjs"
+    "test": "node --test ../tests/game-e2e.cjs ../tests/question-generator.cjs ../tests/question-discovery.cjs ../tests/question-collector.cjs ../tests/question-service.cjs ../tests/question-store.cjs ../tests/open-question-sources.cjs",
+    "generate:questions": "node scripts/generate-questions.cjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -1,49 +1,47 @@
 const { randomUUID } = require('node:crypto');
 const { shuffle } = require('../utils/shuffle');
+const { selectQuestionAsync, findQuestion } = require('../questions');
+const { getKind } = require('../questions/kinds');
 const {
   rooms, getMember, getCurrentRound, connectedAnswerers, publicRound,
   playerScores, textInput,
 } = require('../gameState');
 
-async function fetchWikipediaSynopsis() {
-  for (let i = 0; i < 5; i++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    try {
-      const res = await fetch('https://ja.wikipedia.org/api/rest_v1/page/random/summary', { signal: controller.signal });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const title = typeof data.title === 'string' ? data.title.trim() : '';
-      const synopsis = typeof data.extract === 'string' ? data.extract.trim() : '';
-      if (!title || synopsis.length < 100) continue;
-      return { title, synopsis: synopsis.split(title).join('■■■') };
-    } catch (_) {
-      // Retry transient upstream failures without exposing response details.
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  return null;
-}
-
 async function loadCpuSynopsis(io, room, round) {
   const version = ++round.fetchVersion;
-  const work = await fetchWikipediaSynopsis();
-  // A late response must not overwrite a confirmed, skipped or abandoned round.
+  round.synopsis = null;
+  round.real_title = null;
+  round.sourceQuestion = null;
+  round.contentType = null;
+  round.fetchError = null;
+  const loadingHost = room.players.find((p) => p.is_host && p.is_connected);
+  if (loadingHost) io.to(loadingHost.socket_id).emit('round:synopsis_loading', { roundId: round.id });
+  let work;
+  let failure;
+  try {
+    work = await selectQuestionAsync(room.usedQuestionIds);
+  } catch (error) {
+    failure = error.message;
+  }
+  // A late selection must not overwrite a confirmed, skipped or abandoned round.
   if (rooms.get(room.code) !== room || getCurrentRound(room) !== round ||
       room.status !== 'playing' || round.status !== 'selecting' ||
       round.fetchVersion !== version) return;
   const host = room.players.find((p) => p.is_host && p.is_connected);
   if (!work) {
+    round.fetchError = failure || '出典付きの問題を用意できませんでした。再取得してください。';
     if (host) io.to(host.socket_id).emit('round:synopsis_fetch_failed', {
-      roundId: round.id, error: '記事を取得できませんでした。再取得してください。',
+      roundId: round.id, error: round.fetchError,
     });
     return;
   }
   round.synopsis = work.synopsis;
-  round.real_title = work.title;
+  round.real_title = work.realTitle;
+  round.sourceQuestion = work;
+  round.contentType = work.contentType || (getKind(work.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
+  room.usedQuestionIds.push(work.id);
   if (host) io.to(host.socket_id).emit('round:synopsis_fetched', {
-    roundId: round.id, synopsis: work.synopsis,
+    roundId: round.id, synopsis: work.synopsis, contentType: round.contentType,
   });
 }
 
@@ -53,8 +51,8 @@ function startRound(io, room, mode, event, playerOrder) {
   const round = {
     id: randomUUID(), room_id: room.id, round_number: room.current_round,
     questioner_id: questioner?.id ?? null, status: 'selecting',
-    synopsis: null, real_title: null, answers: [], votes: [],
-    declarations: new Map(), fetchVersion: 0, mvpAnswerId: null,
+    synopsis: null, contentType: null, real_title: null, answers: [], votes: [],
+    declarations: new Map(), fetchVersion: 0, fetchError: null, mvpAnswerId: null, sourceQuestion: null,
   };
   room.rounds.push(round);
   io.to(room.code).emit(event, {
@@ -73,13 +71,15 @@ function startSubmitting(io, room, round) {
   round.status = 'submitting';
   // CPU synopsis was private to the host until confirmation. Every answerer
   // needs it now; reuse the existing public synopsis event.
-  io.to(room.code).emit('round:synopsis_presented', { roundId: round.id, synopsis: round.synopsis });
+  io.to(room.code).emit('round:synopsis_presented', {
+    roundId: round.id, synopsis: round.synopsis, contentType: round.contentType,
+  });
   io.to(room.code).emit('round:submitting_started', { roundId: round.id });
 }
 
 function registerGameHandlers(io, socket) {
   // All state mutations are synchronous: validation and updates finish before
-  // another socket event can run. Only Wikipedia I/O runs asynchronously.
+  // another socket event can run. Question preparation is separate from gameplay.
   function on(event, handler) {
     socket.on(event, (payload, callback) => {
       try {
@@ -87,8 +87,8 @@ function registerGameHandlers(io, socket) {
         if (event !== 'game:start' && room.status !== 'playing') {
           throw new Error('ゲームが開始していないか、終了しています');
         }
-        handler(payload, room, player);
-        if (typeof callback === 'function') callback({ ok: true });
+        const result = handler(payload, room, player);
+        if (typeof callback === 'function') callback({ ok: true, ...result });
       } catch (error) {
         if (typeof callback === 'function') callback({ ok: false, error: error.message });
       }
@@ -118,12 +118,25 @@ function registerGameHandlers(io, socket) {
     })));
   });
 
+  // The initial preview can arrive while navigation is still mounting the game
+  // screen. Recover it after listeners are registered, without revealing an answer.
+  on('round:get_synopsis', (payload, room, player) => {
+    const round = getCurrentRound(room);
+    if (!player.is_host) throw new Error('ホストのみ操作できます');
+    requirePhase(round, 'selecting');
+    if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
+    if (payload?.roomId !== room.id || payload?.roundId !== round.id) throw new Error('現在の部屋とラウンドを指定してください');
+    if (!round.synopsis && !round.fetchError) return { roundId: round.id, synopsis: null, loading: true };
+    if (!round.synopsis) throw new Error(round.fetchError);
+    return { roundId: round.id, synopsis: round.synopsis, contentType: round.contentType };
+  });
+
   on('round:confirm_synopsis', (_, room, player) => {
     const round = getCurrentRound(room);
     if (!player.is_host) throw new Error('ホストのみ操作できます');
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
-    if (!round.synopsis) throw new Error('あらすじがまだ取得されていません');
+    if (!round.synopsis) throw new Error('作品の紹介文がまだ取得されていません');
     startSubmitting(io, room, round);
   });
 
@@ -139,12 +152,19 @@ function registerGameHandlers(io, socket) {
     const round = getCurrentRound(room);
     if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
     requirePhase(round, 'selecting');
-    const synopsis = textInput(payload?.synopsis, 'あらすじ', 10000);
+    const synopsis = textInput(payload?.synopsis, '作品の紹介文', 10000);
     const title = textInput(payload?.realTitle, '本物のタイトル', 500);
+    let sourceQuestion = null;
+    if (typeof payload?.questionId === 'string') {
+      const original = findQuestion(payload.questionId);
+      if (original && original.realTitle === title && original.synopsis === synopsis) sourceQuestion = original;
+    }
     round.synopsis = synopsis;
     round.real_title = title;
+    round.sourceQuestion = sourceQuestion;
+    round.contentType = sourceQuestion?.contentType || (getKind(sourceQuestion?.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
     round.declarations.clear();
-    io.to(room.code).emit('round:synopsis_presented', { roundId: round.id, synopsis });
+    io.to(room.code).emit('round:synopsis_presented', { roundId: round.id, synopsis, contentType: round.contentType });
   });
 
   for (const kind of ['known', 'unknown']) {
@@ -152,7 +172,7 @@ function registerGameHandlers(io, socket) {
       const round = getCurrentRound(room);
       if (round.questioner_id === player.id || round.questioner_id === null) throw new Error('回答者のみ操作できます');
       requirePhase(round, 'selecting');
-      if (!round.synopsis) throw new Error('あらすじが提示されていません');
+      if (!round.synopsis) throw new Error('作品の紹介文が提示されていません');
       round.declarations.set(player.id, kind);
       io.to(room.code).emit(`round:${kind}_declared`, { player: { id: player.id, nickname: player.nickname } });
       checkAllDeclared(io, room, round);
@@ -165,6 +185,8 @@ function registerGameHandlers(io, socket) {
     requirePhase(round, 'selecting');
     round.synopsis = null;
     round.real_title = null;
+    round.sourceQuestion = null;
+    round.contentType = null;
     round.declarations.clear();
     io.to(room.code).emit('round:reselect_started', { message: '出題者が新しい作品を選んでいます...' });
   });
@@ -173,7 +195,7 @@ function registerGameHandlers(io, socket) {
     const round = getCurrentRound(room);
     if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
     requirePhase(round, 'selecting');
-    if (!round.synopsis || !round.real_title) throw new Error('あらすじが設定されていません');
+    if (!round.synopsis || !round.real_title) throw new Error('作品の紹介文が設定されていません');
     const answerers = connectedAnswerers(room, round);
     if (answerers.some((p) => round.declarations.get(p.id) === 'known')) {
       throw new Error('「知ってる！」宣言をしたプレイヤーがいます。作品を選び直してください');
@@ -276,10 +298,15 @@ function transitionToVoting(io, room, round) {
   round.answers = shuffle(round.answers);
   round.answers.forEach((a, i) => { a.display_order = i + 1; });
   round.status = 'voting';
-  io.to(room.code).emit('round:choices_presented', {
-    roundId: round.id,
-    choices: round.answers.map((a) => ({ id: a.id, title: a.title, displayOrder: a.display_order })),
-  });
+  const choices = round.answers.map((a) => ({ id: a.id, title: a.title, displayOrder: a.display_order }));
+  for (const player of room.players) {
+    if (!player.is_connected || !player.socket_id) continue;
+    // Identify only the recipient's own answer; other authors remain private.
+    const ownAnswerId = round.answers.find((a) => a.player_id === player.id)?.id ?? null;
+    io.to(player.socket_id).emit('round:choices_presented', {
+      roundId: round.id, choices, ownAnswerId,
+    });
+  }
 }
 
 function revealRound(io, room, round) {
@@ -296,6 +323,10 @@ function revealRound(io, room, round) {
   round.status = 'revealed';
   io.to(room.code).emit('round:revealed', {
     roundId: round.id, realTitle: round.real_title,
+    contentType: round.contentType || 'synopsis',
+    workKind: round.sourceQuestion?.kind || null,
+    workKindLabel: getKind(round.sourceQuestion?.kind)?.label || null,
+    sources: round.sourceQuestion?.sources || [],
     answers: round.answers.map((a) => {
       const author = room.players.find((p) => p.id === a.player_id);
       return { id: a.id, title: a.title, isReal: a.is_real, displayOrder: a.display_order,

@@ -87,7 +87,7 @@ export default function SubmittingPhase({
               <PaperPanel tone="yellow" style={styles.tipPanel}>
                 <Text style={styles.tipTitle}>出題者のヒント</Text>
                 <Text style={styles.tipText}>
-                  回答者には、あらすじだけが表示されています。どんなタイトルが集まるか、お楽しみに。
+                  回答者には、作品の紹介文だけが表示されています。どんなタイトルが集まるか、お楽しみに。
                 </Text>
               </PaperPanel>
             </View>

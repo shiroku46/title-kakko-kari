@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
-  Alert,
   ScrollView,
   Platform,
 } from 'react-native';
@@ -23,18 +22,31 @@ export default function VotingPhase({
   questioner,
   synopsis,
   choices,
+  ownAnswerId,
   isQuestioner,
   voteProgress,
   socket,
 }) {
   const [selectedId, setSelectedId] = useState(null);
   const [voted, setVoted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [voteError, setVoteError] = useState(null);
   const { isPC, contentPadding } = useResponsiveLayout();
 
   function handleVote() {
-    if (!selectedId) return Alert.alert('選んでください', 'タイトルを1つ選んでください');
-    socket.emit('round:submit_vote', { answerId: selectedId }, (res) => {
-      if (!res.ok) return Alert.alert('エラー', res.error);
+    if (!selectedId || selectedId === ownAnswerId || voted || submitting) return;
+    setVoteError(null);
+    setSubmitting(true);
+    socket.timeout(10000).emit('round:submit_vote', { answerId: selectedId }, (error, res) => {
+      setSubmitting(false);
+      if (error) {
+        setVoteError('サーバーから応答がありません。接続を確認して、もう一度お試しください。');
+        return;
+      }
+      if (!res?.ok) {
+        setVoteError(res?.error || '投票できませんでした。もう一度お試しください。');
+        return;
+      }
       setVoted(true);
     });
   }
@@ -56,15 +68,15 @@ export default function VotingPhase({
         />
 
         <View style={[styles.layout, isPC && styles.layoutPC]}>
-          <View style={styles.mainColumn}>
+          <View style={[styles.mainColumn, isPC && styles.mainColumnPC]}>
             <PaperPanel tone="cream" style={styles.synopsisPanel}>
               <View style={styles.synopsisHeading}>
                 <View style={styles.synopsisIcon}>
                   <Text style={styles.synopsisIconText}>文</Text>
                 </View>
                 <View style={styles.synopsisHeadingBody}>
-                  <Text style={styles.kicker}>STORY</Text>
-                  <Text style={styles.synopsisTitle}>この作品のあらすじ</Text>
+                  <Text style={styles.kicker}>WORK</Text>
+                  <Text style={styles.synopsisTitle}>この作品の紹介文</Text>
                 </View>
               </View>
               <Text style={styles.synopsisText}>{synopsis}</Text>
@@ -76,7 +88,10 @@ export default function VotingPhase({
                   <View>
                     <Text style={styles.kicker}>VOTE</Text>
                     <Text style={styles.voteTitle}>どのタイトルが本物？</Text>
-                    <Text style={styles.voteNote}>1つ選んで、投票してください。</Text>
+                    <Text style={styles.voteNote}>
+                      1つ選んで、投票してください。{'\n'}
+                      自分のタイトルには投票できません。
+                    </Text>
                   </View>
                   <View style={styles.choiceCount}>
                     <Text style={styles.choiceCountNumber}>{choices.length}</Text>
@@ -89,18 +104,34 @@ export default function VotingPhase({
                     <VoteOption
                       key={choice.id}
                       choice={choice}
+                      isOwn={choice.id === ownAnswerId}
                       selected={selectedId === choice.id}
-                      disabled={voted}
-                      onPress={() => !voted && setSelectedId(choice.id)}
+                      disabled={voted || submitting}
+                      onPress={() => {
+                        if (voted || submitting || choice.id === ownAnswerId) return;
+                        setSelectedId(choice.id);
+                        setVoteError(null);
+                      }}
                     />
                   ))}
                 </View>
+
+                {voteError ? (
+                  <Text
+                    style={styles.voteError}
+                    accessibilityRole="alert"
+                    accessibilityLiveRegion="polite"
+                  >
+                    {voteError}
+                  </Text>
+                ) : null}
 
                 {!voted ? (
                   <StationeryButton
                     variant="primary"
                     onPress={handleVote}
-                    disabled={!selectedId}
+                    disabled={!selectedId || selectedId === ownAnswerId}
+                    loading={submitting}
                     accessibilityLabel="投票する"
                   >
                     このタイトルに投票する →
@@ -130,7 +161,7 @@ export default function VotingPhase({
             )}
           </View>
 
-          <View style={styles.sideColumn}>
+          <View style={[styles.sideColumn, isPC && styles.sideColumnPC]}>
             <PaperPanel tone="yellow" style={styles.progressPanel}>
               <Text style={styles.progressKicker}>VOTING STATUS</Text>
               <Text style={styles.progressTitle}>投票状況</Text>
@@ -159,7 +190,7 @@ export default function VotingPhase({
             <PaperPanel tone="sky" style={styles.tipPanel}>
               <Text style={styles.tipTitle}>投票のコツ</Text>
               <Text style={styles.tipBody}>
-                あらすじの言葉づかい、時代、ジャンルから「本当にありそうか」を考えてみましょう。
+                紹介文の言葉づかい、時代、ジャンルから「本当にありそうか」を考えてみましょう。
               </Text>
             </PaperPanel>
           </View>
@@ -179,8 +210,10 @@ const styles = StyleSheet.create({
   },
   layout: { gap: 14 },
   layoutPC: { flexDirection: 'row', alignItems: 'flex-start', gap: 18 },
-  mainColumn: { flex: 1.7, gap: 14 },
-  sideColumn: { flex: 0.75, gap: 14 },
+  mainColumn: { gap: 14 },
+  mainColumnPC: { flex: 1.7 },
+  sideColumn: { gap: 14 },
+  sideColumnPC: { flex: 0.75 },
   synopsisPanel: {},
   synopsisHeading: { flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 12 },
   synopsisIcon: {
@@ -224,6 +257,7 @@ const styles = StyleSheet.create({
   choiceCountNumber: { color: colors.navy, fontSize: 20, fontWeight: '900', lineHeight: 22 },
   choiceCountLabel: { color: colors.navy, fontSize: 9, fontWeight: '900' },
   choiceList: { marginBottom: 5 },
+  voteError: { color: colors.red, fontSize: 13, lineHeight: 20, marginBottom: 10 },
   votedBox: {
     flexDirection: 'row',
     alignItems: 'center',

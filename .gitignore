@@ -1,6 +1,9 @@
 # 依存関係
 node_modules/
 
+# 自動収集した問題・収集カーソル（同梱の初期問題集は別途追跡）
+server/data/questions/
+
 # 環境変数（APIキーが含まれるため絶対にコミットしない）
 .env
 server/.env
