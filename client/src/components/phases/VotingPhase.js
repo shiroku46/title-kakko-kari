@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   Alert,
   ScrollView,
   Platform,
 } from 'react-native';
+import { Text } from '../ui/GameText';
 import { colors, radii } from '../../theme';
 import {
   PaperPanel,

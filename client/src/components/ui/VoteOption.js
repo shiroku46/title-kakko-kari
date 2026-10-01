@@ -1,5 +1,6 @@
 import React from 'react';
-import { TouchableOpacity, Text, View, StyleSheet } from 'react-native';
+import { TouchableOpacity, View, StyleSheet } from 'react-native';
+import { Text } from './GameText';
 import { colors, radii, shadows } from '../../theme';
 
 export default function VoteOption({ choice, selected, disabled, onPress }) {

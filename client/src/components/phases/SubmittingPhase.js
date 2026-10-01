@@ -1,13 +1,14 @@
+import { fontFamilies } from '../../theme/typography';
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   Alert,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Text } from '../ui/GameText';
 import { colors, radii } from '../../theme';
 import {
   PaperPanel,
@@ -118,7 +119,7 @@ const styles = StyleSheet.create({
   questionerLayout: { gap: 14 },
   progressPanel: { alignItems: 'center', paddingVertical: 30 },
   kicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 1.7 },
-  progressTitle: { color: colors.white, fontSize: 25, lineHeight: 34, fontWeight: '900', marginTop: 6 },
+  progressTitle: { fontFamily: fontFamilies.display, color: colors.white, fontSize: 25, lineHeight: 34, fontWeight: '900', marginTop: 6 },
   progressNote: {
     color: '#BCD1E0',
     fontSize: 12,

@@ -1,0 +1,113 @@
+{
+  "collected_on": "2026-10-01",
+  "files": [
+    {
+      "file": "delagothicone/DelaGothicOne-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/delagothicone/DelaGothicOne-Regular.ttf",
+      "bytes": 2508848,
+      "sha256": "4ff87a0965f1b0505e5a2c58424bc6ad3cff27e56a82f21c2fc9d6b0e3857ee2"
+    },
+    {
+      "file": "delagothicone/OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/delagothicone/OFL.txt",
+      "bytes": 4392,
+      "sha256": "c0014792d4f4abc0508c295b277f2b17ae44465c8dc88d12af9cea48279b5fda"
+    },
+    {
+      "file": "mochiypopone/MochiyPopOne-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/mochiypopone/MochiyPopOne-Regular.ttf",
+      "bytes": 5163948,
+      "sha256": "9e009430e1316c271a5f34759c6b65fc343c4e806f193042528887e7235a92c6"
+    },
+    {
+      "file": "mochiypopone/OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/mochiypopone/OFL.txt",
+      "bytes": 4387,
+      "sha256": "76be26178f13ef82866cf6a5c54272191bb583c203ad7035021c7681c9043558"
+    },
+    {
+      "file": "yuseimagic/YuseiMagic-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/yuseimagic/YuseiMagic-Regular.ttf",
+      "bytes": 3134968,
+      "sha256": "82098615f39ed9da6a8ccc674b9006e49c70dd5b775a7a1697f6bedd22ce25a2"
+    },
+    {
+      "file": "yuseimagic/OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/yuseimagic/OFL.txt",
+      "bytes": 4393,
+      "sha256": "c74e8c47951ddd9c902f07097761cfa0457993e28d8e1e946e273c0250be77c9"
+    },
+    {
+      "file": "zenmarugothic/ZenMaruGothic-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/zenmarugothic/ZenMaruGothic-Regular.ttf",
+      "bytes": 3832756,
+      "sha256": "a0c0b53543e0993ae2225e629c833f3d51495ad31720694ff112ce4ce11111ef"
+    },
+    {
+      "file": "zenmarugothic/ZenMaruGothic-Bold.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/zenmarugothic/ZenMaruGothic-Bold.ttf",
+      "bytes": 3779008,
+      "sha256": "fe24426b9c8b5523a0146a8235c8674eccf0493af354a53ec895c3596d9eb745"
+    },
+    {
+      "file": "zenmarugothic/OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/zenmarugothic/OFL.txt",
+      "bytes": 4402,
+      "sha256": "2a20cf7ce1909d8ee1e949095d340f7d7656705f7c810a2d6faf56800ad0cb3d"
+    },
+    {
+      "file": "kiwimaru/KiwiMaru-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/kiwimaru/KiwiMaru-Regular.ttf",
+      "bytes": 5065572,
+      "sha256": "b0c3103b2639f690c1fcb44e060058383174bfd2eb72e6635bc9869b374dee87"
+    },
+    {
+      "file": "kiwimaru/OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/kiwimaru/OFL.txt",
+      "bytes": 4399,
+      "sha256": "07ceae7a6e3294cbbd0fdf6e35226550566a1cce9fd226d0f8a57f3d34c664fe"
+    },
+    {
+      "file": "hachimarupop/HachiMaruPop-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/hachimarupop/HachiMaruPop-Regular.ttf",
+      "bytes": 4385624,
+      "sha256": "78408910c8f1a2f174a279cbc1484b48b71780039eba3fe1be2bfcc5d4df3f98"
+    },
+    {
+      "file": "hachimarupop/OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/hachimarupop/OFL.txt",
+      "bytes": 4494,
+      "sha256": "8d3c434650e84f42ddb33e9b5929089ea51c39b231b798dacb33087d5f05d9f1"
+    }
+  ],
+  "web_fonts": [
+    {
+      "file": "mochiypopone/MochiyPopOne-Regular.woff2",
+      "original": "mochiypopone/MochiyPopOne-Regular.ttf",
+      "bytes": 2239828,
+      "sha256": "38bec771ff2765345a2770f513cae25eaed15a459205dd387654051cca75a291",
+      "conversion": "FontTools WOFF2, original full glyph set retained"
+    },
+    {
+      "file": "zenmarugothic/ZenMaruGothic-Regular.woff2",
+      "original": "zenmarugothic/ZenMaruGothic-Regular.ttf",
+      "bytes": 1558744,
+      "sha256": "84dcadb86a679a44658db014a063169f25468c54492b6e76b7a70ca5932c1997",
+      "conversion": "FontTools WOFF2, original full glyph set retained"
+    },
+    {
+      "file": "zenmarugothic/ZenMaruGothic-Bold.woff2",
+      "original": "zenmarugothic/ZenMaruGothic-Bold.ttf",
+      "bytes": 1616208,
+      "sha256": "cdb1f97effb9e234f8c68f159dab68befcf99be1f0ba98e65fc583f62f6ab465",
+      "conversion": "FontTools WOFF2, original full glyph set retained"
+    },
+    {
+      "file": "yuseimagic/YuseiMagic-Regular.woff2",
+      "original": "yuseimagic/YuseiMagic-Regular.ttf",
+      "bytes": 964680,
+      "sha256": "6bf17e15c9e8da39a0d22acd2d8a9b5255a184e82289dbab98367bd9b22780a2",
+      "conversion": "FontTools WOFF2, original full glyph set retained"
+    }
+  ]
+}

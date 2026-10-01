@@ -1,5 +1,7 @@
+import { fontFamilies } from '../../theme/typography';
 import React from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Text, TextInput } from './GameText';
 import { colors, radii } from '../../theme';
 import PaperPanel from './PaperPanel';
 import StationeryButton from './StationeryButton';
@@ -96,6 +98,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   heading: {
+    fontFamily: fontFamilies.display,
     fontSize: 20,
     lineHeight: 28,
     fontWeight: '900',

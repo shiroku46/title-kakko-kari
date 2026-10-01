@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Text } from './GameText';
 import { colors, radii } from '../../theme';
 
 const AVATAR_COLORS = [colors.yellow, colors.cyan, colors.pink, colors.green, '#B7A8FF', '#FFB46A'];

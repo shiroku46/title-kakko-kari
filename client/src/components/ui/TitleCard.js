@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Text } from './GameText';
 import { colors, radii, shadows } from '../../theme';
 import Stamp from './Stamp';
 

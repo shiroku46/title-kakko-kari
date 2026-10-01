@@ -1,9 +1,12 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Text } from './GameText';
 import { colors, radii } from '../../theme';
 import { fontFamilies } from '../../theme/typography';
+import { useResponsiveLayout } from '../../hooks/useResponsiveLayout';
 
 export default function RoundHeader({ currentRound, totalRounds, questioner, phase }) {
+  const { isMobile } = useResponsiveLayout();
   return (
     <View style={styles.header}>
       <View style={styles.topRow}>
@@ -18,7 +21,7 @@ export default function RoundHeader({ currentRound, totalRounds, questioner, pha
           </View>
         ) : null}
       </View>
-      <Text style={styles.phase}>{phase}</Text>
+      <Text style={[styles.phase, isMobile && styles.phaseMobile]}>{phase}</Text>
       <View style={styles.accentLine}>
         <View style={styles.accentRed} />
         <View style={styles.accentYellow} />
@@ -75,12 +78,13 @@ const styles = StyleSheet.create({
   questionerName: { fontSize: 12, fontWeight: '800', color: colors.white },
   phase: {
     marginTop: 14,
-    fontFamily: fontFamilies.sansBold,
+    fontFamily: fontFamilies.display,
     fontSize: 25,
-    lineHeight: 32,
+    lineHeight: 38,
     fontWeight: '900',
     color: colors.white,
   },
+  phaseMobile: { fontSize: 21, lineHeight: 32 },
   accentLine: {
     flexDirection: 'row',
     gap: 5,

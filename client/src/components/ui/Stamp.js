@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
-import { Text, StyleSheet, Animated } from 'react-native';
+import { StyleSheet, Animated } from 'react-native';
+import { Text } from './GameText';
 import { colors, radii } from '../../theme';
 
 const RECT_TYPES = new Set(['準備OK', '正解', 'MVP']);
