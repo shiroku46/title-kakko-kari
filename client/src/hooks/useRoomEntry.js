@@ -100,7 +100,10 @@ export default function useRoomEntry(navigation) {
       });
     } catch (failure) {
       if (mounted.current && (timedOut || !controller.signal.aborted)) {
-        setError(timedOut ? '時間がかかりすぎました。もう一度試してね。' : failure.message || 'つながりませんでした。もう一度試してね。');
+        const failureMessage = failure instanceof TypeError || failure instanceof SyntaxError
+          ? 'つながりませんでした。つなぐ先を確かめて、もう一度試してね。'
+          : failure.message || 'つながりませんでした。もう一度試してね。';
+        setError(timedOut ? '時間がかかりすぎました。もう一度試してね。' : failureMessage);
       }
     } finally {
       clearTimeout(slowTimer);
