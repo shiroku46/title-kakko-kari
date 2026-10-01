@@ -1,9 +1,8 @@
 import { fontFamilies } from '../../theme/typography';
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   StyleSheet,
-  Alert,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -29,12 +28,23 @@ export default function SubmittingPhase({
 }) {
   const [fakeTitle, setFakeTitle] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [requestError, setRequestError] = useState(null);
+  const pendingRef = useRef(false);
   const { contentPadding } = useResponsiveLayout();
 
   function handleSubmitFake() {
-    if (!fakeTitle.trim()) return Alert.alert('入力してください', 'タイトルを入力してください');
-    socket.emit('round:submit_fake', { title: fakeTitle.trim() }, (res) => {
-      if (!res.ok) return Alert.alert('エラー', res.error);
+    if (pendingRef.current || submitted) return;
+    if (!fakeTitle.trim()) return setRequestError('タイトルを入力してください');
+    if (!socket?.connected) return setRequestError('接続が切れています。接続を確認してください。');
+    pendingRef.current = true;
+    setSubmitting(true);
+    setRequestError(null);
+    socket.timeout(10000).emit('round:submit_fake', { title: fakeTitle.trim() }, (error, res) => {
+      pendingRef.current = false;
+      setSubmitting(false);
+      if (error) return setRequestError('返事がありません。接続を確認して、もう一度お試しください。');
+      if (!res?.ok) return setRequestError(res?.error || 'タイトルを送れませんでした。もう一度お試しください。');
       setSubmitted(true);
     });
   }
@@ -92,14 +102,26 @@ export default function SubmittingPhase({
               </PaperPanel>
             </View>
           ) : (
-            <TitleInputSheet
-              synopsis={synopsis}
-              value={fakeTitle}
-              onChangeText={setFakeTitle}
-              onSubmit={handleSubmitFake}
-              submitted={submitted}
-              submittedTitle={fakeTitle}
-            />
+            <View style={styles.answererLayout}>
+              {requestError ? (
+                <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.requestError}>
+                  {requestError}
+                </Text>
+              ) : null}
+              <TitleInputSheet
+                synopsis={synopsis}
+                value={fakeTitle}
+                onChangeText={(value) => {
+                  if (pendingRef.current) return;
+                  setFakeTitle(value);
+                  setRequestError(null);
+                }}
+                onSubmit={handleSubmitFake}
+                submitted={submitted}
+                submittedTitle={fakeTitle}
+                loading={submitting}
+              />
+            </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -117,6 +139,8 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   questionerLayout: { gap: 14 },
+  answererLayout: { gap: 12 },
+  requestError: { color: colors.redDark, backgroundColor: colors.cream, padding: 14, borderRadius: radii.md, fontSize: 14, lineHeight: 22 },
   progressPanel: { alignItems: 'center', paddingVertical: 30 },
   kicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 1.7 },
   progressTitle: { fontFamily: fontFamilies.display, color: colors.white, fontSize: 25, lineHeight: 34, fontWeight: '900', marginTop: 6 },

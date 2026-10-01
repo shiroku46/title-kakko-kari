@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
-import { useSocketListeners, getSocket } from '../hooks/useSocket';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, Platform } from 'react-native';
+import { useSocketListeners, getSocket, disconnectSocket } from '../hooks/useSocket';
 import { colors } from '../theme';
+import { Text } from '../components/ui/GameText';
+import { StationeryButton } from '../components/ui';
+import { Alert } from '../utils/alert';
 
 import ConfirmingPhase from '../components/phases/ConfirmingPhase';
 import SelectingPhase from '../components/phases/SelectingPhase';
@@ -38,18 +41,57 @@ export default function GameScreen({ navigation, route }) {
   const [allDeclared, setAllDeclared] = useState(false);
   const [mvpData, setMvpData] = useState(null);
   const [selectingKey, setSelectingKey] = useState(0);
+  const [questionerDisconnected, setQuestionerDisconnected] = useState(false);
+  const [departureNotice, setDepartureNotice] = useState(null);
+  const [stoppedMessage, setStoppedMessage] = useState(null);
+  const leavingRef = useRef(false);
 
   const isQuestioner = player.id === questioner?.id;
 
+  function leaveGame() {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    disconnectSocket();
+    navigation.replace('Home');
+  }
+
+  function confirmLeaveGame() {
+    Alert.alert('部屋から出る', 'この部屋から出ますか？', [
+      { text: '戻る', style: 'cancel' },
+      { text: '部屋から出る', style: 'destructive', onPress: leaveGame },
+    ]);
+  }
+
   useEffect(() => {
     const onDisconnect = () => {
-      Alert.alert('切断', 'サーバーとの接続が切れました', [
-        { text: 'タイトルへ戻る', onPress: () => navigation.replace('Home') },
-      ]);
+      if (leavingRef.current) return;
+      // A fresh socket has no membership. Leave immediately rather than allow
+      // buffered game actions to run against a different connection.
+      leaveGame();
+      Alert.alert('接続が切れました', 'ホームに戻りました。もう一度、部屋を作るか参加してください。');
     };
     socket.on('disconnect', onDisconnect);
     return () => socket.off('disconnect', onDisconnect);
-  }, []);
+  }, [navigation, socket]);
+
+  useEffect(() => {
+    let active = true;
+    // A future questioner may have left during an earlier round. The existing
+    // authenticated room snapshot also covers that case, without restoring an
+    // old identity or exposing answers.
+    socket.timeout(10000).emit('room:get_state', null, (error, response) => {
+      if (!active || leavingRef.current || error || !response?.ok) return;
+      setIsHost(Boolean(response.room.players.find((p) => p.id === player.id)?.is_host));
+      const currentQuestioner = response.room.players.find((p) => p.id === questioner?.id);
+      setQuestionerDisconnected(Boolean(questioner?.id && !currentQuestioner?.is_connected));
+      if (response.room.status === 'finished' && response.room.players.filter((p) => p.is_connected).length === 1) {
+        // The stop notification can arrive while navigation mounts this page.
+        setStoppedMessage('ほかの人がいなくなったため、ゲームを終わります。ホームに戻って、部屋を作り直してください。');
+        setDepartureNotice(null);
+      }
+    });
+    return () => { active = false; };
+  }, [round.id, questioner?.id, player.id, socket]);
 
   useSocketListeners({
     'game:round_started': (data) => {
@@ -71,6 +113,9 @@ export default function GameScreen({ navigation, route }) {
       setKnownDeclarations([]);
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
+      setQuestionerDisconnected(false);
+      setDepartureNotice(null);
+      setStoppedMessage(null);
     },
     'round:synopsis_loading': (data) => {
       if (data.roundId !== round.id) return;
@@ -94,7 +139,7 @@ export default function GameScreen({ navigation, route }) {
       setContentType(normalizeContentType(data.contentType));
     },
     'round:known_declared': ({ player: p }) => {
-      setKnownDeclarations((prev) => [...prev, p.nickname]);
+      setKnownDeclarations((prev) => [...new Set([...prev, p.nickname])]);
     },
     'round:unknown_declared': () => {},
     'round:all_declared': ({ knownPlayerIds }) => {
@@ -138,18 +183,28 @@ export default function GameScreen({ navigation, route }) {
     'game:finished': (data) => {
       navigation.replace('Result', { finalScores: data.finalScores, winner: data.winner });
     },
-    'room:player_disconnected': ({ nickname }) => {
-      socket.emit('room:get_state', null, (res) => {
-        if (res.ok) setIsHost(Boolean(res.room.players.find((p) => p.id === player.id)?.is_host));
+    'game:stopped': ({ message }) => {
+      setStoppedMessage(message || 'ほかの人がいなくなったため、ゲームを終わります。');
+      setDepartureNotice(null);
+    },
+    'room:player_disconnected': ({ playerId, nickname }) => {
+      if (playerId === questioner?.id) setQuestionerDisconnected(true);
+      setKnownDeclarations((prev) => prev.filter((name) => name !== nickname));
+      socket.timeout(10000).emit('room:get_state', null, (error, res) => {
+        if (!leavingRef.current && !error && res?.ok) {
+          setIsHost(Boolean(res.room.players.find((p) => p.id === player.id)?.is_host));
+        }
       });
-      Alert.alert('プレイヤー退出', `${nickname} が退出しました`);
+      setDepartureNotice(`${nickname}さんが部屋から出ました。`);
     },
     'game:questioner_disconnected': ({ nickname: qNickname, fallbackHostId, roundStatus }) => {
       const isMe = player.id === fallbackHostId;
       const msg = roundStatus === 'selecting'
         ? `出題者 ${qNickname} が離脱しました。\nホストがラウンドをスキップできます。`
         : `出題者 ${qNickname} が離脱しました。\n結果確認後、ホストが次のラウンドへ進めます。`;
-      Alert.alert('出題者が離脱しました', msg + (isMe ? '\n\nあなたがホストです。' : ''));
+      setQuestionerDisconnected(true);
+      setIsHost(isMe);
+      setDepartureNotice(msg + (isMe ? '\nあなたがホストです。' : ''));
     },
   });
 
@@ -162,7 +217,7 @@ export default function GameScreen({ navigation, route }) {
         setFetchedSynopsis(null);
         setSynopsisError(error
           ? 'サーバーから応答がありません。接続を確認して再取得してください。'
-          : response.error);
+          : response?.error || '紹介文を確認できませんでした。もう一度取得してください。');
         return;
       }
       setFetchedSynopsis(response.synopsis);
@@ -208,6 +263,7 @@ export default function GameScreen({ navigation, route }) {
             synopsis={synopsis}
             isQuestioner={amQuestioner}
             isHost={isHost}
+            questionerDisconnected={questionerDisconnected}
             playerId={player.id}
             knownDeclarations={knownDeclarations}
             allDeclared={allDeclared}
@@ -264,9 +320,52 @@ export default function GameScreen({ navigation, route }) {
     }
   }
 
-  return <View style={styles.container}>{renderPhase()}</View>;
+  return (
+    <View style={styles.container}>
+      <View style={styles.gameControls}>
+        <Text style={styles.roomLabel}>部屋 {room.code}</Text>
+        <StationeryButton
+          variant="ghost"
+          onPress={confirmLeaveGame}
+          accessibilityLabel="ゲームから退出する"
+          style={styles.exitButton}
+        >
+          部屋から出る
+        </StationeryButton>
+      </View>
+      {stoppedMessage ? (
+        <View style={styles.stoppedPanel}>
+          <Text accessibilityRole="alert" style={styles.stoppedTitle}>遊ぶ人がいなくなりました</Text>
+          <Text style={styles.stoppedBody}>{stoppedMessage}</Text>
+          <StationeryButton
+            variant="primary"
+            onPress={leaveGame}
+            accessibilityLabel="ホームへ戻る"
+          >
+            ホームへ戻る
+          </StationeryButton>
+        </View>
+      ) : (
+        <>
+          {departureNotice ? (
+            <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.departureNotice}>
+              {departureNotice}
+            </Text>
+          ) : null}
+          {renderPhase()}
+        </>
+      )}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.canvas },
+  gameControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'web' ? 0 : 54, backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
+  roomLabel: { fontSize: 12, color: colors.muted },
+  exitButton: { minHeight: 44, paddingVertical: 6 },
+  departureNotice: { color: colors.navy, backgroundColor: colors.cream, paddingHorizontal: 16, paddingVertical: 10, fontSize: 13, lineHeight: 20 },
+  stoppedPanel: { width: '100%', maxWidth: 540, alignSelf: 'center', padding: 24, gap: 18 },
+  stoppedTitle: { fontSize: 22, lineHeight: 30, fontWeight: '700', color: colors.navy },
+  stoppedBody: { fontSize: 15, lineHeight: 25, color: colors.ink },
 });

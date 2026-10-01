@@ -2,9 +2,10 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const { createHash } = require('node:crypto');
-const { mkdtempSync, writeFileSync, rmSync } = require('node:fs');
+const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
+const { runInNewContext } = require('node:vm');
 const { io: connect } = require('../client/node_modules/socket.io-client');
 
 // Exercise the real Express/Socket.IO server in production mode, without any
@@ -801,4 +802,118 @@ test('questioner departure permits host skip but normal selecting cannot be skip
   await ok(remaining[0], 'game:next_round');
   const next = await event(remaining[0], 'game:round_started');
   assert.equal(next.currentRound, 2);
+});
+
+test('questioner departure after presenting a synopsis is visible in the member snapshot and remains skippable', async (t) => {
+  const { bots } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find((b) => b.player.id === started.questioner.id);
+  const remaining = bots.filter((b) => b !== questioner);
+  await ok(questioner, 'round:submit_synopsis', {
+    synopsis: '街の青年が忘れられた手紙を探す物語。', realTitle: '手紙の物語',
+  });
+  questioner.socket.disconnect();
+  const departure = await event(remaining[0], 'game:questioner_disconnected');
+  assert.equal(departure.roundStatus, 'selecting');
+  const host = remaining.find((b) => b.player.id === departure.fallbackHostId);
+  const snapshot = await ok(host, 'room:get_state');
+  assert.equal(snapshot.room.players.find((p) => p.id === questioner.player.id).is_connected, false);
+  assert.equal(snapshot.room.players.find((p) => p.id === host.player.id).is_host, true);
+  await ok(host, 'game:next_round');
+  assert.equal((await event(host, 'game:round_started')).currentRound, 2);
+});
+
+for (const phase of ['selecting', 'submitting', 'voting']) {
+  test(`the final member can safely exit after all answerers leave during ${phase}, preserving earned points`, async (t) => {
+    const { bots, room } = await roomWith(t, 4);
+    await ok(bots[0], 'game:start', { mode: 'player' });
+    const first = await event(bots[0], 'game:started');
+    const firstQuestioner = bots.find((b) => b.player.id === first.questioner.id);
+    const firstAnswerers = bots.filter((b) => b !== firstQuestioner);
+    await ok(firstQuestioner, 'round:submit_synopsis', { synopsis: '最初の紹介文。', realTitle: '最初の本物' });
+    for (const b of firstAnswerers) await ok(b, 'round:declare_unknown');
+    await ok(firstQuestioner, 'round:start_submitting');
+    for (let i = 0; i < firstAnswerers.length; i++) await ok(firstAnswerers[i], 'round:submit_fake', { title: `最初のウソ${i}` });
+    const choices = (await event(bots[0], 'round:choices_presented')).choices;
+    const real = choices.find((choice) => choice.title === '最初の本物');
+    for (const b of firstAnswerers) await ok(b, 'round:submit_vote', { answerId: real.id });
+    await event(bots[0], 'round:revealed');
+    await ok(bots[0], 'game:next_round');
+    const second = await event(bots[0], 'game:round_started');
+    const questioner = bots.find((b) => b.player.id === second.questioner.id);
+    const answerers = bots.filter((b) => b !== questioner);
+    const earned = new Map(rooms.get(room.code).players.map((p) => [p.id, p.score]));
+    assert.ok([...earned.values()].some((score) => score > 0));
+    if (phase !== 'selecting') {
+      await ok(questioner, 'round:submit_synopsis', { synopsis: '二回目の紹介文。', realTitle: '二回目の本物' });
+      for (const b of answerers) await ok(b, 'round:declare_unknown');
+      await ok(questioner, 'round:start_submitting');
+    }
+    if (phase === 'voting') {
+      for (let i = 0; i < answerers.length; i++) await ok(answerers[i], 'round:submit_fake', { title: `二回目のウソ${i}` });
+      // The questioner's copy of the first round's choices may still be queued.
+      assert.equal(rooms.get(room.code).rounds.at(-1).status, 'voting');
+    }
+    for (const b of answerers) {
+      b.socket.disconnect();
+      await event(questioner, 'room:player_disconnected');
+    }
+    const stopped = await event(questioner, 'game:stopped');
+    assert.equal(stopped.reason, 'not_enough_players');
+    assert.ok(stopped.message.includes('ホーム'));
+    const snapshot = await ok(questioner, 'room:get_state');
+    assert.equal(snapshot.room.status, 'finished');
+    assert.equal(snapshot.room.players.filter((p) => p.is_connected).length, 1);
+    assert.equal(snapshot.room.players.find((p) => p.id === questioner.player.id).is_host, true);
+    for (const p of snapshot.room.players) assert.equal(p.score, earned.get(p.id));
+    assert.equal(questioner.events.filter((entry) => entry.name === 'game:finished').length, 0);
+    await denied(questioner, 'game:next_round');
+    await denied(questioner, 'round:submit_fake', { title: '終了後のウソ' });
+    questioner.socket.disconnect();
+    for (let i = 0; rooms.has(room.code) && i < 50; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(rooms.has(room.code), false);
+  });
+}
+
+function loadAlertHelper(platform, window, nativeAlert = {}) {
+  // The small helper has no JSX. Supply the platform import as a normal test
+  // dependency so Node can exercise its actual browser callbacks without
+  // importing React Native's native-only module graph.
+  const source = readFileSync(join(__dirname, '../client/src/utils/alert.js'), 'utf8')
+    .replace(/^import .* from 'react-native';\r?\n/u, '')
+    .replace('export const Alert =', 'const Alert =');
+  return runInNewContext(`${source}\nAlert;`, {
+    Platform: { OS: platform }, NativeAlert: nativeAlert, window,
+  });
+}
+
+test('web notices display their message and run the single chosen callback', () => {
+  const calls = [];
+  const alert = loadAlertHelper('web', { alert: (text) => calls.push(text) });
+  alert.alert('切断', 'ホームに戻ります', [{ text: '戻る', onPress: () => calls.push('returned') }]);
+  assert.deepEqual(calls, ['切断\n\nホームに戻ります', 'returned']);
+});
+
+test('web confirmations execute only the accepted or cancelled action', () => {
+  const calls = [];
+  const answers = [false, true];
+  const alert = loadAlertHelper('web', { confirm: (text) => {
+    assert.ok(text.includes('部屋から出る'));
+    return answers.shift();
+  } });
+  const buttons = [
+    { text: '戻る', style: 'cancel', onPress: () => calls.push('cancel') },
+    { text: '部屋から出る', onPress: () => calls.push('leave') },
+  ];
+  alert.alert('確認', '部屋から出ますか？', buttons);
+  assert.deepEqual(calls, ['cancel']);
+  alert.alert('確認', '部屋から出ますか？', buttons);
+  assert.deepEqual(calls, ['cancel', 'leave']);
+});
+
+test('native notices retain the original platform Alert', () => {
+  const native = { alert() {} };
+  assert.equal(loadAlertHelper('ios', undefined, native), native);
+  assert.equal(loadAlertHelper('android', undefined, native), native);
 });

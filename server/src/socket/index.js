@@ -32,6 +32,17 @@ function handleDisconnect(io, socket) {
     return;
   }
   if (room.status !== 'playing') return;
+  if (connectedPlayers.length === 1) {
+    // One person cannot continue this party game. Preserve earned scores and
+    // give the remaining member an explicit exit instead of waiting forever
+    // for absent declarations, submissions or votes.
+    room.status = 'finished';
+    io.to(roomCode).emit('game:stopped', {
+      reason: 'not_enough_players',
+      message: 'ほかの人がいなくなったため、ゲームを終わります。ホームに戻って、部屋を作り直してください。',
+    });
+    return;
+  }
   const round = getCurrentRound(room);
   if (round.questioner_id === playerId) {
     const fallback = connectedPlayers.find((p) => p.is_host) ?? connectedPlayers[0];

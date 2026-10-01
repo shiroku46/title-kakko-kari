@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -57,6 +57,9 @@ export default function RevealedPhase({
   const [mvpSubmitted, setMvpSubmitted] = useState(false);
   const [selectedMvpId, setSelectedMvpId] = useState(null);
   const [sourceLinkError, setSourceLinkError] = useState(null);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [requestError, setRequestError] = useState(null);
+  const pendingRef = useRef(false);
   const { isPC, contentPadding } = useResponsiveLayout();
 
   if (!revealData) return null;
@@ -89,9 +92,22 @@ export default function RevealedPhase({
   }
 
   function handleSubmitMvp() {
-    if (!selectedMvpId) return;
-    socket.emit('round:submit_mvp', { answerId: selectedMvpId }, (res) => {
-      if (res.ok) setMvpSubmitted(true);
+    if (!selectedMvpId || mvpSubmitted) return;
+    requestAction('round:submit_mvp', { answerId: selectedMvpId }, () => setMvpSubmitted(true));
+  }
+
+  function requestAction(event, payload, onSuccess) {
+    if (pendingRef.current) return;
+    if (!socket?.connected) return setRequestError('接続が切れています。接続を確認してください。');
+    pendingRef.current = true;
+    setPendingAction(event);
+    setRequestError(null);
+    socket.timeout(10000).emit(event, payload, (error, res) => {
+      pendingRef.current = false;
+      setPendingAction(null);
+      if (error) return setRequestError('返事がありません。接続を確認して、もう一度お試しください。');
+      if (!res?.ok) return setRequestError(res?.error || '操作できませんでした。もう一度お試しください。');
+      onSuccess?.();
     });
   }
 
@@ -193,8 +209,8 @@ export default function RevealedPhase({
           key={answer.id}
           choice={answer}
           selected={selectedMvpId === answer.id}
-          disabled={mvpSubmitted}
-          onPress={() => !mvpSubmitted && setSelectedMvpId(answer.id)}
+          disabled={mvpSubmitted || Boolean(pendingAction)}
+          onPress={() => !mvpSubmitted && !pendingRef.current && setSelectedMvpId(answer.id)}
         />
       ))}
 
@@ -202,7 +218,8 @@ export default function RevealedPhase({
         <StationeryButton
           variant="primary"
           onPress={handleSubmitMvp}
-          disabled={!selectedMvpId}
+          disabled={!selectedMvpId || Boolean(pendingAction)}
+          loading={pendingAction === 'round:submit_mvp'}
           accessibilityLabel="MVPを贈る"
         >
           このタイトルにMVPを贈る
@@ -273,7 +290,9 @@ export default function RevealedPhase({
       {canAdvance ? (
         <StationeryButton
           variant="primary"
-          onPress={() => socket.emit('game:next_round', null, () => {})}
+          onPress={() => requestAction('game:next_round', null)}
+          loading={pendingAction === 'game:next_round'}
+          disabled={Boolean(pendingAction)}
           accessibilityLabel={currentRound >= totalRounds ? 'ゲームを終了する' : '次のラウンドへ'}
         >
           {currentRound >= totalRounds ? '最終結果を見る →' : '次のラウンドへ →'}
@@ -303,6 +322,11 @@ export default function RevealedPhase({
           questioner={null}
           phase="正解発表"
         />
+        {requestError ? (
+          <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.requestError}>
+            {requestError}
+          </Text>
+        ) : null}
 
         <View style={styles.realTitlePanel}>
           <View style={styles.confettiRow}>
@@ -392,6 +416,7 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'web' ? 22 : 54,
     paddingBottom: 40,
   },
+  requestError: { color: colors.redDark, backgroundColor: colors.cream, padding: 14, borderRadius: radii.md, fontSize: 14, lineHeight: 22, marginBottom: 14 },
   realTitlePanel: {
     backgroundColor: colors.navy,
     borderRadius: radii.xl,
