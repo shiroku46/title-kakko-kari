@@ -1,7 +1,5 @@
-// Native builds retain the original, licensed TrueType files.
+// Native builds use complete regular/bold static faces from Noto Sans JP.
 export const fontAssets = {
-  TahoiyaPop: require('../../assets/fonts/mochiypopone/MochiyPopOne-Regular.ttf'),
-  TahoiyaRounded: require('../../assets/fonts/zenmarugothic/ZenMaruGothic-Regular.ttf'),
-  TahoiyaRoundedBold: require('../../assets/fonts/zenmarugothic/ZenMaruGothic-Bold.ttf'),
-  TahoiyaHandwritten: require('../../assets/fonts/yuseimagic/YuseiMagic-Regular.ttf'),
+  TahoiyaSans: require('../../assets/fonts/notosansjp/NotoSansJP-Regular.ttf'),
+  TahoiyaSansBold: require('../../assets/fonts/notosansjp/NotoSansJP-Bold.ttf'),
 };

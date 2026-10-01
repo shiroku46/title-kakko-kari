@@ -12,6 +12,7 @@ import ResultScreen from './src/screens/ResultScreen';
 import RulesScreen from './src/screens/RulesScreen';
 import { colors } from './src/theme';
 import { fontAssets } from './src/theme/fontAssets';
+import { GAME_NAME } from './src/theme/brand';
 import { FontsLoadedContext, Text } from './src/components/ui/GameText';
 
 const Stack = createNativeStackNavigator();
@@ -34,7 +35,7 @@ export default function App() {
 
   return (
     <FontsLoadedContext.Provider value={fontsLoaded}>
-      <NavigationContainer documentTitle={{ formatter: () => 'タイトルたほいや' }}>
+      <NavigationContainer documentTitle={{ formatter: () => GAME_NAME }}>
         <StatusBar style="dark" />
         <Stack.Navigator
           screenOptions={{

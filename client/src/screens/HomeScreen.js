@@ -1,7 +1,7 @@
-import { fontFamilies } from '../theme/typography';
 import React, { useState } from 'react';
 import {
   View,
+  Image,
   StyleSheet,
   ActivityIndicator,
   Alert,
@@ -13,20 +13,14 @@ import {
 import { Text, TextInput } from '../components/ui/GameText';
 import { connectSocket, disconnectSocket, getCurrentUrl } from '../hooks/useSocket';
 import { DEFAULT_SERVER_URL } from '../config';
-import { colors, radii, shadows } from '../theme';
+import { colors } from '../theme';
+import { brandAssets } from '../theme/brand';
 import {
   PaperPanel,
   StationeryButton,
   GameLogo,
-  PopBackdrop,
 } from '../components/ui';
-import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../hooks/useResponsiveLayout';
-
-const SAMPLE_TITLES = [
-  { title: '海が見えるコンビニで', tag: '#青春', tone: colors.cyan },
-  { title: '月曜のカレーは、少しだけやさしい', tag: '#日常', tone: colors.yellow },
-  { title: '推しの存在が世界を救うらしい', tag: '#ファンタジー', tone: colors.pink },
-];
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 
 export default function HomeScreen({ navigation }) {
   const [nickname, setNickname] = useState('');
@@ -36,7 +30,7 @@ export default function HomeScreen({ navigation }) {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [serverUrl, setServerUrl] = useState(getCurrentUrl());
-  const { isPC, contentPadding } = useResponsiveLayout();
+  const { isPC, width, height } = useResponsiveLayout();
 
   async function startConnect(action) {
     const targetUrl = (serverUrl.trim() || DEFAULT_SERVER_URL).replace(/\/$/, '');
@@ -141,23 +135,22 @@ export default function HomeScreen({ navigation }) {
   }
 
   const formPanel = (
-    <PaperPanel tone="cream" variant="elevated" style={styles.formPanel}>
+    <View style={styles.formPanel}>
       <View style={styles.formHeader}>
-        <Text style={styles.formKicker}>JOIN THE GAME</Text>
-        <Text style={styles.formHeading}>
-          {mode === 'join' ? 'ルームに参加' : 'ゲームをはじめる'}
+        <Text style={[styles.formHeading, isPC && styles.formHeadingPC]}>
+          {mode === 'join' ? '部屋に入る' : 'いっしょに遊ぼう'}
         </Text>
         <Text style={styles.formIntro}>
           {mode === 'join'
-            ? '名前と6桁のコードを入力してください。'
-            : 'まずは、ゲームで使う名前を決めましょう。'}
+            ? '名前と6桁のコードを入れてね。'
+            : 'ゲームで使う名前を入れてね。'}
         </Text>
       </View>
 
       <Text style={styles.fieldLabel}>ニックネーム</Text>
       <TextInput
-        style={styles.input}
-        placeholder="例：山田太郎"
+        style={[styles.input, isPC && styles.inputPC]}
+        placeholder="例：たろう"
         placeholderTextColor={colors.muted}
         value={nickname}
         onChangeText={setNickname}
@@ -169,7 +162,7 @@ export default function HomeScreen({ navigation }) {
         <>
           <Text style={styles.fieldLabel}>ルームコード</Text>
           <TextInput
-            style={[styles.input, styles.codeInput]}
+            style={[styles.input, isPC && styles.inputPC, styles.codeInput]}
             placeholder="ABC123"
             placeholderTextColor={colors.muted}
             value={roomCode}
@@ -190,34 +183,40 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.actionStack}>
           <StationeryButton
             variant="primary"
+            style={[styles.playButton, isPC && styles.playButtonPC]}
+            textStyle={styles.playButtonText}
             onPress={handleCreate}
-            accessibilityLabel="ルームを作る"
+            accessibilityLabel="部屋をつくる"
           >
-            ＋ ルームを作る
+            部屋をつくる
           </StationeryButton>
           <StationeryButton
-            variant="secondary"
+            variant="neutral"
+            style={[styles.playButton, styles.joinButton, isPC && styles.playButtonPC]}
+            textStyle={styles.playButtonText}
             onPress={() => setMode('join')}
-            accessibilityLabel="ルームに参加する"
+            accessibilityLabel="部屋に入る"
           >
-            ルームに参加する →
+            部屋に入る
           </StationeryButton>
         </View>
       ) : (
         <View style={styles.actionStack}>
           <StationeryButton
             variant="primary"
+            style={[styles.playButton, isPC && styles.playButtonPC]}
+            textStyle={styles.playButtonText}
             onPress={handleJoin}
             accessibilityLabel="参加する"
           >
-            参加する →
+            参加する
           </StationeryButton>
           <StationeryButton
             variant="ghost"
             onPress={() => setMode('home')}
             accessibilityLabel="戻る"
           >
-            ← 作成・参加の選択へ戻る
+            ← 戻る
           </StationeryButton>
         </View>
       )}
@@ -228,15 +227,32 @@ export default function HomeScreen({ navigation }) {
         accessibilityRole="button"
         accessibilityLabel="遊び方を見る"
       >
-        <Text style={styles.ruleLinkIcon}>?</Text>
         <Text style={styles.ruleLinkText}>遊び方を見る</Text>
         <Text style={styles.ruleLinkArrow}>›</Text>
       </TouchableOpacity>
-    </PaperPanel>
+    </View>
+  );
+
+  const illustration = (
+    <View
+      style={[
+        styles.illustration,
+        isPC && { maxHeight: Math.max(250, Math.min(410, (height - 180) * 0.48)) },
+      ]}
+    >
+      <Image
+        source={brandAssets.cards}
+        style={styles.illustrationImage}
+        resizeMode="contain"
+        accessible={false}
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+      />
+    </View>
   );
 
   return (
-    <PopBackdrop>
+    <View style={styles.backdrop}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -245,7 +261,7 @@ export default function HomeScreen({ navigation }) {
           style={styles.scroll}
           contentContainerStyle={[
             styles.container,
-            { paddingHorizontal: contentPadding, maxWidth: CONTENT_MAX_WIDTH },
+            { paddingHorizontal: isPC ? width * 0.0575 : 20 },
           ]}
           keyboardShouldPersistTaps="handled"
         >
@@ -256,98 +272,53 @@ export default function HomeScreen({ navigation }) {
                 style={styles.topLink}
                 onPress={() => navigation.navigate('Rules')}
                 accessibilityRole="button"
+                accessibilityLabel="遊び方"
               >
-                <Text style={styles.topLinkText}>遊び方</Text>
+                <Text style={[styles.topLinkText, isPC && styles.topLinkTextPC]}>遊び方</Text>
               </TouchableOpacity>
+              <View style={styles.navDivider} />
               <TouchableOpacity
                 style={styles.topLink}
                 onPress={() => setShowSettings((value) => !value)}
                 accessibilityRole="button"
+                accessibilityLabel="接続設定"
+                accessibilityState={{ expanded: showSettings }}
               >
-                <Text style={styles.topLinkText}>接続設定</Text>
+                <Text style={[styles.topLinkText, isPC && styles.topLinkTextPC]}>接続設定</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           <View style={[styles.main, isPC && styles.mainPC]}>
             <View style={[styles.hero, isPC && styles.heroPC]}>
-              <View style={styles.speechTag}>
-                <Text style={styles.speechTagText}>そのタイトル、本物？ それともウソ？</Text>
-              </View>
-
-              <GameLogo light={false} style={styles.heroLogo} />
-
-              <Text style={styles.heroCopy}>
-                あらすじから、ありそうなタイトルを考える。
-                {'\n'}みんなで投票して、本物を見抜くパーティーゲーム。
+              <GameLogo style={isPC && { maxWidth: width * 0.52 }} />
+              <Text style={[styles.tagline, isPC && styles.taglinePC]}>
+                ウソの題名をつくって、{!isPC && '\n'}本物を見ぬこう。
               </Text>
-
-              <View style={styles.sampleHeadingRow}>
-                <View style={styles.sampleMark} />
-                <Text style={styles.sampleHeading}>こんなタイトル、ありかも？</Text>
-              </View>
-
-              <View style={styles.sampleGrid}>
-                {SAMPLE_TITLES.map((item, index) => (
-                  <View
-                    key={item.title}
-                    style={[
-                      styles.sampleCard,
-                      { borderTopColor: item.tone },
-                      !isPC && styles.sampleCardMobile,
-                    ]}
-                  >
-                    <View style={[styles.sampleThumb, { backgroundColor: item.tone }]}>
-                      <Text style={styles.sampleThumbText}>{String(index + 1).padStart(2, '0')}</Text>
-                    </View>
-                    <View style={styles.sampleBody}>
-                      <Text style={styles.sampleTitle}>{item.title}</Text>
-                      <Text style={styles.sampleTag}>{item.tag}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.featureRow}>
-                {[
-                  ['01', '知識不要', 'ひらめきと言葉で遊べます'],
-                  ['02', 'みんなで盛り上がる', '4〜6人ですぐ試遊できます'],
-                  ['03', '作品は自由', '映画・小説・漫画・ゲーム'],
-                ].map(([num, title, desc], index) => (
-                  <View key={num} style={[styles.feature, index === 1 && styles.featureBlue]}>
-                    <Text style={styles.featureNum}>{num}</Text>
-                    <View style={styles.featureText}>
-                      <Text style={styles.featureTitle}>{title}</Text>
-                      <Text style={styles.featureDesc}>{desc}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
+              <Text style={[styles.heroCopy, isPC && styles.heroCopyPC]}>
+                あらすじを読んで、ありそうな題名を考える。
+                {'\n'}みんなで選んで、答え合わせ。
+              </Text>
+              {isPC && illustration}
             </View>
 
             <View style={[styles.formArea, isPC && styles.formAreaPC]}>
               {formPanel}
-              <StationeryButton
-                variant="ghost"
-                onPress={() => setShowSettings((value) => !value)}
-                accessibilityLabel="サーバー設定を開閉"
-                textStyle={styles.settingsToggleText}
-              >
-                {showSettings ? '接続設定を閉じる ▲' : '接続設定を開く ▼'}
-              </StationeryButton>
               {showSettings && (
                 <SettingsCard serverUrl={serverUrl} setServerUrl={setServerUrl} />
               )}
             </View>
           </View>
+          {!isPC && illustration}
 
           <View style={styles.footer}>
-            <Text style={styles.footerBrand}>タイトルたほいや</Text>
-            <Text style={styles.footerCopy}>言葉で、あそぶ。タイトルで、つながる。</Text>
+            <View style={styles.footerRule} />
+            <Text style={styles.footerCopy}>4〜6人で遊べます</Text>
+            <View style={styles.footerRule} />
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </PopBackdrop>
+    </View>
   );
 }
 
@@ -367,255 +338,104 @@ function SettingsCard({ serverUrl, setServerUrl }) {
         accessibilityLabel="サーバーURL入力欄"
       />
       <Text style={styles.settingsNote}>
-        通常は変更不要です。ローカル試遊ではPCのIPアドレスを指定します。
+        ふつうは、そのままで遊べます。
       </Text>
       <StationeryButton
         variant="neutral"
         onPress={() => setServerUrl(DEFAULT_SERVER_URL)}
         accessibilityLabel="デフォルトURLに戻す"
       >
-        デフォルトに戻す
+        はじめの設定に戻す
       </StationeryButton>
     </PaperPanel>
   );
 }
 
 const styles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: colors.cream },
   flex: { flex: 1 },
   scroll: { flex: 1 },
   container: {
     width: '100%',
+    maxWidth: 1586,
     alignSelf: 'center',
-    paddingTop: Platform.OS === 'web' ? 24 : 54,
-    paddingBottom: 28,
+    paddingTop: Platform.OS === 'web' ? 10 : 54,
+    paddingBottom: 24,
   },
   topBar: {
-    minHeight: 64,
-    borderRadius: radii.lg,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 2,
-    borderColor: colors.navy,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    minHeight: 60,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navy,
+    paddingBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 16,
-    ...shadows.paper,
+    gap: 8,
   },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  topLink: {
-    minHeight: 42,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-    borderRadius: radii.sm,
-  },
-  topLinkText: { color: colors.navy, fontSize: 13, fontWeight: '800' },
-  main: { gap: 18, marginTop: 18 },
-  mainPC: { flexDirection: 'row', alignItems: 'stretch', gap: 24 },
-  hero: {
-    backgroundColor: colors.navy,
-    borderRadius: radii.xl,
-    borderWidth: 2,
-    borderColor: colors.navyDeep,
-    padding: 22,
-    overflow: 'hidden',
-  },
-  heroPC: { flex: 1.65, padding: 30 },
-  speechTag: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.yellow,
-    borderRadius: radii.sm,
-    borderWidth: 2,
-    borderColor: colors.navyDeep,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    transform: [{ rotate: '-2deg' }],
-  },
-  speechTagText: { fontFamily: fontFamilies.accent, color: colors.navy, fontWeight: '900', fontSize: 12 },
-  heroLogo: {
-    marginTop: 20,
-    backgroundColor: colors.cream,
-    borderRadius: radii.lg,
-    borderWidth: 2,
-    borderColor: colors.navyDeep,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    alignSelf: 'flex-start',
-    transform: [{ rotate: '-1deg' }],
-  },
-  heroCopy: {
-    color: colors.white,
-    fontSize: 16,
-    lineHeight: 28,
+  topLink: { minHeight: 44, paddingHorizontal: 6, justifyContent: 'center' },
+  topLinkText: { color: colors.navy, fontSize: 13, fontWeight: '700' },
+  topLinkTextPC: { fontSize: 16 },
+  navDivider: { width: 1, height: 18, backgroundColor: colors.border },
+  main: { gap: 28, marginTop: 24 },
+  mainPC: { flexDirection: 'row', alignItems: 'center', gap: 32, marginTop: 24 },
+  hero: { alignItems: 'center' },
+  heroPC: { flex: 1, minWidth: 0 },
+  tagline: {
+    color: colors.navy,
+    fontSize: 20,
+    lineHeight: 30,
     fontWeight: '700',
-    marginTop: 20,
-    maxWidth: 620,
+    textAlign: 'center',
+    marginTop: 2,
   },
-  sampleHeadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 24,
-    marginBottom: 10,
+  taglinePC: { fontSize: 30, lineHeight: 42 },
+  heroCopy: { color: colors.ink, fontSize: 13, lineHeight: 23, textAlign: 'center', marginTop: 10 },
+  heroCopyPC: { fontSize: 20, lineHeight: 32, marginTop: 12 },
+  illustration: { width: '100%', aspectRatio: 2, marginTop: 6 },
+  illustrationImage: { width: '100%', height: '100%' },
+  formArea: { width: '100%' },
+  formAreaPC: {
+    width: '34%',
+    paddingLeft: 40,
+    paddingVertical: 24,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
   },
-  sampleMark: {
-    width: 8,
-    height: 22,
-    borderRadius: 4,
-    backgroundColor: colors.red,
-  },
-  sampleHeading: { color: colors.white, fontSize: 15, fontWeight: '900' },
-  sampleGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  sampleCard: {
-    flex: 1,
-    minWidth: 180,
-    backgroundColor: colors.white,
-    borderRadius: radii.md,
-    borderWidth: 2,
-    borderColor: colors.navyDeep,
-    borderTopWidth: 6,
-    padding: 10,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  sampleCardMobile: { minWidth: '100%' },
-  sampleThumb: {
-    width: 46,
-    height: 46,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sampleThumbText: { color: colors.navy, fontWeight: '900', fontSize: 13 },
-  sampleBody: { flex: 1 },
-  sampleTitle: { fontFamily: fontFamilies.accent, color: colors.navy, fontSize: 14, lineHeight: 20, fontWeight: '900' },
-  sampleTag: { color: colors.muted, fontSize: 10, marginTop: 5, fontWeight: '700' },
-  featureRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 18,
-  },
-  feature: {
-    flex: 1,
-    minWidth: 160,
-    borderRadius: radii.md,
-    backgroundColor: '#E4F5E9',
-    borderWidth: 2,
-    borderColor: colors.navyDeep,
-    padding: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-  },
-  featureBlue: { backgroundColor: '#DCF1FF' },
-  featureNum: {
-    color: colors.red,
-    fontSize: 15,
-    fontWeight: '900',
-    width: 28,
-  },
-  featureText: { flex: 1 },
-  featureTitle: { color: colors.navy, fontSize: 12, fontWeight: '900' },
-  featureDesc: { color: colors.muted, fontSize: 10, marginTop: 2 },
-  formArea: { gap: 8 },
-  formAreaPC: { width: 390, flexShrink: 0 },
-  formPanel: { padding: 22 },
-  formHeader: {
-    borderBottomWidth: 2,
-    borderBottomColor: colors.navy,
-    paddingBottom: 14,
-    marginBottom: 16,
-  },
-  formKicker: {
-    color: colors.red,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.8,
-  },
-  formHeading: {
-    fontFamily: fontFamilies.display,
-    color: colors.navy,
-    fontSize: 25,
-    lineHeight: 34,
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  formIntro: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 5 },
-  fieldLabel: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: colors.navy,
-    marginBottom: 7,
-  },
+  formPanel: { width: '100%' },
+  formHeader: { marginBottom: 24 },
+  formHeading: { color: colors.navy, fontSize: 24, lineHeight: 34, fontWeight: '700' },
+  formHeadingPC: { fontSize: 36, lineHeight: 50 },
+  formIntro: { color: colors.ink, fontSize: 14, lineHeight: 24, marginTop: 8 },
+  fieldLabel: { fontSize: 14, fontWeight: '700', color: colors.navy, marginBottom: 8 },
   input: {
     backgroundColor: colors.white,
-    borderRadius: radii.md,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: colors.navy,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 16,
+    minHeight: 54,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 17,
     color: colors.ink,
-    marginBottom: 14,
+    marginBottom: 18,
   },
-  codeInput: {
-    letterSpacing: 6,
-    fontWeight: '900',
-    fontSize: 20,
-    textAlign: 'center',
-  },
-  loadingBox: {
-    alignItems: 'center',
-    paddingVertical: 20,
-    gap: 8,
-  },
-  loadingMsg: { fontSize: 12, color: colors.muted, textAlign: 'center' },
-  actionStack: { gap: 10 },
-  ruleLink: {
-    marginTop: 16,
-    borderTopWidth: 1.5,
-    borderTopColor: colors.border,
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    paddingTop: 12,
-  },
-  ruleLinkIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.yellow,
-    color: colors.navy,
-    textAlign: 'center',
-    lineHeight: 24,
-    fontWeight: '900',
-  },
-  ruleLinkText: { flex: 1, color: colors.navy, fontSize: 13, fontWeight: '900' },
-  ruleLinkArrow: { color: colors.navy, fontSize: 24 },
-  settingsToggleText: { fontSize: 12, color: colors.navy },
-  settingsCard: { marginTop: 2 },
-  settingsTitle: { color: colors.navy, fontSize: 17, fontWeight: '900', marginBottom: 12 },
-  settingsNote: { color: colors.muted, fontSize: 11, lineHeight: 17, marginBottom: 12 },
-  footer: {
-    marginTop: 18,
-    minHeight: 58,
-    borderRadius: radii.lg,
-    backgroundColor: colors.navy,
-    borderWidth: 2,
-    borderColor: colors.navyDeep,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  footerBrand: { color: colors.white, fontSize: 13, fontWeight: '900' },
-  footerCopy: { color: '#BCD1E0', fontSize: 11, fontWeight: '700' },
+  inputPC: { minHeight: 72, fontSize: 19, marginBottom: 28 },
+  codeInput: { letterSpacing: 6, fontWeight: '700', fontSize: 20, textAlign: 'center' },
+  loadingBox: { alignItems: 'center', paddingVertical: 20, gap: 8 },
+  loadingMsg: { fontSize: 14, lineHeight: 22, color: colors.muted, textAlign: 'center' },
+  actionStack: { gap: 14 },
+  playButton: { minHeight: 56, borderRadius: 10, shadowColor: colors.navy, shadowOffset: { width: 2, height: 4 }, shadowOpacity: 1, shadowRadius: 0, elevation: 0 },
+  playButtonPC: { minHeight: 72 },
+  playButtonText: { fontSize: 20, fontWeight: '700', letterSpacing: 0 },
+  joinButton: { backgroundColor: colors.cream },
+  ruleLink: { minHeight: 48, marginTop: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  ruleLinkText: { color: colors.navy, fontSize: 15, fontWeight: '700', textDecorationLine: 'underline' },
+  ruleLinkArrow: { color: colors.navy, fontSize: 28, lineHeight: 32 },
+  settingsCard: { marginTop: 18, padding: 16 },
+  settingsTitle: { color: colors.navy, fontSize: 18, fontWeight: '700', marginBottom: 12 },
+  settingsNote: { color: colors.muted, fontSize: 12, lineHeight: 20, marginBottom: 12 },
+  footer: { marginTop: 16, flexDirection: 'row', gap: 18, alignItems: 'center', justifyContent: 'center' },
+  footerRule: { width: 48, height: 1, backgroundColor: colors.navy },
+  footerCopy: { color: colors.navy, fontSize: 14, lineHeight: 22 },
 });

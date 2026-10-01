@@ -78,9 +78,21 @@
       "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/hachimarupop/OFL.txt",
       "bytes": 4494,
       "sha256": "8d3c434650e84f42ddb33e9b5929089ea51c39b231b798dacb33087d5f05d9f1"
+    },
+    {
+      "file": "notosansjp/NotoSansJP-Variable.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf",
+      "bytes": 9589900,
+      "sha256": "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f"
+    },
+    {
+      "file": "notosansjp/OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/OFL.txt",
+      "bytes": 4388,
+      "sha256": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"
     }
   ],
-  "web_fonts": [
+  "archived_web_fonts": [
     {
       "file": "mochiypopone/MochiyPopOne-Regular.woff2",
       "original": "mochiypopone/MochiyPopOne-Regular.ttf",
@@ -109,5 +121,51 @@
       "sha256": "6bf17e15c9e8da39a0d22acd2d8a9b5255a184e82289dbab98367bd9b22780a2",
       "conversion": "FontTools WOFF2, original full glyph set retained"
     }
-  ]
+  ],
+  "derived_fonts": [
+    {
+      "file": "notosansjp/NotoSansJP-Regular.ttf",
+      "original": "notosansjp/NotoSansJP-Variable.ttf",
+      "weight": 400,
+      "unicode_characters": 16732,
+      "conversion": "FontTools static instance, original full glyph set retained",
+      "bytes": 5766884,
+      "sha256": "57458d02bb14502d7ae98abe1e2f79b52783ceda9e4628df145faae23a3d31d2"
+    },
+    {
+      "file": "notosansjp/NotoSansJP-Bold.ttf",
+      "original": "notosansjp/NotoSansJP-Variable.ttf",
+      "weight": 700,
+      "unicode_characters": 16732,
+      "conversion": "FontTools static instance, original full glyph set retained",
+      "bytes": 5761680,
+      "sha256": "611dbdbda88a7a34c44232b90c71161b65178a82649bdc6e365a30f61ab28237"
+    }
+  ],
+  "web_fonts": [
+    {
+      "file": "notosansjp/NotoSansJP-Regular.woff2",
+      "original": "notosansjp/NotoSansJP-Variable.ttf",
+      "weight": 400,
+      "unicode_characters": 16732,
+      "static_face": "notosansjp/NotoSansJP-Regular.ttf",
+      "conversion": "FontTools WOFF2, original full glyph set retained",
+      "bytes": 2303160,
+      "sha256": "a8dbfb7bcdb3bd7036bc65307e77fafb7755dfa0e57527516499fa2868021fc5"
+    },
+    {
+      "file": "notosansjp/NotoSansJP-Bold.woff2",
+      "original": "notosansjp/NotoSansJP-Variable.ttf",
+      "weight": 700,
+      "unicode_characters": 16732,
+      "static_face": "notosansjp/NotoSansJP-Bold.ttf",
+      "conversion": "FontTools WOFF2, original full glyph set retained",
+      "bytes": 2352860,
+      "sha256": "b863937753a67d45ea418efd893c793cc9526a46d9e07061987da1596e74cace"
+    }
+  ],
+  "conversion_tools": {
+    "fonttools": "4.61.1",
+    "brotli": "1.2.0"
+  }
 }

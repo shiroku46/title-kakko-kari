@@ -2,13 +2,13 @@ import { Platform } from 'react-native';
 
 // These names match the bundled faces loaded by App, on web and native.
 export const fontFamilies = {
-  display: 'TahoiyaPop',
-  accent: 'TahoiyaHandwritten',
-  sans: 'TahoiyaRounded',
-  sansBold: 'TahoiyaRoundedBold',
+  display: 'TahoiyaSansBold',
+  accent: 'TahoiyaSans',
+  sans: 'TahoiyaSans',
+  sansBold: 'TahoiyaSansBold',
   // Preserve existing theme consumers while replacing the old Mincho face.
-  serif: 'TahoiyaRounded',
-  serifBold: 'TahoiyaRoundedBold',
+  serif: 'TahoiyaSans',
+  serifBold: 'TahoiyaSansBold',
 };
 
 export const fallbackFontFamily = Platform.select({
