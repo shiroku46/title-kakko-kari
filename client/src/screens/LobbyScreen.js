@@ -203,7 +203,7 @@ export default function LobbyScreen({ navigation, route }) {
                   <ModeButton
                     selected={gameMode === 'cpu'}
                     title="CPU出題"
-                    note="Wikipediaからランダム出題"
+                    note="出典付きの作品から出題"
                     color={colors.blue}
                     onPress={() => setGameMode('cpu')}
                   />
@@ -261,7 +261,7 @@ export default function LobbyScreen({ navigation, route }) {
             <PaperPanel tone="yellow" style={styles.tipPanel}>
               <Text style={styles.tipTitle}>待っている間に</Text>
               <Text style={styles.tipBody}>
-                「それっぽいタイトル」を考えるコツは、あらすじの雰囲気とジャンルを想像すること。
+                「それっぽいタイトル」を考えるコツは、作品の紹介文から雰囲気とジャンルを想像すること。
               </Text>
             </PaperPanel>
           </View>

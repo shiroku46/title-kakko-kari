@@ -4,6 +4,8 @@ import {
   StyleSheet,
   ScrollView,
   Platform,
+  Pressable,
+  Linking,
 } from 'react-native';
 import { Text } from '../ui/GameText';
 import { colors, radii } from '../../theme';
@@ -18,10 +20,34 @@ import {
 } from '../ui';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../../hooks/useResponsiveLayout';
 
+function getHttpsUrl(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return null;
+    return url.href;
+  } catch (_) {
+    return null;
+  }
+}
+
+function sourceDetails(source) {
+  const details = [];
+  if (source.revisionId != null) details.push(`版：${source.revisionId}`);
+  if (typeof source.retrievedAt === 'string') {
+    const date = new Date(source.retrievedAt);
+    if (!Number.isNaN(date.getTime())) {
+      details.push(`確認日：${date.toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}`);
+    }
+  }
+  return details.join(' ・ ');
+}
+
 export default function RevealedPhase({
   currentRound,
   totalRounds,
   revealData,
+  contentType = 'synopsis',
   isQuestioner,
   isHost,
   playerId,
@@ -30,11 +56,16 @@ export default function RevealedPhase({
 }) {
   const [mvpSubmitted, setMvpSubmitted] = useState(false);
   const [selectedMvpId, setSelectedMvpId] = useState(null);
+  const [sourceLinkError, setSourceLinkError] = useState(null);
   const { isPC, contentPadding } = useResponsiveLayout();
 
   if (!revealData) return null;
 
-  const { realTitle, answers, votes, roundScores, playerScores } = revealData;
+  const { realTitle, workKindLabel, answers, votes, roundScores, playerScores, sources: revealedSources } = revealData;
+  const hasWorkKindLabel = typeof workKindLabel === 'string' && Boolean(workKindLabel.trim());
+  const sources = Array.isArray(revealedSources)
+    ? revealedSources.filter((source) => source && getHttpsUrl(source.url))
+    : [];
   const fakeAnswers = answers.filter((answer) => !answer.isReal);
   const voteMap = {};
 
@@ -45,6 +76,17 @@ export default function RevealedPhase({
 
   const myScore = roundScores?.find((score) => score.player_id === playerId);
   const canAdvance = isQuestioner || isHost;
+
+  async function handleOpenSource(value) {
+    const url = getHttpsUrl(value);
+    if (!url) return;
+    setSourceLinkError(null);
+    try {
+      await Linking.openURL(url);
+    } catch (_) {
+      setSourceLinkError('リンクを開けませんでした。もう一度お試しください。');
+    }
+  }
 
   function handleSubmitMvp() {
     if (!selectedMvpId) return;
@@ -68,12 +110,15 @@ export default function RevealedPhase({
 
       {answers.map((answer, index) => {
         const voteCount = (voteMap[answer.id] ?? []).length;
+        const isOwnAnswer = !isQuestioner && !answer.isReal && Boolean(playerId)
+          && answer.author?.id === playerId;
         return (
           <View
             key={answer.id}
             style={[
               styles.answerRow,
               answer.isReal && styles.answerRowReal,
+              isOwnAnswer && styles.answerRowOwn,
             ]}
           >
             <View style={[styles.answerRank, answer.isReal && styles.answerRankReal]}>
@@ -85,6 +130,15 @@ export default function RevealedPhase({
               </Text>
             </View>
             <View style={styles.answerBody}>
+              {isOwnAnswer && (
+                <Text
+                  testID="own-title-marker"
+                  accessibilityLabel="あなたが考えたタイトル"
+                  style={styles.ownTitleBadge}
+                >
+                  あなたのタイトル
+                </Text>
+              )}
               <Text
                 style={[
                   styles.answerTitle,
@@ -257,17 +311,73 @@ export default function RevealedPhase({
             <View style={[styles.confetti, { backgroundColor: colors.pink, transform: [{ rotate: '30deg' }] }]} />
           </View>
           <Text style={styles.realKicker}>THE REAL TITLE IS...</Text>
-          <Text style={styles.realTitle}>{realTitle}</Text>
-          <Stamp type="正解" size="lg" animate style={styles.realStamp} />
+          {hasWorkKindLabel ? (
+            <Text
+              testID="revealed-work-kind"
+              accessibilityLabel={`作品のジャンル：${workKindLabel}`}
+              style={styles.realWorkKind}
+            >
+              {workKindLabel}
+            </Text>
+          ) : null}
+          <Text style={[styles.realTitle, !isPC && styles.realTitleMobile]}>{realTitle}</Text>
+          <Stamp type="正解" size="lg" animate style={isPC ? styles.realStamp : styles.realStampMobile} />
         </View>
 
+        {sources.length > 0 ? (
+          <PaperPanel tone="cream" variant="elevated" style={styles.sourcePanel}>
+            <Text style={styles.kicker}>SOURCE</Text>
+            <Text style={styles.sourceHeading}>出典・作品紹介</Text>
+            <Text style={styles.sourceNote}>
+              {contentType === 'description' ? '作品の紹介文' : '作品のあらすじ'}は、資料の文章を抜粋・短縮し、題名を伏せて作成しています。
+            </Text>
+            {sources.map((source, index) => {
+              const label = source.label || '作品紹介';
+              const licenseUrl = getHttpsUrl(source.licenseUrl);
+              const details = sourceDetails(source);
+              return (
+                <View key={`${source.url}-${index}`} style={styles.sourceItem}>
+                  <Pressable
+                    accessibilityRole="link"
+                    accessibilityLabel={`出典を開く：${label}`}
+                    onPress={() => handleOpenSource(source.url)}
+                    style={styles.sourceLink}
+                  >
+                    <Text style={styles.sourceLinkText}>{label} ↗</Text>
+                  </Pressable>
+                  {source.license ? (
+                    licenseUrl ? (
+                      <Pressable
+                        accessibilityRole="link"
+                        accessibilityLabel={`ライセンスを確認：${source.license}`}
+                        onPress={() => handleOpenSource(licenseUrl)}
+                        style={styles.licenseLink}
+                      >
+                        <Text style={styles.licenseLinkText}>ライセンス：{source.license} ↗</Text>
+                      </Pressable>
+                    ) : (
+                      <Text style={styles.sourceMetadata}>
+                        {source.provider === 'aozora' ? '著作権情報' : 'ライセンス'}：{source.license}
+                      </Text>
+                    )
+                  ) : null}
+                  {details ? <Text style={styles.sourceMetadata}>{details}</Text> : null}
+                </View>
+              );
+            })}
+            {sourceLinkError ? (
+              <Text accessibilityRole="alert" style={styles.sourceError}>{sourceLinkError}</Text>
+            ) : null}
+          </PaperPanel>
+        ) : null}
+
         <View style={[styles.layout, isPC && styles.layoutPC]}>
-          <View style={styles.mainColumn}>
+          <View style={[styles.mainColumn, isPC && styles.mainColumnPC]}>
             {answerResults}
             {mvpPanel}
             {mvpResult}
           </View>
-          <View style={styles.sideColumn}>{scoreColumn}</View>
+          <View style={[styles.sideColumn, isPC && styles.sideColumnPC]}>{scoreColumn}</View>
         </View>
       </ScrollView>
     </PopBackdrop>
@@ -303,6 +413,7 @@ const styles = StyleSheet.create({
   },
   confetti: { width: 18, height: 7, borderRadius: 4 },
   realKicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 2 },
+  realWorkKind: { color: '#C2D5E4', fontSize: 11, lineHeight: 18, fontWeight: '700', marginTop: 8, textAlign: 'center' },
   realTitle: {
     color: colors.white,
     fontSize: 29,
@@ -312,11 +423,25 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingHorizontal: 60,
   },
+  realTitleMobile: { width: '100%', paddingHorizontal: 0, flexShrink: 1 },
   realStamp: { position: 'absolute', right: 18, bottom: 16 },
+  realStampMobile: { alignSelf: 'flex-end', marginTop: 14 },
+  sourcePanel: { marginBottom: 16 },
+  sourceHeading: { color: colors.navy, fontSize: 18, fontWeight: '900', marginTop: 3 },
+  sourceNote: { color: colors.muted, fontSize: 12, lineHeight: 19, marginTop: 6, marginBottom: 8 },
+  sourceItem: { borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8 },
+  sourceLink: { minHeight: 44, justifyContent: 'center', paddingVertical: 8 },
+  sourceLinkText: { color: colors.navy, fontSize: 15, lineHeight: 23, fontWeight: '800', textDecorationLine: 'underline' },
+  licenseLink: { minHeight: 44, justifyContent: 'center', paddingVertical: 6 },
+  licenseLinkText: { color: colors.ink, fontSize: 12, lineHeight: 19, textDecorationLine: 'underline' },
+  sourceMetadata: { color: colors.muted, fontSize: 12, lineHeight: 19, marginTop: 2 },
+  sourceError: { color: colors.red, fontSize: 13, lineHeight: 20, marginTop: 8 },
   layout: { gap: 14 },
   layoutPC: { flexDirection: 'row', alignItems: 'flex-start', gap: 18 },
-  mainColumn: { flex: 1.6, gap: 14 },
-  sideColumn: { flex: 0.8 },
+  mainColumn: { gap: 14 },
+  mainColumnPC: { flex: 1.6 },
+  sideColumn: {},
+  sideColumnPC: { flex: 0.8 },
   sectionHeadingRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -358,6 +483,10 @@ const styles = StyleSheet.create({
     borderColor: colors.red,
     backgroundColor: '#FFF0F4',
   },
+  answerRowOwn: {
+    borderColor: colors.navy,
+    backgroundColor: colors.sky,
+  },
   answerRank: {
     width: 36,
     height: 36,
@@ -370,6 +499,18 @@ const styles = StyleSheet.create({
   answerRankText: { color: colors.white, fontSize: 14, fontWeight: '900' },
   answerRankTextReal: { color: colors.white },
   answerBody: { flex: 1, minWidth: 0 },
+  ownTitleBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.cyan,
+    color: colors.navy,
+    borderRadius: radii.sm,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    marginBottom: 4,
+    fontSize: 10,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
   answerTitle: { color: colors.ink, fontSize: 15, lineHeight: 22, fontWeight: '800' },
   answerTitleReal: { color: colors.red, fontWeight: '900' },
   answerAuthor: { color: colors.muted, fontSize: 10, marginTop: 3 },

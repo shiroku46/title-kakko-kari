@@ -34,8 +34,8 @@ const FLOW = [
   },
   {
     num: '3',
-    title: 'あらすじを読む',
-    desc: '作品名を伏せたあらすじから、ジャンルや雰囲気を想像します。',
+    title: '作品の紹介文を読む',
+    desc: '小説・映画・漫画・アニメ・音楽・ゲームなどの紹介文から、ジャンルや雰囲気を想像します。作品名は伏せられています。',
     color: colors.cyan,
     symbol: '文',
   },
@@ -96,7 +96,7 @@ export default function RulesScreen({ navigation }) {
           <Text style={styles.heroKicker}>HOW TO PLAY</Text>
           <Text style={styles.heroTitle}>遊び方</Text>
           <Text style={styles.heroCopy}>
-            あらすじを読んで、タイトルを考えて、みんなで投票。
+            作品の紹介文を読んで、タイトルを考えて、みんなで投票。
             {'\n'}知識がなくても、言葉のセンスで遊べるクイズゲームです。
           </Text>
         </View>
@@ -151,7 +151,7 @@ export default function RulesScreen({ navigation }) {
               <Text style={styles.tipKicker}>TIP 01</Text>
               <Text style={styles.tipTitle}>「それっぽさ」と意外性</Text>
               <Text style={styles.tipBody}>
-                あらすじに出てくる言葉や雰囲気を入れると、説得力のある偽タイトルになります。
+                紹介文に出てくる言葉や雰囲気を入れると、説得力のある偽タイトルになります。
               </Text>
             </PaperPanel>
             <PaperPanel tone="sky" style={styles.tipPanel}>

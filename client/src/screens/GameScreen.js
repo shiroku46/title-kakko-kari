@@ -9,6 +9,10 @@ import SubmittingPhase from '../components/phases/SubmittingPhase';
 import VotingPhase from '../components/phases/VotingPhase';
 import RevealedPhase from '../components/phases/RevealedPhase';
 
+function normalizeContentType(value) {
+  return value === 'description' ? 'description' : 'synopsis';
+}
+
 export default function GameScreen({ navigation, route }) {
   const { room, player, gameData } = route.params;
   const socket = getSocket();
@@ -21,10 +25,12 @@ export default function GameScreen({ navigation, route }) {
   const [currentRound, setCurrentRound] = useState(gameData.currentRound);
   const [totalRounds, setTotalRounds] = useState(gameData.totalRounds);
   const [questioner, setQuestioner] = useState(gameData.questioner);
+  const [contentType, setContentType] = useState(normalizeContentType(gameData.round?.contentType));
 
   const [synopsis, setSynopsis] = useState(null);
   const [fetchedSynopsis, setFetchedSynopsis] = useState(null);
   const [choices, setChoices] = useState([]);
+  const [ownAnswerId, setOwnAnswerId] = useState(null);
   const [revealData, setRevealData] = useState(null);
   const [fakeSubmittedCount, setFakeSubmittedCount] = useState(0);
   const [voteProgress, setVoteProgress] = useState({ voted: 0, total: 0 });
@@ -51,12 +57,14 @@ export default function GameScreen({ navigation, route }) {
       setCurrentRound(data.currentRound);
       setTotalRounds(data.totalRounds);
       setQuestioner(data.questioner);
+      setContentType(normalizeContentType(data.round?.contentType));
       if (data.mode) setMode(data.mode);
       setPhase(data.mode === 'cpu' ? 'confirming' : 'selecting');
       setSynopsis(null);
       setFetchedSynopsis(null);
       setSynopsisError(null);
       setChoices([]);
+      setOwnAnswerId(null);
       setRevealData(null);
       setFakeSubmittedCount(0);
       setVoteProgress({ voted: 0, total: 0 });
@@ -64,13 +72,26 @@ export default function GameScreen({ navigation, route }) {
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
     },
-    'round:synopsis_fetch_failed': (data) => setSynopsisError(data.error),
+    'round:synopsis_loading': (data) => {
+      if (data.roundId !== round.id) return;
+      setFetchedSynopsis(null);
+      setContentType('synopsis');
+      setSynopsisError(null);
+    },
+    'round:synopsis_fetch_failed': (data) => {
+      if (data.roundId !== round.id) return;
+      setFetchedSynopsis(null);
+      setSynopsisError(data.error);
+    },
     'round:synopsis_fetched': (data) => {
+      if (data.roundId !== round.id) return;
       setSynopsisError(null);
       setFetchedSynopsis(data.synopsis);
+      setContentType(normalizeContentType(data.contentType));
     },
     'round:synopsis_presented': (data) => {
       setSynopsis(data.synopsis);
+      setContentType(normalizeContentType(data.contentType));
     },
     'round:known_declared': ({ player: p }) => {
       setKnownDeclarations((prev) => [...prev, p.nickname]);
@@ -84,6 +105,7 @@ export default function GameScreen({ navigation, route }) {
     },
     'round:reselect_started': () => {
       setSynopsis(null);
+      setContentType('synopsis');
       setKnownDeclarations([]);
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
@@ -97,6 +119,7 @@ export default function GameScreen({ navigation, route }) {
     },
     'round:choices_presented': (data) => {
       setChoices(data.choices);
+      setOwnAnswerId(data.ownAnswerId ?? null);
       setPhase('voting');
     },
     'round:vote_progress': (data) => {
@@ -104,6 +127,7 @@ export default function GameScreen({ navigation, route }) {
     },
     'round:revealed': (data) => {
       setRevealData(data);
+      setContentType(normalizeContentType(data.contentType ?? contentType));
       setMvpData(null);
       setPhase('revealed');
     },
@@ -130,6 +154,25 @@ export default function GameScreen({ navigation, route }) {
   });
 
   useEffect(() => {
+    if (mode !== 'cpu' || phase !== 'confirming' || !isHost) return;
+    let active = true;
+    socket.timeout(10000).emit('round:get_synopsis', { roomId: room.id, roundId: round.id }, (error, response) => {
+      if (!active) return;
+      if (error || !response?.ok) {
+        setFetchedSynopsis(null);
+        setSynopsisError(error
+          ? 'サーバーから応答がありません。接続を確認して再取得してください。'
+          : response.error);
+        return;
+      }
+      setFetchedSynopsis(response.synopsis);
+      setContentType(normalizeContentType(response.contentType));
+      setSynopsisError(null);
+    });
+    return () => { active = false; };
+  }, [mode, phase, isHost, room.id, round.id, socket]);
+
+  useEffect(() => {
     if (phase === 'submitting' && mode === 'cpu' && fetchedSynopsis && !synopsis) {
       setSynopsis(fetchedSynopsis);
     }
@@ -148,6 +191,10 @@ export default function GameScreen({ navigation, route }) {
             synopsisError={synopsisError}
             isHost={isHost}
             socket={socket}
+            onRerollStart={() => {
+              setFetchedSynopsis(null);
+              setSynopsisError(null);
+            }}
           />
         );
       case 'selecting':
@@ -190,6 +237,7 @@ export default function GameScreen({ navigation, route }) {
             questioner={questioner}
             synopsis={synopsis}
             choices={choices}
+            ownAnswerId={ownAnswerId}
             isQuestioner={amQuestioner}
             playerId={player.id}
             voteProgress={voteProgress}
@@ -203,6 +251,7 @@ export default function GameScreen({ navigation, route }) {
             currentRound={currentRound}
             totalRounds={totalRounds}
             revealData={revealData}
+            contentType={contentType}
             isQuestioner={amQuestioner}
             isHost={isHost}
             playerId={player.id}

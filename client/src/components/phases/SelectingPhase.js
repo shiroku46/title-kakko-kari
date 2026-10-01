@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
-  Alert,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -31,99 +30,120 @@ export default function SelectingPhase({
 }) {
   const [synopsisText, setSynopsisText] = useState('');
   const [realTitle, setRealTitle] = useState('');
+  const [automaticQuestionId, setAutomaticQuestionId] = useState(null);
   const [declared, setDeclared] = useState(null);
   const [submitted, setSubmitted] = useState(false);
-  const [fetching, setFetching] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [requestError, setRequestError] = useState(null);
+  const [skipConfirming, setSkipConfirming] = useState(false);
+  const requestPendingRef = useRef(false);
+  const fetching = pendingAction === 'fetch';
+  const requestBusy = Boolean(pendingAction);
   const { isPC, contentPadding } = useResponsiveLayout();
 
+  function showError(action, message) {
+    setRequestError({ action, message });
+  }
+
+  function requestAction(event, payload, onSuccess) {
+    if (requestPendingRef.current) return;
+    if (!socket?.connected) {
+      showError(event, 'サーバーに接続していません。接続を確認して、もう一度お試しください。');
+      return;
+    }
+    requestPendingRef.current = true;
+    setPendingAction(event);
+    setRequestError(null);
+    socket.timeout(10000).emit(event, payload, (error, res) => {
+      requestPendingRef.current = false;
+      setPendingAction(null);
+      if (error) {
+        showError(event, 'サーバーから応答がありません。接続を確認して、もう一度お試しください。');
+      } else if (!res?.ok) {
+        showError(event, res?.error || '操作できませんでした。もう一度お試しください。');
+      } else {
+        onSuccess?.();
+      }
+    });
+  }
+
   async function handleAutoFetch() {
-    setFetching(true);
+    if (requestPendingRef.current) return;
+    requestPendingRef.current = true;
+    setPendingAction('fetch');
+    setRequestError(null);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    // An empty bank may discover and verify new source material on demand.
+    const timeout = setTimeout(() => controller.abort(), 70000);
     try {
       const baseUrl = getCurrentUrl() || 'https://title-kakko-kari.onrender.com';
       const res = await fetch(`${baseUrl}/api/random-work`, { signal: controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (!data.ok) {
-        Alert.alert('取得失敗', data.error ?? '記事が見つかりませんでした。再試行してください。');
+      if (!res.ok || !data.ok) {
+        showError('fetch', data.error ?? '問題が見つかりませんでした。再試行してください。');
         return;
       }
       setSynopsisText(data.synopsis);
       setRealTitle(data.title);
+      setAutomaticQuestionId(data.questionId ?? null);
     } catch (err) {
       if (err.name === 'AbortError') {
-        Alert.alert('取得失敗', '時間がかかりすぎました。もう一度お試しください。');
+        showError('fetch', '取得に時間がかかりすぎました。もう一度お試しください。');
       } else {
-        Alert.alert('取得失敗', `サーバーに接続できませんでした\n(${err.message})`);
+        showError('fetch', '問題を取得できませんでした。接続を確認して、もう一度お試しください。');
       }
     } finally {
       clearTimeout(timeout);
-      setFetching(false);
+      requestPendingRef.current = false;
+      setPendingAction(null);
     }
   }
 
   function handleSubmitSynopsis() {
-    if (!synopsisText.trim()) return Alert.alert('入力してください', 'あらすじを入力してください');
-    if (!realTitle.trim()) return Alert.alert('入力してください', '本物のタイトルを入力してください');
-    socket.emit(
+    if (requestPendingRef.current) return;
+    if (!synopsisText.trim()) return showError('round:submit_synopsis', '作品の紹介文を入力してください');
+    if (!realTitle.trim()) return showError('round:submit_synopsis', '本物のタイトルを入力してください');
+    requestAction(
       'round:submit_synopsis',
-      { synopsis: synopsisText.trim(), realTitle: realTitle.trim() },
-      (res) => {
-        if (!res.ok) return Alert.alert('エラー', res.error);
-        setSubmitted(true);
-      }
+      {
+        synopsis: synopsisText.trim(),
+        realTitle: realTitle.trim(),
+        ...(automaticQuestionId && { questionId: automaticQuestionId }),
+      },
+      () => setSubmitted(true)
     );
   }
 
   function handleDeclareKnown() {
-    socket.emit('round:declare_known', null, (res) => {
-      if (!res.ok) return Alert.alert('エラー', res.error);
-      setDeclared('known');
-    });
+    requestAction('round:declare_known', null, () => setDeclared('known'));
   }
 
   function handleDeclareUnknown() {
-    socket.emit('round:declare_unknown', null, (res) => {
-      if (!res.ok) return Alert.alert('エラー', res.error);
-      setDeclared('unknown');
-    });
+    requestAction('round:declare_unknown', null, () => setDeclared('unknown'));
   }
 
   function handleReselect() {
-    socket.emit('round:reselect', null, (res) => {
-      if (!res.ok) Alert.alert('エラー', res.error);
-      else setSubmitted(false);
+    requestAction('round:reselect', null, () => {
+      setSubmitted(false);
+      setAutomaticQuestionId(null);
     });
   }
 
   function handleStartSubmitting() {
-    socket.emit('round:start_submitting', null, (res) => {
-      if (!res.ok) Alert.alert('エラー', res.error);
-    });
+    requestAction('round:start_submitting', null);
   }
 
   function handleSkipRound() {
-    Alert.alert(
-      'ラウンドをスキップ',
-      '出題者が離脱したため、このラウンドをスキップして次へ進みますか？',
-      [
-        { text: 'キャンセル', style: 'cancel' },
-        {
-          text: 'スキップ',
-          style: 'destructive',
-          onPress: () => {
-            socket.emit('game:next_round', null, (res) => {
-              if (!res.ok) Alert.alert('エラー', res.error);
-            });
-          },
-        },
-      ]
-    );
+    if (!requestPendingRef.current) setSkipConfirming(true);
   }
 
   const hasKnown = knownDeclarations.length > 0;
   const canAdvance = allDeclared && !hasKnown;
+  const errorNotice = requestError ? (
+    <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.errorText}>
+      {requestError.message}
+    </Text>
+  ) : null;
 
   return (
     <PopBackdrop>
@@ -143,7 +163,7 @@ export default function SelectingPhase({
             currentRound={currentRound}
             totalRounds={totalRounds}
             questioner={questioner}
-            phase={isQuestioner ? '作品とあらすじを決める' : 'この作品、知っていますか？'}
+            phase={isQuestioner ? '作品と紹介文を決める' : 'この作品、知っていますか？'}
           />
 
           {isQuestioner ? (
@@ -162,7 +182,7 @@ export default function SelectingPhase({
                   <View style={styles.guideSteps}>
                     {[
                       ['1', '作品を決める'],
-                      ['2', 'あらすじを入力'],
+                      ['2', '作品の紹介文を入力'],
                       ['3', '本物のタイトルを秘密に登録'],
                     ].map(([num, label]) => (
                       <View key={num} style={styles.guideStep}>
@@ -183,7 +203,7 @@ export default function SelectingPhase({
                   <View style={styles.formHeadingRow}>
                     <View>
                       <Text style={styles.kicker}>MAKE A QUESTION</Text>
-                      <Text style={styles.heading}>あらすじを用意する</Text>
+                      <Text style={styles.heading}>作品の紹介文を用意する</Text>
                     </View>
                     <View style={styles.secretBadge}>
                       <Text style={styles.secretBadgeText}>本物は非公開</Text>
@@ -194,23 +214,32 @@ export default function SelectingPhase({
                     variant="secondary"
                     onPress={handleAutoFetch}
                     loading={fetching}
-                    accessibilityLabel="Wikipediaからランダム取得"
-                    style={styles.wikiButton}
+                    disabled={requestBusy}
+                    accessibilityLabel="出典付きの問題を自動取得"
+                    style={styles.autoFetchButton}
                   >
-                    Wikipediaからランダム取得
+                    出典付きの問題を自動取得
                   </StationeryButton>
-                  <Text style={styles.helperText}>取得後に自由に編集できます。</Text>
+                  <Text style={styles.helperText}>
+                    出典は答え合わせで表示されます。編集した場合は手入力の問題として扱います。
+                  </Text>
+                  {requestError?.action === 'fetch' ? errorNotice : null}
 
-                  <Text style={styles.fieldLabel}>あらすじ</Text>
+                  <Text style={styles.fieldLabel}>作品の紹介文</Text>
                   <TextInput
                     style={[styles.input, styles.textarea]}
-                    placeholder="作品のタイトルが分からないように、あらすじを入力…"
+                    placeholder="作品のタイトルが分からないように、紹介文を入力…"
                     placeholderTextColor={colors.muted}
                     value={synopsisText}
-                    onChangeText={setSynopsisText}
+                    editable={!requestBusy}
+                    onChangeText={(text) => {
+                      setSynopsisText(text);
+                      setAutomaticQuestionId(null);
+                      setRequestError(null);
+                    }}
                     multiline
                     numberOfLines={6}
-                    accessibilityLabel="あらすじ入力欄"
+                    accessibilityLabel="作品の紹介文入力欄"
                   />
 
                   <Text style={styles.fieldLabel}>本物のタイトル</Text>
@@ -219,16 +248,24 @@ export default function SelectingPhase({
                     placeholder="結果発表まで参加者には見えません"
                     placeholderTextColor={colors.muted}
                     value={realTitle}
-                    onChangeText={setRealTitle}
+                    editable={!requestBusy}
+                    onChangeText={(text) => {
+                      setRealTitle(text);
+                      setAutomaticQuestionId(null);
+                      setRequestError(null);
+                    }}
                     accessibilityLabel="本物タイトル入力欄"
                   />
 
+                  {requestError?.action !== 'fetch' ? errorNotice : null}
                   <StationeryButton
                     variant="primary"
                     onPress={handleSubmitSynopsis}
-                    accessibilityLabel="あらすじを提示する"
+                    loading={pendingAction === 'round:submit_synopsis'}
+                    disabled={requestBusy}
+                    accessibilityLabel="作品の紹介文を提示する"
                   >
-                    あらすじを提示する →
+                    作品の紹介文を提示する →
                   </StationeryButton>
                 </PaperPanel>
               </View>
@@ -242,7 +279,7 @@ export default function SelectingPhase({
                   <View style={styles.formHeadingRow}>
                     <View>
                       <Text style={styles.kicker}>SYNOPSIS OPEN</Text>
-                      <Text style={styles.heading}>あらすじを公開しました</Text>
+                      <Text style={styles.heading}>作品の紹介文を公開しました</Text>
                     </View>
                     <View style={styles.openBadge}>
                       <Text style={styles.openBadgeText}>回答受付中</Text>
@@ -275,10 +312,13 @@ export default function SelectingPhase({
                     </View>
                   )}
 
+                  {errorNotice}
                   <View style={styles.actionRow}>
                     <StationeryButton
                       variant="neutral"
                       onPress={handleReselect}
+                      loading={pendingAction === 'round:reselect'}
+                      disabled={requestBusy}
                       accessibilityLabel="作品を選び直す"
                       style={styles.actionButton}
                     >
@@ -287,7 +327,8 @@ export default function SelectingPhase({
                     <StationeryButton
                       variant="primary"
                       onPress={handleStartSubmitting}
-                      disabled={!canAdvance}
+                      loading={pendingAction === 'round:start_submitting'}
+                      disabled={!canAdvance || requestBusy}
                       accessibilityLabel="タイトル案提出へ進む"
                       style={styles.actionButton}
                     >
@@ -306,7 +347,7 @@ export default function SelectingPhase({
                     {questioner?.nickname}さんが作品を選んでいます
                   </Text>
                   <Text style={styles.waitText}>
-                    あらすじが届くまで、このままお待ちください。
+                    作品の紹介文が届くまで、このままお待ちください。
                   </Text>
                   <View style={styles.waitIllustration}>
                     <View style={[styles.waitCard, styles.waitCardBack]} />
@@ -314,15 +355,45 @@ export default function SelectingPhase({
                       <Text style={styles.waitCardText}>?</Text>
                     </View>
                   </View>
+                  {requestError ? (
+                    <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.waitErrorText}>
+                      {requestError.message}
+                    </Text>
+                  ) : null}
                   {isHost && (
-                    <StationeryButton
-                      variant="yellow"
-                      onPress={handleSkipRound}
-                      accessibilityLabel="このラウンドをスキップ"
-                      style={styles.skipButton}
-                    >
-                      このラウンドをスキップ
-                    </StationeryButton>
+                    skipConfirming ? (
+                      <View style={styles.skipConfirmation}>
+                        <Text style={styles.waitText}>このラウンドをスキップして次へ進みますか？</Text>
+                        <View style={styles.actionRow}>
+                          <StationeryButton
+                            variant="neutral"
+                            onPress={() => setSkipConfirming(false)}
+                            disabled={requestBusy}
+                          >
+                            キャンセル
+                          </StationeryButton>
+                          <StationeryButton
+                            variant="yellow"
+                            onPress={() => requestAction('game:next_round', null, () => setSkipConfirming(false))}
+                            loading={pendingAction === 'game:next_round'}
+                            disabled={requestBusy}
+                            accessibilityLabel="ラウンドのスキップを確定する"
+                          >
+                            スキップする
+                          </StationeryButton>
+                        </View>
+                      </View>
+                    ) : (
+                      <StationeryButton
+                        variant="yellow"
+                        onPress={handleSkipRound}
+                        disabled={requestBusy}
+                        accessibilityLabel="このラウンドをスキップ"
+                        style={styles.skipButton}
+                      >
+                        このラウンドをスキップ
+                      </StationeryButton>
+                    )
                   )}
                 </PaperPanel>
               ) : (
@@ -350,10 +421,13 @@ export default function SelectingPhase({
                       <Text style={styles.declareNote}>
                         ひとりでも知っている場合は、別の作品へ変更します。
                       </Text>
+                      {errorNotice}
                       <View style={styles.declareRow}>
                         <StationeryButton
                           variant="neutral"
                           onPress={handleDeclareKnown}
+                          loading={pendingAction === 'round:declare_known'}
+                          disabled={requestBusy}
                           accessibilityLabel="知ってると宣言"
                           style={styles.declareButton}
                         >
@@ -362,6 +436,8 @@ export default function SelectingPhase({
                         <StationeryButton
                           variant="primary"
                           onPress={handleDeclareUnknown}
+                          loading={pendingAction === 'round:declare_unknown'}
+                          disabled={requestBusy}
                           accessibilityLabel="知らないと回答"
                           style={styles.declareButton}
                         >
@@ -468,8 +544,9 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   openBadgeText: { color: colors.navy, fontSize: 10, fontWeight: '900' },
-  wikiButton: { marginBottom: 6 },
+  autoFetchButton: { marginBottom: 6 },
   helperText: { color: colors.muted, fontSize: 10, textAlign: 'center', marginBottom: 13 },
+  errorText: { color: colors.redDark, fontSize: 13, lineHeight: 21, marginTop: 8, marginBottom: 12 },
   fieldLabel: { color: colors.navy, fontSize: 11, fontWeight: '900', marginBottom: 7 },
   input: {
     backgroundColor: colors.white,
@@ -533,6 +610,8 @@ const styles = StyleSheet.create({
   waitKicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 1.7 },
   waitTitle: { color: colors.white, fontSize: 22, lineHeight: 31, fontWeight: '900', marginTop: 7, textAlign: 'center' },
   waitText: { color: '#BCD1E0', fontSize: 12, lineHeight: 19, marginTop: 7, textAlign: 'center' },
+  waitErrorText: { color: colors.yellow, fontSize: 13, lineHeight: 21, marginTop: 12, textAlign: 'center' },
+  skipConfirmation: { alignItems: 'center', marginTop: 12 },
   waitIllustration: { width: 110, height: 80, marginTop: 20, position: 'relative' },
   waitCard: {
     position: 'absolute',

@@ -1,10 +1,9 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
-  Alert,
   Platform,
 } from 'react-native';
 import { Text } from '../ui/GameText';
@@ -24,19 +23,42 @@ export default function ConfirmingPhase({
   synopsisError,
   isHost,
   socket,
+  onRerollStart,
 }) {
   const { contentPadding } = useResponsiveLayout();
+  const [pendingAction, setPendingAction] = useState(null);
+  const [requestError, setRequestError] = useState(null);
+  const requestPendingRef = useRef(false);
+  const displayError = requestError || synopsisError;
 
-  function handleConfirm() {
-    socket.emit('round:confirm_synopsis', null, (res) => {
-      if (!res.ok) Alert.alert('エラー', res.error);
+  function requestAction(event, action) {
+    if (!isHost || requestPendingRef.current) return;
+    if (!socket?.connected) {
+      setRequestError('サーバーに接続していません。接続を確認して、もう一度お試しください。');
+      return;
+    }
+    requestPendingRef.current = true;
+    setPendingAction(action);
+    setRequestError(null);
+    if (action === 'reroll') onRerollStart?.();
+    socket.timeout(10000).emit(event, null, (error, res) => {
+      requestPendingRef.current = false;
+      setPendingAction(null);
+      if (error) {
+        setRequestError('サーバーから応答がありません。接続を確認して、もう一度お試しください。');
+      } else if (!res?.ok) {
+        setRequestError(res?.error || '操作できませんでした。もう一度お試しください。');
+      }
     });
   }
 
+  function handleConfirm() {
+    if (!fetchedSynopsis) return;
+    requestAction('round:confirm_synopsis', 'confirm');
+  }
+
   function handleReroll() {
-    socket.emit('round:reroll_synopsis', null, (res) => {
-      if (!res.ok) Alert.alert('エラー', res.error);
-    });
+    requestAction('round:reroll_synopsis', 'reroll');
   }
 
   return (
@@ -60,23 +82,29 @@ export default function ConfirmingPhase({
             {!fetchedSynopsis ? (
               <View style={styles.loadingBox}>
                 <View style={styles.loadingIcon}>
-                  {!synopsisError ? (
+                  {!displayError ? (
                     <ActivityIndicator color={colors.red} size="large" />
                   ) : (
                     <Text style={styles.loadingErrorIcon}>!</Text>
                   )}
                 </View>
                 <Text style={styles.loadingTitle}>
-                  {synopsisError ? '作品を取得できませんでした' : '作品を探しています…'}
+                  {displayError ? '作品を取得できませんでした' : '作品を探しています…'}
                 </Text>
-                <Text style={styles.loadingText}>
-                  {synopsisError || 'Wikipediaからランダムに作品を選んでいます。'}
+                <Text
+                  accessibilityRole={displayError ? 'alert' : undefined}
+                  accessibilityLiveRegion="polite"
+                  style={[styles.loadingText, displayError && styles.errorText]}
+                >
+                  {displayError || '出典付きの作品から問題を選んでいます。'}
                 </Text>
-                {synopsisError && (
+                {displayError && (
                   <StationeryButton
                     variant="secondary"
                     onPress={handleReroll}
-                    accessibilityLabel="あらすじを再取得"
+                    loading={pendingAction === 'reroll'}
+                    disabled={Boolean(pendingAction)}
+                    accessibilityLabel="作品の紹介文を再取得"
                     style={styles.loadingButton}
                   >
                     もう一度取得する
@@ -86,9 +114,9 @@ export default function ConfirmingPhase({
             ) : (
               <>
                 <View style={styles.headingRow}>
-                  <View>
-                    <Text style={styles.kicker}>SYNOPSIS CHECK</Text>
-                    <Text style={styles.heading}>このあらすじで進みますか？</Text>
+                  <View style={styles.headingCopy}>
+                    <Text style={styles.kicker}>WORK CHECK</Text>
+                    <Text style={styles.heading}>この紹介文で進みますか？</Text>
                   </View>
                   <View style={styles.cpuBadge}>
                     <Text style={styles.cpuBadgeText}>CPU出題</Text>
@@ -97,19 +125,27 @@ export default function ConfirmingPhase({
 
                 <View style={styles.synopsisBox}>
                   <View style={styles.synopsisTab}>
-                    <Text style={styles.synopsisTabText}>あらすじ</Text>
+                    <Text style={styles.synopsisTabText}>作品の紹介文</Text>
                   </View>
                   <Text style={styles.synopsisText}>{fetchedSynopsis}</Text>
                 </View>
 
                 <Text style={styles.note}>
-                  本物のタイトルは結果発表まで参加者に表示されません。
+                  本物のタイトルと出典は、答え合わせで表示されます。
                 </Text>
+
+                {displayError ? (
+                  <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.errorText}>
+                    {displayError}
+                  </Text>
+                ) : null}
 
                 <View style={styles.buttonRow}>
                   <StationeryButton
                     variant="neutral"
                     onPress={handleReroll}
+                    loading={pendingAction === 'reroll'}
+                    disabled={Boolean(pendingAction)}
                     style={styles.secondaryButton}
                     accessibilityLabel="別の作品を取得"
                   >
@@ -118,10 +154,12 @@ export default function ConfirmingPhase({
                   <StationeryButton
                     variant="primary"
                     onPress={handleConfirm}
+                    loading={pendingAction === 'confirm'}
+                    disabled={Boolean(pendingAction)}
                     style={styles.primaryButton}
-                    accessibilityLabel="このあらすじで進む"
+                    accessibilityLabel="この紹介文で進む"
                   >
-                    このあらすじで進む →
+                    この紹介文で進む →
                   </StationeryButton>
                 </View>
               </>
@@ -136,7 +174,7 @@ export default function ConfirmingPhase({
             </View>
             <Text style={styles.waitTitle}>ホストが作品を確認しています</Text>
             <Text style={styles.waitText}>
-              あらすじが決まるまで、このままお待ちください。
+              作品の紹介文が決まるまで、このままお待ちください。
             </Text>
           </PaperPanel>
         )}
@@ -165,8 +203,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   kicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.7 },
+  headingCopy: { flex: 1, minWidth: 0 },
   heading: { color: colors.navy, fontSize: 21, lineHeight: 29, fontWeight: '900', marginTop: 3 },
   cpuBadge: {
+    flexShrink: 0,
     backgroundColor: colors.cyan,
     borderRadius: radii.pill,
     borderWidth: 2,
@@ -199,6 +239,7 @@ const styles = StyleSheet.create({
   synopsisTabText: { color: colors.navy, fontSize: 11, fontWeight: '900' },
   synopsisText: { color: colors.ink, fontSize: 16, lineHeight: 27 },
   note: { color: colors.muted, fontSize: 11, marginTop: 10, marginBottom: 15 },
+  errorText: { color: colors.redDark, fontSize: 13, lineHeight: 21, marginBottom: 12 },
   buttonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   secondaryButton: { flex: 1, minWidth: 170 },
   primaryButton: { flex: 1.5, minWidth: 220 },

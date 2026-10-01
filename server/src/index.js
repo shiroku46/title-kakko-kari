@@ -11,6 +11,8 @@ const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const { registerSocketHandlers } = require('./socket');
+const { selectQuestionAsync, startQuestionCollection, stopQuestionCollection,
+  getQuestionCollectionStatus } = require('./questions');
 
 const app = express();
 const server = http.createServer(app);
@@ -55,8 +57,10 @@ const io = new Server(server, {
   },
 });
 
-// ヘルスチェック用エンドポイント。commit・runtime情報だけを返し、Secretは含めない。
-app.get('/health', (req, res) => res.json({ status: 'ok', ...runtimeInfo() }));
+// 作品名・資料URL・Secretを含めず、自動収集の稼働状態も確認できる。
+app.get('/health', (req, res) => res.json({
+  status: 'ok', ...runtimeInfo(), questionCollection: getQuestionCollectionStatus(),
+}));
 
 // Render上のoutbound HTTPSを安全に診断する。URL、header、raw message、stack、
 // 環境変数値は返さず、HTTP statusまたは標準化されたerror名/codeだけを返す。
@@ -93,28 +97,15 @@ app.get('/health/network', async (req, res) => {
   }
 });
 
-// Wikipedia ランダム記事取得エンドポイント（フロントから直接呼び出すためCORSが通るようにサーバー経由にする）
+// 出典付きの自動生成済み問題を、出題者の入力補助として取得する。
 app.get('/api/random-work', async (req, res) => {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    try {
-      const r = await fetch('https://ja.wikipedia.org/api/rest_v1/page/random/summary', { signal: controller.signal });
-      const data = await r.json();
-      const title = (data.title || '').trim();
-      const synopsis = (data.extract || '').trim();
-      if (synopsis.length < 100) continue;
-      // タイトル文字列をあらすじからマスク（ネタバレ防止）
-      const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const maskedSynopsis = synopsis.replace(new RegExp(escaped, 'g'), '■■■');
-      return res.json({ ok: true, title, synopsis: maskedSynopsis });
-    } catch (_) {
-      // リトライ
-    } finally {
-      clearTimeout(timeout);
-    }
+  try {
+    const question = await selectQuestionAsync();
+    return res.json({ ok: true, title: question.realTitle, synopsis: question.synopsis,
+      questionId: question.id, contentType: question.contentType || 'synopsis' });
+  } catch (error) {
+    return res.json({ ok: false, error: error.message });
   }
-  res.json({ ok: false, error: '記事を取得できませんでした。再試行してください。' });
 });
 
 // Socket.io ハンドラーを登録
@@ -124,7 +115,9 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   server.listen(PORT, () => {
     console.log(`[Server] ポート ${PORT} で起動しました`);
+    startQuestionCollection();
   });
+  server.on('close', stopQuestionCollection);
 }
 
 module.exports = { server, io };

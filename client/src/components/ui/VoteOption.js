@@ -3,30 +3,33 @@ import { TouchableOpacity, View, StyleSheet } from 'react-native';
 import { Text } from './GameText';
 import { colors, radii, shadows } from '../../theme';
 
-export default function VoteOption({ choice, selected, disabled, onPress }) {
+export default function VoteOption({ choice, selected, disabled, isOwn = false, onPress }) {
+  const isDisabled = disabled || isOwn;
   return (
     <TouchableOpacity
       style={[
         styles.base,
         selected && styles.selected,
-        disabled && styles.disabled,
+        isOwn && styles.own,
+        isDisabled && styles.disabled,
       ]}
       onPress={onPress}
-      disabled={disabled}
+      disabled={isDisabled}
       activeOpacity={0.82}
       accessibilityRole="radio"
-      accessibilityState={{ checked: selected, disabled }}
-      accessibilityLabel={choice.title}
+      aria-checked={selected}
+      accessibilityState={{ checked: selected, disabled: isDisabled }}
+      accessibilityLabel={isOwn ? `${choice.title}、自分のタイトル、投票できません` : choice.title}
     >
-      <View style={[styles.radio, selected && styles.radioSelected]}>
+      <View style={[styles.radio, selected && styles.radioSelected, isOwn && styles.radioOwn]}>
         {selected && <View style={styles.radioCore} />}
       </View>
-      <Text style={[styles.text, selected && styles.textSelected]} numberOfLines={4}>
+      <Text style={[styles.text, selected && styles.textSelected, isOwn && styles.textOwn]} numberOfLines={4}>
         {choice.title}
       </Text>
       <View style={[styles.tag, selected && styles.tagSelected]}>
         <Text style={[styles.tagText, selected && styles.tagTextSelected]}>
-          {selected ? 'これに投票' : '選ぶ'}
+          {isOwn ? '自分のタイトル\n投票不可' : selected ? 'これに投票' : '選ぶ'}
         </Text>
       </View>
     </TouchableOpacity>
@@ -52,6 +55,7 @@ const styles = StyleSheet.create({
     ...shadows.paper,
   },
   disabled: { opacity: 0.62 },
+  own: { backgroundColor: '#EDF2F5', borderColor: colors.border },
   radio: {
     width: 22,
     height: 22,
@@ -63,6 +67,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   radioSelected: { backgroundColor: colors.white },
+  radioOwn: { borderColor: colors.muted },
   radioCore: {
     width: 11,
     height: 11,
@@ -77,6 +82,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   textSelected: { color: colors.navy, fontWeight: '900' },
+  textOwn: { color: colors.muted },
   tag: {
     borderRadius: radii.pill,
     backgroundColor: '#EDF2F5',
