@@ -1,12 +1,13 @@
+import { fontFamilies } from '../theme/typography';
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   Alert,
   Platform,
 } from 'react-native';
+import { Text } from '../components/ui/GameText';
 import { useSocketListeners, getSocket, disconnectSocket } from '../hooks/useSocket';
 import { colors, radii } from '../theme';
 import {
@@ -110,7 +111,7 @@ export default function LobbyScreen({ navigation, route }) {
         </View>
 
         <View style={styles.lobbyTitleRow}>
-          <View>
+          <View style={styles.lobbyTitle}>
             <Text style={styles.kicker}>ROOM LOBBY</Text>
             <Text style={styles.pageTitle}>みんなが集まるのを待っています</Text>
           </View>
@@ -317,11 +318,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  lobbyTitle: { flex: 1, minWidth: 0 },
   kicker: { color: colors.red, fontSize: 10, fontWeight: '900', letterSpacing: 1.8 },
   pageTitle: {
+    fontFamily: fontFamilies.display,
     color: colors.navy,
     fontSize: 24,
-    lineHeight: 32,
+    lineHeight: 36,
     fontWeight: '900',
     marginTop: 3,
   },

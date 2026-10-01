@@ -1,13 +1,13 @@
 import React from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
   Alert,
   Platform,
 } from 'react-native';
+import { Text } from '../ui/GameText';
 import { colors, radii } from '../../theme';
 import {
   PaperPanel,

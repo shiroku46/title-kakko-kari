@@ -1,12 +1,13 @@
+import { fontFamilies } from '../theme/typography';
 import React from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   Platform,
 } from 'react-native';
+import { Text } from '../components/ui/GameText';
 import { colors, radii } from '../theme';
 import {
   PaperPanel,
@@ -212,7 +213,7 @@ const styles = StyleSheet.create({
     padding: 28,
   },
   heroKicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 2 },
-  heroTitle: { color: colors.white, fontSize: 38, lineHeight: 46, fontWeight: '900', marginTop: 5 },
+  heroTitle: { fontFamily: fontFamilies.display, color: colors.white, fontSize: 38, lineHeight: 46, fontWeight: '900', marginTop: 5 },
   heroCopy: { color: '#BCD1E0', fontSize: 14, lineHeight: 23, marginTop: 9 },
   sectionHeading: {
     flexDirection: 'row',
@@ -223,7 +224,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   sectionMarker: { width: 8, height: 26, borderRadius: 4, backgroundColor: colors.red },
-  sectionTitle: { color: colors.navy, fontSize: 20, fontWeight: '900' },
+  sectionTitle: { fontFamily: fontFamilies.display, color: colors.navy, fontSize: 20, fontWeight: '900' },
   flowGrid: { gap: 11 },
   flowGridPC: { flexDirection: 'row', flexWrap: 'wrap' },
   flowCard: {},
@@ -257,7 +258,7 @@ const styles = StyleSheet.create({
   scorePanel: { flex: 1.3 },
   tipColumn: { flex: 0.7, gap: 13 },
   panelKicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.6 },
-  panelTitle: { color: colors.navy, fontSize: 21, fontWeight: '900', marginTop: 3, marginBottom: 14 },
+  panelTitle: { fontFamily: fontFamilies.display, color: colors.navy, fontSize: 21, fontWeight: '900', marginTop: 3, marginBottom: 14 },
   scoreList: { gap: 9 },
   scoreRow: {
     flexDirection: 'row',

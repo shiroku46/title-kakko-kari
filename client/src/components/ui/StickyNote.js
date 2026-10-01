@@ -1,5 +1,7 @@
+import { fontFamilies } from '../../theme/typography';
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Text } from './GameText';
 import { colors, radii } from '../../theme';
 
 const PALETTES = {
@@ -43,6 +45,7 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '-4deg' }],
   },
   text: {
+    fontFamily: fontFamilies.accent,
     fontSize: 13,
     lineHeight: 20,
     fontWeight: '700',

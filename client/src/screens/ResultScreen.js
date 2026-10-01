@@ -1,11 +1,12 @@
+import { fontFamilies } from '../theme/typography';
 import React from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   Platform,
 } from 'react-native';
+import { Text } from '../components/ui/GameText';
 import { disconnectSocket } from '../hooks/useSocket';
 import { colors, radii } from '../theme';
 import {
@@ -160,7 +161,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   kicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.8 },
-  pageTitle: { color: colors.white, fontSize: 36, lineHeight: 44, fontWeight: '900', marginTop: 5 },
+  pageTitle: { fontFamily: fontFamilies.display, color: colors.white, fontSize: 36, lineHeight: 44, fontWeight: '900', marginTop: 5 },
   pageLead: { color: '#BCD1E0', fontSize: 13, lineHeight: 21, marginTop: 9 },
   winnerPanel: {
     backgroundColor: colors.yellow,
@@ -204,7 +205,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.navy,
     marginBottom: 14,
   },
-  rankHeading: { color: colors.navy, fontSize: 24, fontWeight: '900', marginTop: 3 },
+  rankHeading: { fontFamily: fontFamilies.display, color: colors.navy, fontSize: 24, fontWeight: '900', marginTop: 3 },
   playerBadge: {
     width: 64,
     height: 54,

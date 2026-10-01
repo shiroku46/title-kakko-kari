@@ -1,8 +1,7 @@
+import { fontFamilies } from '../theme/typography';
 import React, { useState } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   StyleSheet,
   ActivityIndicator,
   Alert,
@@ -11,6 +10,7 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
+import { Text, TextInput } from '../components/ui/GameText';
 import { connectSocket, disconnectSocket, getCurrentUrl } from '../hooks/useSocket';
 import { DEFAULT_SERVER_URL } from '../config';
 import { colors, radii, shadows } from '../theme';
@@ -432,7 +432,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     transform: [{ rotate: '-2deg' }],
   },
-  speechTagText: { color: colors.navy, fontWeight: '900', fontSize: 12 },
+  speechTagText: { fontFamily: fontFamilies.accent, color: colors.navy, fontWeight: '900', fontSize: 12 },
   heroLogo: {
     marginTop: 20,
     backgroundColor: colors.cream,
@@ -491,7 +491,7 @@ const styles = StyleSheet.create({
   },
   sampleThumbText: { color: colors.navy, fontWeight: '900', fontSize: 13 },
   sampleBody: { flex: 1 },
-  sampleTitle: { color: colors.navy, fontSize: 14, lineHeight: 20, fontWeight: '900' },
+  sampleTitle: { fontFamily: fontFamilies.accent, color: colors.navy, fontSize: 14, lineHeight: 20, fontWeight: '900' },
   sampleTag: { color: colors.muted, fontSize: 10, marginTop: 5, fontWeight: '700' },
   featureRow: {
     flexDirection: 'row',
@@ -537,6 +537,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
   },
   formHeading: {
+    fontFamily: fontFamilies.display,
     color: colors.navy,
     fontSize: 25,
     lineHeight: 34,

@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Text } from './ui/GameText';
 
 export default function RoundHeader({ currentRound, totalRounds, questioner, phase }) {
   return (

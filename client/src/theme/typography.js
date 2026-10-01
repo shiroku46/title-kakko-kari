@@ -1,24 +1,20 @@
 import { Platform } from 'react-native';
 
-export const fontFamilies = Platform.select({
-  ios: {
-    serif: 'HiraMinProN-W6',
-    serifBold: 'HiraMinProN-W6',
-    sans: 'HiraginoSans-W3',
-    sansBold: 'HiraginoSans-W6',
-  },
-  android: {
-    serif: 'serif',
-    serifBold: 'serif',
-    sans: 'sans-serif',
-    sansBold: 'sans-serif-condensed',
-  },
-  default: {
-    serif: "'BIZ UDPMincho', 'Noto Serif JP', serif",
-    serifBold: "'BIZ UDPMincho', 'Noto Serif JP', serif",
-    sans: "'BIZ UDPGothic', 'Noto Sans JP', sans-serif",
-    sansBold: "'BIZ UDPGothic', 'Noto Sans JP', sans-serif",
-  },
+// These names match the bundled faces loaded by App, on web and native.
+export const fontFamilies = {
+  display: 'TahoiyaPop',
+  accent: 'TahoiyaHandwritten',
+  sans: 'TahoiyaRounded',
+  sansBold: 'TahoiyaRoundedBold',
+  // Preserve existing theme consumers while replacing the old Mincho face.
+  serif: 'TahoiyaRounded',
+  serifBold: 'TahoiyaRoundedBold',
+};
+
+export const fallbackFontFamily = Platform.select({
+  web: 'system-ui, sans-serif',
+  ios: 'System',
+  default: 'sans-serif',
 });
 
 export const typeScale = {

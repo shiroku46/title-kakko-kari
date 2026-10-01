@@ -1,5 +1,6 @@
 import React from 'react';
-import { TouchableOpacity, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { Text } from './GameText';
 import { colors, radii, shadows } from '../../theme';
 import { fontFamilies } from '../../theme/typography';
 
