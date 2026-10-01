@@ -42,7 +42,7 @@ export default function ResultScreen({ navigation, route }) {
         </View>
 
         <View style={[styles.layout, isPC && styles.layoutPC]}>
-          <View style={styles.heroColumn}>
+          <View style={[styles.heroColumn, isPC && styles.heroColumnPC]}>
             <View style={styles.resultTitleBlock}>
               <Text style={styles.kicker}>FINAL RESULT</Text>
               <Text style={styles.pageTitle}>最終結果</Text>
@@ -74,8 +74,8 @@ export default function ResultScreen({ navigation, route }) {
             </PaperPanel>
           </View>
 
-          <View style={styles.rankColumn}>
-            <PaperPanel tone="cream" variant="elevated" style={styles.rankPanel}>
+          <View style={isPC ? styles.rankColumnPC : undefined}>
+            <PaperPanel tone="cream" variant="elevated" style={isPC ? styles.rankPanelPC : undefined}>
               <View style={styles.rankHeadingRow}>
                 <View>
                   <Text style={styles.kicker}>RANKING</Text>
@@ -87,7 +87,7 @@ export default function ResultScreen({ navigation, route }) {
                 </View>
               </View>
 
-              <View style={styles.rankList}>
+              <View style={isPC ? styles.rankListPC : undefined}>
                 {finalScores.map((item, index) => (
                   <ScoreRow
                     key={item.id}
@@ -151,8 +151,9 @@ const styles = StyleSheet.create({
   topBarCopy: { color: colors.muted, fontSize: 12, fontWeight: '800' },
   layout: { gap: 16, marginTop: 18 },
   layoutPC: { flexDirection: 'row', alignItems: 'stretch', gap: 20 },
-  heroColumn: { flex: 1, gap: 14 },
-  rankColumn: { flex: 1.2 },
+  heroColumn: { gap: 14 },
+  heroColumnPC: { flex: 1 },
+  rankColumnPC: { flex: 1.2 },
   resultTitleBlock: {
     backgroundColor: colors.navy,
     borderRadius: radii.xl,
@@ -194,7 +195,7 @@ const styles = StyleSheet.create({
   bestTitleKicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.5 },
   bestTitleHeading: { color: colors.navy, fontSize: 18, fontWeight: '900', marginTop: 3 },
   bestTitleBody: { color: colors.ink, fontSize: 12, lineHeight: 19, marginTop: 6 },
-  rankPanel: { height: '100%' },
+  rankPanelPC: { height: '100%' },
   rankHeadingRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -218,7 +219,7 @@ const styles = StyleSheet.create({
   },
   playerBadgeNum: { color: colors.navy, fontSize: 18, fontWeight: '900', lineHeight: 20 },
   playerBadgeText: { color: colors.navy, fontSize: 8, fontWeight: '900' },
-  rankList: { flex: 1 },
+  rankListPC: { flex: 1 },
   actions: { gap: 10, marginTop: 12 },
   footer: {
     marginTop: 18,

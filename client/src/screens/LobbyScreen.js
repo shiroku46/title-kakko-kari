@@ -1,13 +1,13 @@
 import { fontFamilies } from '../theme/typography';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   ScrollView,
   StyleSheet,
-  Alert,
   Platform,
 } from 'react-native';
 import { Text } from '../components/ui/GameText';
+import { Alert } from '../utils/alert';
 import { useSocketListeners, getSocket, disconnectSocket } from '../hooks/useSocket';
 import { colors, radii } from '../theme';
 import {
@@ -29,6 +29,8 @@ export default function LobbyScreen({ navigation, route }) {
   const [cpuRounds, setCpuRounds] = useState(5);
   const [starting, setStarting] = useState(false);
   const [isHost, setIsHost] = useState(player.is_host);
+  const leavingRef = useRef(false);
+  const startRequestRef = useRef(null);
   const socket = getSocket();
   const { isPC, contentPadding } = useResponsiveLayout();
 
@@ -47,35 +49,51 @@ export default function LobbyScreen({ navigation, route }) {
         })));
       });
     },
-    'game:started': (data) =>
+    'game:started': (data) => {
+      clearTimeout(startRequestRef.current);
+      startRequestRef.current = null;
       navigation.replace('Game', {
         room,
         player: { ...player, is_host: isHost },
         gameData: data,
-      }),
+      });
+    },
   });
 
   useEffect(() => {
     const onDisconnect = () => {
-      Alert.alert('切断', 'サーバーとの接続が切れました');
+      if (leavingRef.current) return;
+      leavingRef.current = true;
+      disconnectSocket();
       navigation.replace('Home');
+      Alert.alert('切断', 'サーバーとの接続が切れました');
     };
     socket.on('disconnect', onDisconnect);
-    return () => socket.off('disconnect', onDisconnect);
+    return () => {
+      socket.off('disconnect', onDisconnect);
+      clearTimeout(startRequestRef.current);
+      startRequestRef.current = null;
+    };
   }, [navigation, socket]);
 
   function handleStart() {
+    if (startRequestRef.current || leavingRef.current) return;
     if (players.length < MIN_PLAYERS) {
       return Alert.alert('まだ開始できません', `あと${MIN_PLAYERS - players.length}人の参加が必要です`);
     }
     setStarting(true);
     const timer = setTimeout(() => {
+      if (startRequestRef.current !== timer) return;
+      startRequestRef.current = null;
       setStarting(false);
       Alert.alert('エラー', 'サーバーから応答がありません。再試行してください。');
     }, 10000);
+    startRequestRef.current = timer;
 
     socket.emit('game:start', { mode: gameMode, totalRounds: cpuRounds }, (res) => {
+      if (startRequestRef.current !== timer) return;
       clearTimeout(timer);
+      startRequestRef.current = null;
       if (!res.ok) {
         setStarting(false);
         Alert.alert('エラー', res.error);
@@ -99,6 +117,7 @@ export default function LobbyScreen({ navigation, route }) {
           <StationeryButton
             variant="ghost"
             onPress={() => {
+              leavingRef.current = true;
               disconnectSocket();
               navigation.replace('Home');
             }}
@@ -110,7 +129,7 @@ export default function LobbyScreen({ navigation, route }) {
           </StationeryButton>
         </View>
 
-        <View style={styles.lobbyTitleRow}>
+        <View style={[styles.lobbyTitleRow, !isPC && styles.lobbyTitleRowStacked]}>
           <View style={styles.lobbyTitle}>
             <Text style={styles.kicker}>ROOM LOBBY</Text>
             <Text style={styles.pageTitle}>みんなが集まるのを待っています</Text>
@@ -122,7 +141,7 @@ export default function LobbyScreen({ navigation, route }) {
         </View>
 
         <View style={[styles.body, isPC && styles.bodyPC]}>
-          <View style={styles.mainColumn}>
+          <View style={[styles.mainColumn, isPC && styles.mainColumnPC]}>
             <PaperPanel tone="cream" variant="elevated" style={styles.codePanel}>
               <View style={styles.codeTop}>
                 <View>
@@ -178,7 +197,7 @@ export default function LobbyScreen({ navigation, route }) {
             )}
           </View>
 
-          <View style={styles.sideColumn}>
+          <View style={[styles.sideColumn, isPC && styles.sideColumnPC]}>
             {isHost ? (
               <PaperPanel tone="white" variant="elevated" style={styles.settingsPanel}>
                 <View style={styles.settingsHeadingRow}>
@@ -318,6 +337,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  lobbyTitleRowStacked: { backgroundColor: colors.canvas },
   lobbyTitle: { flex: 1, minWidth: 0 },
   kicker: { color: colors.red, fontSize: 10, fontWeight: '900', letterSpacing: 1.8 },
   pageTitle: {
@@ -342,8 +362,10 @@ const styles = StyleSheet.create({
   countUnit: { color: colors.white, fontSize: 12, fontWeight: '800' },
   body: { gap: 14 },
   bodyPC: { flexDirection: 'row', alignItems: 'flex-start', gap: 18 },
-  mainColumn: { flex: 1.7, gap: 14 },
-  sideColumn: { flex: 1, gap: 14 },
+  mainColumn: { gap: 14 },
+  mainColumnPC: { flex: 1.7 },
+  sideColumn: { gap: 14 },
+  sideColumnPC: { flex: 1 },
   codePanel: { padding: 20 },
   codeTop: {
     flexDirection: 'row',

@@ -1,5 +1,6 @@
 """Verify that server CORS and client socket connection config are correct."""
 import unittest
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,16 +59,68 @@ class TestClientSocketConfig(unittest.TestCase):
 
 
 class TestHomeScreenErrorHandling(unittest.TestCase):
-    def setUp(self):
-        self.home_screen = read("client/src/screens/HomeScreen.js")
+    def run_connection_check(self, check):
+        # Exercise the helpers that Home actually uses. They have no JSX or
+        # React dependency; keep their original timers and event behavior.
+        harness = r"""
+const assert = require('node:assert/strict');
+const { EventEmitter, getEventListeners } = require('node:events');
+const { readFileSync } = require('node:fs');
+const { runInNewContext } = require('node:vm');
+const timers = new Set();
+const source = readFileSync('client/src/hooks/useRoomEntry.js', 'utf8')
+  .split('export default function')[0]
+  .replace(/^import .*;\r?\n/gm, '');
+const waitForConnection = runInNewContext(source + '\nwaitForConnection;', {
+  setTimeout(callback, delay) {
+    const timer = setTimeout(callback, delay);
+    timers.add(timer);
+    return timer;
+  },
+  clearTimeout(timer) { timers.delete(timer); clearTimeout(timer); },
+});
+(async () => {
+""" + check + r"""
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+        result = subprocess.run(
+            ["node", "-e", harness], cwd=ROOT, capture_output=True,
+            text=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
-    def test_connect_error_handler_registered(self):
-        self.assertIn("connect_error", self.home_screen,
-                      "connect_error event must be handled for fast failure feedback")
+    def test_connect_error_rejects_without_waiting_for_timeout(self):
+        self.run_connection_check(r"""
+  const socket = new EventEmitter();
+  socket.connected = false;
+  const controller = new AbortController();
+  const started = Date.now();
+  const pending = waitForConnection(socket, controller.signal);
+  socket.emit('connect_error', new Error('test handshake failure'));
+  await assert.rejects(pending);
+  assert.ok(Date.now() - started < 1000,
+    'A failed handshake must reject promptly instead of waiting ten seconds');
+""")
 
-    def test_connect_error_clears_timer(self):
-        self.assertIn("onConnectError", self.home_screen,
-                      "onConnectError handler must be defined and referenced")
+    def test_connection_completion_cleans_up_timer_and_listeners(self):
+        self.run_connection_check(r"""
+  for (const outcome of ['error', 'connected', 'cancelled']) {
+    const socket = new EventEmitter();
+    socket.connected = false;
+    const controller = new AbortController();
+    const pending = waitForConnection(socket, controller.signal);
+    if (outcome === 'error') socket.emit('connect_error', new Error('failure'));
+    else if (outcome === 'connected') socket.emit('connect');
+    else controller.abort();
+    if (outcome === 'connected') await pending;
+    else await assert.rejects(pending);
+    assert.equal(timers.size, 0, outcome + ' leaked a connection timer');
+    assert.equal(socket.listenerCount('connect'), 0, outcome + ' leaked a connect listener');
+    assert.equal(socket.listenerCount('connect_error'), 0, outcome + ' leaked an error listener');
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0,
+      outcome + ' leaked a cancellation listener');
+  }
+""")
 
 
 class TestEnvExample(unittest.TestCase):

@@ -24,6 +24,7 @@ export default function SelectingPhase({
   synopsis,
   isQuestioner,
   isHost,
+  questionerDisconnected = false,
   knownDeclarations = [],
   allDeclared,
   socket,
@@ -166,7 +167,54 @@ export default function SelectingPhase({
             phase={isQuestioner ? '作品と紹介文を決める' : 'この作品、知っていますか？'}
           />
 
-          {isQuestioner ? (
+          {questionerDisconnected ? (
+            <PaperPanel tone="navy" variant="elevated" style={styles.waitPanel}>
+              <Text style={styles.waitTitle}>出題する人が部屋から出ました</Text>
+              <Text style={styles.waitText}>
+                {isHost ? 'この回を飛ばして、次の人の出題へ進めます。' : 'ホストが次の出題へ進めます。'}
+              </Text>
+              {requestError ? (
+                <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.waitErrorText}>
+                  {requestError.message}
+                </Text>
+              ) : null}
+              {isHost && (
+                skipConfirming ? (
+                  <View style={styles.skipConfirmation}>
+                    <Text style={styles.waitText}>この回を飛ばして次へ進みますか？</Text>
+                    <View style={styles.actionRow}>
+                      <StationeryButton
+                        variant="neutral"
+                        onPress={() => setSkipConfirming(false)}
+                        disabled={requestBusy}
+                      >
+                        キャンセル
+                      </StationeryButton>
+                      <StationeryButton
+                        variant="yellow"
+                        onPress={() => requestAction('game:next_round', null, () => setSkipConfirming(false))}
+                        loading={pendingAction === 'game:next_round'}
+                        disabled={requestBusy}
+                        accessibilityLabel="ラウンドのスキップを確定する"
+                      >
+                        スキップする
+                      </StationeryButton>
+                    </View>
+                  </View>
+                ) : (
+                  <StationeryButton
+                    variant="yellow"
+                    onPress={handleSkipRound}
+                    disabled={requestBusy}
+                    accessibilityLabel="このラウンドをスキップ"
+                    style={styles.skipButton}
+                  >
+                    このラウンドをスキップ
+                  </StationeryButton>
+                )
+              )}
+            </PaperPanel>
+          ) : isQuestioner ? (
             !submitted ? (
               <View style={[styles.questionerLayout, isPC && styles.questionerLayoutPC]}>
                 <PaperPanel
@@ -360,41 +408,6 @@ export default function SelectingPhase({
                       {requestError.message}
                     </Text>
                   ) : null}
-                  {isHost && (
-                    skipConfirming ? (
-                      <View style={styles.skipConfirmation}>
-                        <Text style={styles.waitText}>このラウンドをスキップして次へ進みますか？</Text>
-                        <View style={styles.actionRow}>
-                          <StationeryButton
-                            variant="neutral"
-                            onPress={() => setSkipConfirming(false)}
-                            disabled={requestBusy}
-                          >
-                            キャンセル
-                          </StationeryButton>
-                          <StationeryButton
-                            variant="yellow"
-                            onPress={() => requestAction('game:next_round', null, () => setSkipConfirming(false))}
-                            loading={pendingAction === 'game:next_round'}
-                            disabled={requestBusy}
-                            accessibilityLabel="ラウンドのスキップを確定する"
-                          >
-                            スキップする
-                          </StationeryButton>
-                        </View>
-                      </View>
-                    ) : (
-                      <StationeryButton
-                        variant="yellow"
-                        onPress={handleSkipRound}
-                        disabled={requestBusy}
-                        accessibilityLabel="このラウンドをスキップ"
-                        style={styles.skipButton}
-                      >
-                        このラウンドをスキップ
-                      </StationeryButton>
-                    )
-                  )}
                 </PaperPanel>
               ) : (
                 <>
