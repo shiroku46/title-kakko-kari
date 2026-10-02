@@ -1,0 +1,193 @@
+const { createHash } = require('node:crypto');
+const { redactTitle, summarizeExtractively } = require('./generator');
+const { getKind } = require('./kinds');
+const { publicUrl } = require('./web-fetch');
+
+function decode(value) {
+  return String(value || '').replace(/&#(x[\da-f]+|\d+);/giu, (_m, number) => {
+    const code = number[0].toLowerCase() === 'x' ? parseInt(number.slice(1), 16) : Number(number);
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+  }).replace(/&(amp|quot|apos|lt|gt|nbsp);/gu, (_m, name) => ({ amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' }[name]));
+}
+function text(value) {
+  return decode(String(value || '').replace(/<!--[\s\S]*?-->/gu, '').replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>/giu, '')
+    .replace(/<br\s*\/?\s*>|<\/p\s*>|<\/div\s*>/giu, '\n').replace(/<[^>]*>/gu, ' '))
+    .normalize('NFKC').replace(/[\u200B-\u200F\uFEFF]/gu, '').replace(/[ \t]+/gu, ' ').trim();
+}
+function attributes(tag) {
+  return Object.fromEntries([...tag.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/gu)]
+    .map((m) => [m[1].toLowerCase(), decode(m[2] ?? m[3])]));
+}
+function metadata(html) {
+  const result = {};
+  for (const match of html.matchAll(/<meta\b[^>]*>/giu)) {
+    const a = attributes(match[0]);
+    if (a.property || a.name) result[(a.property || a.name).toLowerCase()] = a.content || '';
+  }
+  return result;
+}
+const TYPE_KIND = { Book: 'literary-work', Movie: 'film', TVSeries: 'drama', VideoGame: 'game',
+  MusicAlbum: 'album', MusicRecording: 'song', MusicComposition: 'music-work', Painting: 'artwork', Sculpture: 'artwork' };
+const GENRE = { novel: /小説|ノベル|novel/iu, 'short-story': /短編|短篇/iu,
+  'literary-work': /文学|童話|児童書|小説/iu, film: /映画|劇場|movie|film/iu,
+  manga: /漫画|マンガ|コミック|manga/iu, anime: /アニメ|animation/iu,
+  game: /ゲーム|game/iu, play: /舞台|戯曲|演劇/iu, drama: /ドラマ|tv series/iu,
+  song: /楽曲|歌曲|シングル/iu, album: /アルバム/iu, 'music-work': /音楽|作曲|交響曲/iu,
+  poem: /詩集|詩作品/iu, artwork: /絵画|美術|彫刻/iu, nonfiction: /書籍|ノンフィクション|エッセイ|随筆/iu };
+const CONTENT_HEADING = /^(?:あらすじ(?:・概要)?|内容紹介|作品紹介|商品説明|書籍紹介|ストーリー|物語|introduction|story|synopsis|description|about)(?:[\s：:].*)?$/iu;
+const LIST_TITLE = /おすすめ(?:の)?\d+|ランキング|一覧|まとめ|新刊情報|発売予定|作品検索|検索結果|best\s*\d+|top\s*\d+/iu;
+const hash = (value) => createHash('sha256').update(value).digest('hex');
+const key = (value) => text(value).replace(/[\s\p{P}]/gu, '').toLowerCase();
+function named(value) {
+  if (typeof value === 'string') return text(value);
+  if (Array.isArray(value)) return value.map(named).filter(Boolean).join('、');
+  return value && typeof value.name === 'string' ? text(value.name) : '';
+}
+function structuredWorks(html) {
+  const works = [];
+  let visited = 0;
+  function visit(value, depth = 0) {
+    if (!value || typeof value !== 'object' || depth > 25 || ++visited > 5000) return;
+    if (Array.isArray(value)) return value.slice(0,5000).forEach((item) => visit(item, depth+1));
+    const types = [value['@type']].flat().filter((t) => typeof t === 'string').map((t) => t.replace(/^https?:\/\/schema.org\//u, ''));
+    const type = types.find((t) => TYPE_KIND[t] || (t === 'Product' && (value.isbn || /book/i.test(named(value.category)))));
+    if (type && typeof value.name === 'string') works.push({ ...value, workType: type });
+    if (value['@graph']) visit(value['@graph'],depth+1);
+    if (value.mainEntity) visit(value.mainEntity,depth+1);
+  }
+  let scripts = 0;
+  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/giu)) {
+    if (++scripts > 100) break;
+    if (attributes(match[1]).type?.toLowerCase() !== 'application/ld+json') continue;
+    try { visit(JSON.parse(match[2].trim())); } catch { /* Invalid structured data is not work evidence. */ }
+  }
+  return works;
+}
+function introductionSections(html) {
+  const cleaned = html.replace(/<(script|style|nav|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/giu, '');
+  const headings = [...cleaned.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/giu)].slice(0,250);
+  const sections = [];
+  for (let i = 0; i < headings.length; i++) {
+    const heading = text(headings[i][2]);
+    if (!CONTENT_HEADING.test(heading)) continue;
+    const start = headings[i].index + headings[i][0].length;
+    const next = headings.slice(i + 1).find((h) => Number(h[1]) <= Number(headings[i][1]));
+    const content = text(cleaned.slice(start, Math.min(next?.index ?? cleaned.length, start+40000)));
+    if (content) sections.push({ section: heading, content });
+  }
+  for (const match of cleaned.matchAll(/<(div|section|p)\b([^>]*)>/giu)) {
+    if (sections.length >= 30) break;
+    const a = attributes(match[2]);
+    if (/(?:^|[-_\s])(?:synopsis|story|introduction|description|summary)(?:$|[-_\s])|productDescription/iu.test(`${a.id || ''} ${a.class || ''}`)) {
+      const start = match.index + match[0].length;
+      const tags = new RegExp(`<\\/?${match[1]}\\b[^>]*>`, 'giu');
+      tags.lastIndex = start;
+      let depth = 1;
+      let end;
+      while ((end = tags.exec(cleaned))) {
+        depth += end[0].startsWith('</') ? -1 : 1;
+        if (!depth) break;
+      }
+      const content = end ? text(cleaned.slice(start, Math.min(end.index,start+40000))) : '';
+      if (content) sections.push({ section: '作品紹介', content });
+    }
+  }
+  return sections;
+}
+
+function linkedCandidates(html, baseUrl, kind) {
+  const main = html.match(/<(?:main|article)\b[^>]*>([\s\S]*?)<\/(?:main|article)>/iu)?.[1] || html;
+  const candidates = new Map();
+  for (const match of main.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/giu)) {
+    const a = attributes(match[1]);
+    const imageAlt = match[2].match(/<img\b[^>]*>/iu)?.[0];
+    const title = text(match[2]) || (imageAlt && attributes(imageAlt).alt);
+    if (!a.href || !title || title.length < 2 || title.length > 150 ||
+      /^(?:トップ|ホーム|検索|詳しく|詳細|続きを読む|もっと見る|次|前|購入|カート|ログイン)/u.test(title)) continue;
+    try {
+      const url = publicUrl(new URL(a.href, baseUrl).href);
+      if (url.href === baseUrl || url.pathname === '/' || /\.(?:jpg|png|pdf|zip)$/iu.test(url.pathname)) continue;
+      const score = /<img|<h[2-6]/iu.test(match[2]) ? 2 : /book|product|item|works|shinkan|\/dp\//iu.test(url.pathname) ? 1 : 0;
+      if (!score) continue;
+      for (const param of [...url.searchParams.keys()]) if (/^utm_|^(?:ref|ref_|tag|fbclid|gclid)$/iu.test(param)) url.searchParams.delete(param);
+      candidates.set(url.href, { id: `web-${hash(url.href)}`, provider: 'web', title, url: url.href, kind, score });
+    } catch { /* Only public HTTPS links can become candidates. */ }
+  }
+  return [...candidates.values()].sort((a,b) => b.score-a.score).slice(0,8).map(({ score, ...candidate }) => candidate);
+}
+
+function extractWebWork(html, url, hintKind) {
+  const meta = metadata(html);
+  if (/nosnippet|noarchive|noai|none|max-snippet\s*:\s*0/iu.test(meta.robots || '') ||
+    /captcha|verify you are human|アクセスが集中|ログインが必要|robot check/iu.test(text(html).slice(0,1000))) {
+    throw new Error('公開の作品紹介を取得できません');
+  }
+  const heading = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/giu)].map((m) => text(m[1])).find(Boolean) || '';
+  const pageTitle = text(meta['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1]);
+  const works = structuredWorks(html);
+  if (works.length > 1) throw new Error('複数作品の一覧はお題に使用しません');
+  const structured = works[0];
+  let realTitle = structured ? text(structured.name) : heading || pageTitle.split(/\s*[|｜]\s*/u)[0];
+  // Retail structured names may append author/imprint. A matching visible work
+  // heading supplies the title without treating those credits as part of it.
+  if (structured && heading && key(realTitle).includes(key(heading))) realTitle = heading;
+  realTitle = realTitle.replace(/^[『「]|[』」]$/gu, '').trim();
+  if (!realTitle || realTitle.length > 250 || LIST_TITLE.test(realTitle) ||
+    (!key(heading).includes(key(realTitle)) && !key(pageTitle).includes(key(realTitle)))) {
+    throw new Error('ページの作品名を照合できません');
+  }
+  const genre = named(structured?.genre);
+  const context = [genre, text(meta['og:type']), pageTitle, text(html).slice(0,8000)].join(' ');
+  let kind = TYPE_KIND[structured?.workType] || (structured?.workType === 'Product' ? 'literary-work' : null);
+  const bookKinds = ['novel','short-story','literary-work','manga','poem','nonfiction'];
+  const compatibleHint = !structured || (['Book','Product'].includes(structured.workType) && bookKinds.includes(hintKind)) ||
+    (structured.workType === 'Movie' && ['film','anime'].includes(hintKind)) ||
+    (structured.workType === 'TVSeries' && ['drama','anime'].includes(hintKind)) || kind === hintKind;
+  if (compatibleHint && hintKind && GENRE[hintKind]?.test(genre || context)) kind = hintKind;
+  if (!kind) kind = Object.keys(GENRE).find((k) => GENRE[k].test(genre || context));
+  if (!kind || !getKind(kind)) throw new Error('資料から作品の種類を確認できません');
+  // A plain heading alone is not enough: require an explicit introduction section
+  // or typed work data. Search snippets and generic SEO descriptions never qualify.
+  const sections = introductionSections(html);
+  if (structured?.description) sections.unshift({ section: '作品紹介（構造化データ）', content: text(structured.description) });
+  if (!sections.length) throw new Error('作品の紹介文が見つかりません');
+  let summary;
+  let chosen;
+  for (const section of sections) {
+    if (/歌詞|lyric|目次|収録曲/iu.test(section.content.slice(0,60))) continue;
+    try { summary = summarizeExtractively(section.content); chosen = section; break; } catch { /* Try the next explicit introduction. */ }
+  }
+  if (!summary) throw new Error('完全な文による十分な作品紹介がありません');
+  const aliases = [structured?.alternateName].flat().filter((a) => typeof a === 'string' && text(a)).map(text);
+  const synopsis = redactTitle(summary.synopsis, [realTitle, ...aliases]);
+  if (synopsis.length < 120 || synopsis.length > 450) throw new Error('題名を伏せた紹介文の長さが不十分です');
+  const author = named(structured?.author || structured?.creator || structured?.director) || meta['book:author'] || '';
+  const isbn = String(structured?.isbn || meta['books:isbn'] || meta['book:isbn'] || '').replace(/[^\dX]/giu,'');
+  const workIdentity = isbn.length === 13 || isbn.length === 10 ? `isbn:${isbn}` :
+    author ? `work:${hash(`${key(realTitle)}:${key(author)}:${kind}`)}` : `web:${hash(url)}`;
+  return { realTitle, aliases, kind, synopsis, workIdentity, author,
+    contentType: getKind(kind).contentMode === 'description' ? 'description' : 'synopsis',
+    evidence: { sourceId: `web-${hash(url)}`, section: chosen.section,
+      sourceTextSha256: hash(chosen.content), excerpts: summary.excerpts } };
+}
+
+async function generateWebQuestion(candidate, { fetchImpl, now = () => new Date() }) {
+  const requested = publicUrl(candidate.url);
+  const response = await fetchImpl(requested.href, { signal: AbortSignal.timeout(15000) });
+  if (!response.ok || response.status === 202) throw new Error(`Web作品資料を取得できません (${response.status})`);
+  const type = response.headers.get('content-type') || '';
+  if (type && !/text\/html|application\/xhtml\+xml/iu.test(type)) throw new Error('作品資料がHTMLではありません');
+  const url = publicUrl(response.url || requested.href).href;
+  const html = await response.text();
+  let work;
+  try { work = extractWebWork(html, url, candidate.kind); }
+  catch (error) {
+    if (!candidate.webDepth && !/再利用|取得できません/u.test(error.message)) error.additionalCandidates = linkedCandidates(html, url, candidate.kind);
+    throw error;
+  }
+  return { id: `web-${hash(url)}`, ...work, generationMethod: 'extractive-v1',
+    sources: [{ provider: 'web', label: `${new URL(url).hostname}：${work.realTitle}`, url,
+      retrievedAt: now().toISOString() }] };
+}
+
+module.exports = { generateWebQuestion, extractWebWork, introductionSections, structuredWorks, linkedCandidates, metadata, attributes, text, decode, hash };

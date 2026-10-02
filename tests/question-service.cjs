@@ -81,6 +81,27 @@ test('an empty store discovers, saves and serves new works with its resumable di
   assert.equal(calls, 1);
 });
 
+test('famous initial seed questions trigger discovery and become a fallback once new work is verified', async (t) => {
+  const initial = question(20);
+  const discovered = question(21);
+  const files = fixture(t, [initial]);
+  writeFileSync(files.seedPath, JSON.stringify({ schemaVersion: 1, questions: [initial] }));
+  let calls = 0;
+  const service = files.service({ collectImpl: async () => { calls++; return collected([initial, discovered]); } });
+  assert.equal((await service.selectQuestion()).id, discovered.id);
+  assert.equal(calls, 1);
+  for (let i=0; i<10; i++) assert.equal((await service.selectQuestion()).id, discovered.id);
+  assert.equal((await service.selectQuestion([discovered.id])).id,initial.id);
+});
+
+test('when seed discovery is unavailable the initial questions remain playable', async (t) => {
+  const initial = question(22);
+  const files = fixture(t, [initial]);
+  writeFileSync(files.seedPath, JSON.stringify({ schemaVersion: 1, questions: [initial] }));
+  const service = files.service({ collectImpl: async () => { throw new Error('Search unavailable'); } });
+  assert.equal((await service.selectQuestion()).id,initial.id);
+});
+
 test('explicitly disabled collection performs no network work for empty or exhausted stores', async (t) => {
   const saved = question(5);
   const files = fixture(t, [saved]);

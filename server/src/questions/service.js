@@ -18,6 +18,7 @@ function createQuestionService({
   now = Date.now, validateQuestion = questionIsValid,
 } = {}) {
   const paths = bankPath ? { bankPath, statePath: statePath || `${bankPath}.discovery.json`, seedPath } : defaultPaths();
+  const seedIds = new Set(paths.seedPath ? readBankSync({ bankPath: paths.seedPath }).questions.map((q) => q.id) : []);
   let pending = null;
   let controller = null;
   let interval = null;
@@ -133,7 +134,7 @@ function createQuestionService({
 
   async function selectQuestion(excludedIds = []) {
     let choices = available(excludedIds);
-    if (!choices.length && enabled) {
+    if (enabled && (!choices.length || choices.every((q) => seedIds.has(q.id)))) {
       await collectNow();
       choices = available(excludedIds);
     }
@@ -142,8 +143,19 @@ function createQuestionService({
         ? '未使用の問題をまだ用意できません。時間をおいて再取得してください。'
         : '出題できる問題がありません。問題の自動収集を再試行してください。'));
     }
-    const chosen = choices[randomInt(choices.length)];
-    if (enabled && choices.length < minimumAvailable) void collectNow();
+    // Initial famous titles are a fallback. Prefer verified discovered work,
+    // then sample source/genre groups so one large site cannot dominate.
+    const discovered = choices.filter((q) => !seedIds.has(q.id));
+    const pool = discovered.length ? discovered : choices;
+    const groups = new Map();
+    for (const question of pool) {
+      const group = `${question.kind}:${new URL(question.sources[0].url).hostname}`;
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push(question);
+    }
+    const group = [...groups.values()][randomInt(groups.size)];
+    const chosen = group[randomInt(group.length)];
+    if (enabled && discovered.length < minimumAvailable) void collectNow();
     return chosen;
   }
 

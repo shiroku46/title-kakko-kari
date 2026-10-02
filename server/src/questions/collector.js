@@ -6,7 +6,7 @@ const { generateQuestion, stripDisambiguation } = require('./generator');
 const execute = promisify(execFile);
 const DEFAULT_BATCH_SIZE = 8;
 const DEFAULT_MAX_REQUESTS = 24;
-const DEFAULT_PROVIDERS = ['wikipedia', 'aozora', 'ndl'];
+const DEFAULT_PROVIDERS = ['web', 'wikipedia', 'aozora', 'ndl'];
 const WIKIPEDIA_HOST = 'ja.wikipedia.org';
 const WIKIPEDIA_INTERVAL_MILLISECONDS = 6500;
 const DEFAULT_COOLDOWN_MILLISECONDS = 30000;
@@ -26,6 +26,10 @@ function normalizedTitle(value) {
 }
 
 function sourceIdentity(value) {
+  const webUrl = value?.provider === 'web' ? value.url : value?.sources?.find((s) => s.provider === 'web')?.url;
+  if (webUrl) {
+    try { return `web:${new URL(webUrl).href}`; } catch { return null; }
+  }
   const wikipediaPageId = value?.evidence?.sourceId?.match(/^wikipedia-ja-(\d+)-\d+$/u)?.[1];
   if (wikipediaPageId) return `page:${wikipediaPageId}`;
   const aozoraId = value?.workId || value?.id?.match(/^aozora-(\d+)$/u)?.[1]
@@ -43,6 +47,7 @@ function sourceIdentity(value) {
 function identityKeys(value) {
   const keys = [];
   const source = sourceIdentity(value);
+  if (typeof value?.workIdentity === 'string' && value.workIdentity) keys.push(value.workIdentity);
   if (source) keys.push(source);
   if (typeof value?.id === 'string' && value.id) keys.push(`id:${value.id}`);
   // A title can identify unrelated works by different authors or in different
@@ -54,11 +59,12 @@ function identityKeys(value) {
       if (typeof alias === 'string' && alias.trim()) keys.push(`title:${normalizedTitle(alias)}`);
     }
   }
-  const sources = [...(value?.sources || []), ...(value?.ndl?.url ? [{ url: value.ndl.url }] : [])];
+  const sources = [...(value?.sources || []), ...(value?.ndl?.url ? [{ url: value.ndl.url }] : []),
+    ...(value?.provider === 'web' && value.url ? [{ url: value.url, provider: 'web' }] : [])];
   for (const item of sources) {
     try {
       const url = new URL(item.url);
-      keys.push(`url:${url.origin}${url.pathname}`);
+      keys.push(`url:${item.provider === 'web' ? url.href : url.origin + url.pathname}`);
       if (url.hostname === 'ndlsearch.ndl.go.jp' && url.pathname.startsWith('/books/')) {
         keys.push(`ndl:${url.pathname.slice('/books/'.length).toLowerCase()}`);
       }
@@ -88,13 +94,15 @@ function createSourceFetch() {
   // Preserve the managed proxy and CA settings. Node versions differ in whether
   // their built-in fetch reads proxy variables, whereas curl already does.
   const useProxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+  const publicFetch = require('./web-fetch').createPublicFetch();
   const transport = async (value, options = {}) => {
     const url = new URL(value);
     const permitted = (url.hostname === 'ja.wikipedia.org' && url.pathname === '/w/api.php')
       || (url.hostname === 'www.aozora.gr.jp' && (url.pathname === '/index_pages/list_person_all_extended_utf8.zip'
         || /^\/cards\/\d+\/(?:card\d+\.html|files\/[a-zA-Z0-9_.-]+\.html?)$/u.test(url.pathname)))
       || (url.hostname === 'ndlsearch.ndl.go.jp' && url.pathname === '/api/opensearch');
-    if (url.protocol !== 'https:' || !permitted || url.port || url.username || url.password) {
+    if (!permitted) return publicFetch(value, options);
+    if (url.protocol !== 'https:' || url.port || url.username || url.password) {
       throw new Error('作品資料の取得先を確認できません');
     }
     if (!useProxy) return global.fetch(url.href, { ...options, redirect: 'error' });
@@ -246,7 +254,7 @@ async function collectQuestions({
       if (discoveryBudget < 1) break;
       let result;
       try {
-        const discover = discoverImpl || (provider === 'aozora'
+        const discover = discoverImpl || (provider === 'web' ? require('./web-search').discoverWebCandidates : provider === 'aozora'
           ? require('./aozora').discoverAozoraCandidates : provider === 'ndl'
             ? require('./ndl-discovery').discoverNDLCandidates : require('./discovery').discoverCandidates);
         result = await discover({
@@ -288,7 +296,7 @@ async function collectQuestions({
     if (keys.some((key) => known.has(key))) { remember(keys); continue; }
     attempted.add(attemptKey);
     try {
-      const generate = generateImpl || (candidate.provider === 'aozora'
+      const generate = generateImpl || (candidate.provider === 'web' ? require('./web-source').generateWebQuestion : candidate.provider === 'aozora'
         ? require('./aozora').generateAozoraQuestion : candidate.provider === 'ndl'
           ? require('./ndl-discovery').generateNDLQuestion : generateQuestion);
       const question = await generate(candidate, { fetchImpl: countedFetch, localAI, now });
@@ -309,6 +317,14 @@ async function collectQuestions({
         continue;
       }
       reject(candidate, error);
+      if (candidate.provider === 'web' && Array.isArray(error.additionalCandidates)) {
+        for (const next of error.additionalCandidates) {
+          if (!identityKeys(next).some((key) => known.has(key)) &&
+            !collectorState.pendingCandidates.some((item) => item.id === next.id)) {
+            collectorState.pendingCandidates.push({ ...next, webDepth: 1 });
+          }
+        }
+      }
       const retries = (candidate.collectionRetries || 0) + 1;
       if (isRetryable(error)) {
         collectorState.pendingCandidates.push({ ...candidate, collectionRetries: retries });

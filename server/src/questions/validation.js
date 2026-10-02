@@ -30,6 +30,10 @@ function sourceIsValid(source) {
         || (source.role === 'archive'
         && url.hostname === 'dl.ndl.go.jp' && /^\/pid\/\d+\/?$/.test(url.pathname)));
     }
+    if (source.provider === 'web') {
+      const { publicUrl } = require('./web-fetch');
+      return publicUrl(source.url).href === source.url;
+    }
     return false;
   } catch (_) {
     return false;
@@ -39,6 +43,10 @@ function sourceIsValid(source) {
 function evidenceMatchesPrimarySource(question) {
   const source = question.sources[0];
   const id = question.evidence.sourceId;
+  if (source.provider === 'web') {
+    const { hash } = require('./web-source');
+    return id === `web-${hash(source.url)}` && question.id === id;
+  }
   if (source.provider === 'aozora') {
     const workId = new URL(source.url).pathname.match(/card(\d+)\.html$/)?.[1];
     return /^aozora-\d+$/.test(id) && Number(id.slice('aozora-'.length)) === Number(workId);

@@ -48,7 +48,7 @@ async function readStore(paths) {
 function identity(question) {
   try {
     const source = new URL(question.sources?.[0]?.url);
-    return `${source.hostname}${source.pathname}`;
+    return question.sources[0].provider === 'web' ? source.href : `${source.hostname}${source.pathname}`;
   } catch (_) { return question.id; }
 }
 
