@@ -231,10 +231,10 @@ async function denied(b, event, payload) {
   assert.equal(response.ok, false, event);
   assert.equal(typeof response.error, 'string');
 }
-async function event(b, name) {
+async function event(b, name, matches = () => true) {
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
-    const index = b.events.findIndex((e) => e.name === name);
+    const index = b.events.findIndex((e) => e.name === name && matches(e.data));
     if (index !== -1) {
       const data = b.events.splice(index, 1)[0].data;
       if (name !== 'round:revealed') assertNoSources(data);
@@ -257,8 +257,122 @@ async function roomWith(t, count) {
     bots[i].player = joined.player;
     assert.equal(joined.allPlayers.length, i + 1);
   }
+  for (const b of bots) b.roomBots = bots;
   return { bots, room: created.room };
 }
+
+async function confirmCpu(host) {
+  // Normal CPU play also waits for every connected answerer's unknown answer.
+  for (const b of host.roomBots.filter((b) => b.socket.connected)) {
+    await ok(b, 'round:declare_unknown');
+  }
+  return ok(host, 'round:confirm_synopsis');
+}
+
+for (const mode of ['player', 'cpu']) {
+  test(`${mode}: known work waits for its controller, reveals to everyone, then resets the same round`, async (t) => {
+    const { bots, room } = await roomWith(t, 4);
+    await ok(bots[0], 'game:start', { mode, totalRounds: 1 });
+    const started = await event(bots[0], 'game:started');
+    const controller = mode === 'cpu' ? bots[0] : bots.find((b) => b.player.id === started.questioner.id);
+    const answerers = mode === 'cpu' ? bots : bots.filter((b) => b !== controller);
+    const unauthorized = bots.find((b) => b !== controller);
+    const changeEvent = mode === 'cpu' ? 'round:reroll_synopsis' : 'round:reselect';
+    const advanceEvent = mode === 'cpu' ? 'round:confirm_synopsis' : 'round:start_submitting';
+    let originalTitle;
+    if (mode === 'cpu') {
+      const previews = await Promise.all(bots.map((b) => event(b, 'round:synopsis_fetched')));
+      assert.ok(previews.every((p) => p.synopsis === previews[0].synopsis));
+      originalTitle = questionForSynopsis(previews[0].synopsis).realTitle;
+    } else {
+      originalTitle = '知っている作品の答え';
+      await ok(controller, 'round:submit_synopsis', { synopsis: '最初のお題の紹介文', realTitle: originalTitle });
+      await denied(controller, 'round:declare_known');
+    }
+    await denied(controller, advanceEvent);
+    await denied(unauthorized, 'round:submit_fake', { title: '早すぎる案' });
+    const knower = answerers.find((b) => b !== controller);
+    await ok(knower, 'round:declare_known');
+    await denied(knower, 'round:declare_unknown');
+    for (const b of answerers.filter((b) => b !== knower)) await ok(b, 'round:declare_unknown');
+    await denied(controller, advanceEvent);
+    if (mode === 'player') await denied(controller, 'round:submit_synopsis', { synopsis: '上書き', realTitle: '秘密の上書き' });
+    await denied(unauthorized, changeEvent);
+    await denied(unauthorized, 'round:next_question');
+    for (const b of bots) {
+      assert.equal(b.events.some((e) => e.name === 'round:question_rejected'), false);
+      assert.equal(JSON.stringify(b.events).includes(originalTitle), false, 'Answer leaked before controller confirmation');
+    }
+    await ok(controller, changeEvent);
+    for (const b of bots) {
+      const revealed = await event(b, 'round:question_rejected');
+      assert.equal(revealed.roundId, started.round.id);
+      assert.equal(revealed.realTitle, originalTitle);
+    }
+    await denied(controller, changeEvent);
+    await denied(controller, advanceEvent);
+    await denied(unauthorized, 'round:next_question');
+    await denied(knower, 'round:declare_known');
+    assert.equal(rooms.get(room.code).current_round, 1);
+    assert.ok(rooms.get(room.code).players.every((p) => p.score === 0));
+    const continuations = await Promise.all([ack(controller, 'round:next_question'), ack(controller, 'round:next_question')]);
+    assert.equal(continuations.filter((r) => r.ok).length, 1);
+    if (mode === 'cpu') {
+      const replacement = await event(controller, 'round:synopsis_fetched');
+      assert.notEqual(questionForSynopsis(replacement.synopsis).realTitle, originalTitle);
+    } else {
+      await event(controller, 'round:reselect_started');
+      await ok(controller, 'round:submit_synopsis', { synopsis: '別のお題の紹介文', realTitle: '別作品の答え' });
+    }
+    await denied(controller, advanceEvent);
+    for (const b of answerers) await ok(b, 'round:declare_unknown');
+    await ok(controller, advanceEvent);
+    await event(controller, 'round:submitting_started');
+    assert.equal(rooms.get(room.code).current_round, 1);
+  });
+}
+
+test('CPU known declaration still vetoes the work after its author disconnects; the new host can change it', async (t) => {
+  const { bots } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 1 });
+  await event(bots[0], 'round:synopsis_fetched');
+  await ok(bots[0], 'round:declare_known');
+  for (const b of bots.slice(1)) await ok(b, 'round:declare_unknown');
+  bots[0].socket.disconnect();
+  await event(bots[1], 'room:player_disconnected');
+  const declared = await event(bots[1], 'round:all_declared');
+  assert.ok(declared.knownPlayerIds.includes(bots[0].player.id));
+  await denied(bots[1], 'round:confirm_synopsis');
+  await ok(bots[1], 'round:reroll_synopsis');
+  await event(bots[1], 'round:question_rejected');
+  bots[1].socket.disconnect();
+  await event(bots[2], 'room:player_disconnected', (data) => data.playerId === bots[1].player.id);
+  for (let i = bots[2].events.length - 1; i >= 0; i--) {
+    if (bots[2].events[i].name === 'round:synopsis_fetched') bots[2].events.splice(i, 1);
+  }
+  await ok(bots[2], 'round:next_question');
+  await event(bots[2], 'round:synopsis_fetched');
+  await confirmCpu(bots[2]);
+});
+
+test('human questioner departure on the rejected answer screen lets the current host skip safely', async (t) => {
+  const { bots, room } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find((b) => b.player.id === started.questioner.id);
+  const answerer = bots.find((b) => b !== questioner);
+  await ok(questioner, 'round:submit_synopsis', { synopsis: '確認する紹介文', realTitle: '確認する答え' });
+  await ok(answerer, 'round:declare_known');
+  await ok(questioner, 'round:reselect');
+  await event(answerer, 'round:question_rejected');
+  questioner.socket.disconnect();
+  await event(answerer, 'game:questioner_disconnected');
+  const hostId = rooms.get(room.code).players.find((p) => p.is_host).id;
+  const host = bots.find((b) => b.player.id === hostId);
+  await ok(host, 'game:next_round');
+  assert.equal((await event(host, 'game:round_started')).currentRound, 2);
+  assert.ok(rooms.get(room.code).players.every((p) => p.score === 0));
+});
 
 test('health, CORS and both Socket.IO transports without database configuration', async (t) => {
   const res = await fetch(`${url}/health`, { headers: { Origin: 'https://game.example' } });
@@ -329,6 +443,11 @@ for (const count of [4, 5, 6]) {
           await ok(answerers[0], 'round:declare_known');
           await denied(questioner, 'round:start_submitting');
           await ok(questioner, 'round:reselect');
+          for (const b of bots) {
+            const rejected = await event(b, 'round:question_rejected');
+            assert.equal(rejected.realTitle, realTitle);
+          }
+          await ok(questioner, 'round:next_question');
           await ok(questioner, 'round:submit_synopsis', { synopsis: `あらすじ${r}`, realTitle });
           await Promise.all(answerers.map((b) => ok(b, 'round:declare_unknown')));
           await event(questioner, 'round:all_declared');
@@ -340,7 +459,7 @@ for (const count of [4, 5, 6]) {
           assert.equal(usedQuestionIds.has(selectedQuestion.id), false, 'CPU repeated a work within one room');
           usedQuestionIds.add(selectedQuestion.id);
           await denied(bots[1], 'round:confirm_synopsis');
-          await ok(host, 'round:confirm_synopsis');
+          await confirmCpu(host);
           realTitle = selectedQuestion.realTitle;
           for (const b of bots) {
             const presented = await event(b, 'round:synopsis_presented');
@@ -416,7 +535,7 @@ test('own choice IDs distinguish identical titles and self-votes remain rejected
   const { bots } = await roomWith(t, 4);
   await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 1 });
   await event(bots[0], 'round:synopsis_fetched');
-  await ok(bots[0], 'round:confirm_synopsis');
+  await confirmCpu(bots[0]);
   const titles = ['同じタイトル', '同じタイトル', '別のタイトル2', '別のタイトル3'];
   await Promise.all(bots.map((b, i) => ok(b, 'round:submit_fake', { title: titles[i] })));
   const presented = await Promise.all(bots.map((b) => event(b, 'round:choices_presented')));
@@ -454,7 +573,7 @@ for (const question of [...genreQuestions, directNDLQuestion]) {
     assert.ok(!fetched.synopsis.includes(question.realTitle));
     const request = { roomId: room.id, roundId: started.round.id };
     assert.equal((await ok(bots[0], 'round:get_synopsis', request)).contentType, question.contentType);
-    await ok(bots[0], 'round:confirm_synopsis');
+    await confirmCpu(bots[0]);
     for (const b of bots) {
       const presented = await event(b, 'round:synopsis_presented');
       assertNoSources(presented);
@@ -484,7 +603,7 @@ test('an open-resource CPU question reveals Aozora and NDL references only after
   const fetched = await event(bots[0], 'round:synopsis_fetched');
   assert.equal(fetched.synopsis, openResourceQuestion.synopsis);
   assert.ok(!fetched.synopsis.includes(openResourceQuestion.realTitle));
-  await ok(bots[0], 'round:confirm_synopsis');
+  await confirmCpu(bots[0]);
   for (const b of bots) {
     const presented = await event(b, 'round:synopsis_presented');
     assertNoSources(presented);
@@ -521,7 +640,7 @@ test('an empty CPU bank remains retryable after restoring the trusted file', asy
   writeBank();
   await ok(bots[0], 'round:reroll_synopsis');
   questionForSynopsis((await event(bots[0], 'round:synopsis_fetched')).synopsis);
-  await ok(bots[0], 'round:confirm_synopsis');
+  await confirmCpu(bots[0]);
 });
 
 test('CPU rerolls exhaust the bank without reusing a work and recover when more works are supplied', async (t) => {
@@ -545,7 +664,7 @@ test('CPU rerolls exhaust the bank without reusing a work and recover when more 
   await ok(bots[0], 'round:reroll_synopsis');
   const replacement = questionForSynopsis((await event(bots[0], 'round:synopsis_fetched')).synopsis);
   assert.ok(![first.id, second.id].includes(replacement.id));
-  await ok(bots[0], 'round:confirm_synopsis');
+  await confirmCpu(bots[0]);
 });
 
 test('invalid CPU bank data fails closed instead of issuing an unsupported work', async (t) => {
@@ -586,10 +705,10 @@ test('invalid CPU bank data fails closed instead of issuing an unsupported work'
   writeBank();
   await ok(bots[0], 'round:reroll_synopsis');
   await event(bots[0], 'round:synopsis_fetched');
-  await ok(bots[0], 'round:confirm_synopsis');
+  await confirmCpu(bots[0]);
 });
 
-test('CPU host can recover the current masked synopsis snapshot only while confirming that round', async (t) => {
+test('every CPU participant can recover the masked synopsis only while confirming that round', async (t) => {
   const { bots, room } = await roomWith(t, 4);
   await denied(bots[0], 'round:get_synopsis', { roomId: room.id, roundId: 'not-started' });
   await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 1 });
@@ -599,7 +718,7 @@ test('CPU host can recover the current masked synopsis snapshot only while confi
   const snapshot = await ok(bots[0], 'round:get_synopsis', request);
   assert.deepEqual(snapshot, { ok: true, roundId: request.roundId, synopsis: initial.synopsis, contentType: 'synopsis' });
   assert.ok(!JSON.stringify(snapshot).includes(questionForSynopsis(initial.synopsis).realTitle));
-  await denied(bots[1], 'round:get_synopsis', request);
+  assert.deepEqual(await ok(bots[1], 'round:get_synopsis', request), snapshot);
   const outsider = await bot(t);
   await denied(outsider, 'round:get_synopsis', request);
   await denied(bots[0], 'round:get_synopsis', { ...request, roomId: 'another-room' });
@@ -611,7 +730,7 @@ test('CPU host can recover the current masked synopsis snapshot only while confi
   assert.deepEqual(await ok(bots[0], 'round:get_synopsis', request), {
     ok: true, roundId: request.roundId, synopsis: replacement.synopsis, contentType: 'synopsis',
   });
-  await ok(bots[0], 'round:confirm_synopsis');
+  await confirmCpu(bots[0]);
   await denied(bots[0], 'round:get_synopsis', request);
 });
 
@@ -690,7 +809,7 @@ test('disconnect does not count an absent answerer toward completion', async (t)
   const { bots } = await roomWith(t, 4);
   await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 1 });
   await event(bots[0], 'round:synopsis_fetched');
-  await ok(bots[0], 'round:confirm_synopsis');
+  await confirmCpu(bots[0]);
   await ok(bots[1], 'round:submit_fake', { title: '退室者の案' });
   bots[1].socket.disconnect();
   await event(bots[0], 'room:player_disconnected');
@@ -718,7 +837,7 @@ test('CPU host departure transfers the confirmed candidate synopsis', async (t) 
   bots[0].socket.disconnect();
   const transferred = await event(bots[1], 'round:synopsis_fetched');
   assert.equal(transferred.synopsis, initial.synopsis);
-  await ok(bots[1], 'round:confirm_synopsis');
+  await confirmCpu(bots[1]);
 });
 
 test('a source completion reaches the new CPU host when the previous host leaves during collection', async (t) => {
@@ -743,7 +862,7 @@ test('a source completion reaches the new CPU host when the previous host leaves
   assert.deepEqual(await ok(bots[1], 'round:get_synopsis', snapshotRequest), {
     ok: true, roundId: started.round.id, synopsis: fetched.synopsis, contentType: 'synopsis',
   });
-  await ok(bots[1], 'round:confirm_synopsis');
+  await confirmCpu(bots[1]);
 });
 
 test('a delayed collection failure reaches the new CPU host and remains retryable', async (t) => {
@@ -765,7 +884,7 @@ test('a delayed collection failure reaches the new CPU host and remains retryabl
   writeBank();
   await ok(bots[1], 'round:reroll_synopsis');
   questionForSynopsis((await event(bots[1], 'round:synopsis_fetched')).synopsis);
-  await ok(bots[1], 'round:confirm_synopsis');
+  await confirmCpu(bots[1]);
 });
 
 test('a late source completion cannot replace a newer CPU reroll or consume its old work', async (t) => {
@@ -787,7 +906,7 @@ test('a late source completion cannot replace a newer CPU reroll or consume its 
     roomId: room.id, roundId: started.round.id,
   }), { ok: true, roundId: started.round.id, synopsis: current.synopsis, contentType: 'synopsis' });
   assert.deepEqual(rooms.get(room.code).usedQuestionIds, [fixtureQuestions[1].id]);
-  await ok(bots[0], 'round:confirm_synopsis');
+  await confirmCpu(bots[0]);
 });
 
 test('questioner departure permits host skip but normal selecting cannot be skipped', async (t) => {

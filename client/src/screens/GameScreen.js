@@ -11,6 +11,7 @@ import SelectingPhase from '../components/phases/SelectingPhase';
 import SubmittingPhase from '../components/phases/SubmittingPhase';
 import VotingPhase from '../components/phases/VotingPhase';
 import RevealedPhase from '../components/phases/RevealedPhase';
+import RejectedPhase from '../components/phases/RejectedPhase';
 
 function normalizeContentType(value) {
   return value === 'description' ? 'description' : 'synopsis';
@@ -39,6 +40,7 @@ export default function GameScreen({ navigation, route }) {
   const [voteProgress, setVoteProgress] = useState({ voted: 0, total: 0 });
   const [knownDeclarations, setKnownDeclarations] = useState([]);
   const [allDeclared, setAllDeclared] = useState(false);
+  const [rejectedQuestion, setRejectedQuestion] = useState(null);
   const [mvpData, setMvpData] = useState(null);
   const [selectingKey, setSelectingKey] = useState(0);
   const [questionerDisconnected, setQuestionerDisconnected] = useState(false);
@@ -112,6 +114,7 @@ export default function GameScreen({ navigation, route }) {
       setVoteProgress({ voted: 0, total: 0 });
       setKnownDeclarations([]);
       setAllDeclared(false);
+      setRejectedQuestion(null);
       setSelectingKey((k) => k + 1);
       setQuestionerDisconnected(false);
       setDepartureNotice(null);
@@ -122,6 +125,11 @@ export default function GameScreen({ navigation, route }) {
       setFetchedSynopsis(null);
       setContentType('synopsis');
       setSynopsisError(null);
+      setKnownDeclarations([]);
+      setAllDeclared(false);
+      setRejectedQuestion(null);
+      setSelectingKey((k) => k + 1);
+      setPhase('confirming');
     },
     'round:synopsis_fetch_failed': (data) => {
       if (data.roundId !== round.id) return;
@@ -154,6 +162,13 @@ export default function GameScreen({ navigation, route }) {
       setKnownDeclarations([]);
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
+      setRejectedQuestion(null);
+      setPhase('selecting');
+    },
+    'round:question_rejected': (data) => {
+      if (data.roundId !== round.id) return;
+      setRejectedQuestion(data);
+      setPhase('rejected');
     },
     'round:submitting_started': () => {
       if (mode === 'cpu' && fetchedSynopsis) setSynopsis(fetchedSynopsis);
@@ -189,7 +204,6 @@ export default function GameScreen({ navigation, route }) {
     },
     'room:player_disconnected': ({ playerId, nickname }) => {
       if (playerId === questioner?.id) setQuestionerDisconnected(true);
-      setKnownDeclarations((prev) => prev.filter((name) => name !== nickname));
       socket.timeout(10000).emit('room:get_state', null, (error, res) => {
         if (!leavingRef.current && !error && res?.ok) {
           setIsHost(Boolean(res.room.players.find((p) => p.id === player.id)?.is_host));
@@ -209,7 +223,7 @@ export default function GameScreen({ navigation, route }) {
   });
 
   useEffect(() => {
-    if (mode !== 'cpu' || phase !== 'confirming' || !isHost) return;
+    if (mode !== 'cpu' || phase !== 'confirming') return;
     let active = true;
     socket.timeout(10000).emit('round:get_synopsis', { roomId: room.id, roundId: round.id }, (error, response) => {
       if (!active) return;
@@ -225,7 +239,7 @@ export default function GameScreen({ navigation, route }) {
       setSynopsisError(null);
     });
     return () => { active = false; };
-  }, [mode, phase, isHost, room.id, round.id, socket]);
+  }, [mode, phase, selectingKey, room.id, round.id, socket]);
 
   useEffect(() => {
     if (phase === 'submitting' && mode === 'cpu' && fetchedSynopsis && !synopsis) {
@@ -240,16 +254,15 @@ export default function GameScreen({ navigation, route }) {
       case 'confirming':
         return (
           <ConfirmingPhase
+            key={selectingKey}
             currentRound={currentRound}
             totalRounds={totalRounds}
             fetchedSynopsis={fetchedSynopsis}
             synopsisError={synopsisError}
             isHost={isHost}
+            knownDeclarations={knownDeclarations}
+            allDeclared={allDeclared}
             socket={socket}
-            onRerollStart={() => {
-              setFetchedSynopsis(null);
-              setSynopsisError(null);
-            }}
           />
         );
       case 'selecting':
@@ -267,6 +280,19 @@ export default function GameScreen({ navigation, route }) {
             playerId={player.id}
             knownDeclarations={knownDeclarations}
             allDeclared={allDeclared}
+            socket={socket}
+          />
+        );
+      case 'rejected':
+        return (
+          <RejectedPhase
+            currentRound={currentRound}
+            totalRounds={totalRounds}
+            questioner={questioner}
+            rejectedQuestion={rejectedQuestion}
+            canReselect={mode === 'cpu' ? isHost : amQuestioner}
+            canSkip={mode === 'player' && questionerDisconnected && isHost}
+            mode={mode}
             socket={socket}
           />
         );
