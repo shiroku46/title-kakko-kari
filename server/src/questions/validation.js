@@ -1,4 +1,5 @@
-const { redactTitle } = require('./generator');
+const { redactTitle, sourceSentences, summarizeExtractively } = require('./generator');
+const { MIN_LENGTH, MAX_LENGTH, MAX_SENTENCES, EXCLUDED_SECTION, introductionSentenceIsUsable } = require('./quality');
 const { KIND_IDS } = require('./kinds');
 const KINDS = new Set(KIND_IDS);
 
@@ -65,18 +66,37 @@ function questionIsValid(question) {
     && Array.isArray(question.aliases) && question.aliases.every((alias) => typeof alias === 'string' && alias.trim())
     && KINDS.has(question.kind)
     && (question.contentType === undefined || ['synopsis', 'description'].includes(question.contentType))
-    && typeof question.synopsis === 'string' && question.synopsis.length >= 120 && question.synopsis.length <= 450
+    && typeof question.synopsis === 'string' && question.synopsis.length >= MIN_LENGTH && question.synopsis.length <= MAX_LENGTH
+    && question.synopsis.replace(/■■■/gu, '').length >= MIN_LENGTH
+    && sourceSentences(question.synopsis).length > 0 && sourceSentences(question.synopsis).length <= MAX_SENTENCES
+    && sourceSentences(question.synopsis).every(introductionSentenceIsUsable)
+    && sourceSentences(question.synopsis).join('') === question.synopsis.normalize('NFKC').trim()
     && redactTitle(question.synopsis, [question.realTitle, ...question.aliases]) === question.synopsis
     && Array.isArray(question.sources) && question.sources.length > 0 && question.sources.every(sourceIsValid)
     && ['extractive-v1', 'local-ai-v1'].includes(question.generationMethod)
     && question.evidence && typeof question.evidence.sourceId === 'string'
     && evidenceMatchesPrimarySource(question)
     && typeof question.evidence.section === 'string' && question.evidence.section.trim().length > 0
+    && !EXCLUDED_SECTION.test(question.evidence.section)
     && /^[a-f0-9]{64}$/.test(question.evidence.sourceTextSha256)
     && Array.isArray(question.evidence.excerpts) && question.evidence.excerpts.length > 0
     && question.evidence.excerpts.every((excerpt) => typeof excerpt === 'string' && excerpt.trim().length > 0)
     && question.synopsis === redactTitle(question.evidence.excerpts.join(''), [question.realTitle, ...question.aliases]);
 }
 
+function prepareQuestion(question) {
+  try {
+    if (questionIsValid(question)) return question;
+    const aliases = [question.realTitle, ...question.aliases];
+    // Only adjust verifiable saved excerpts. Never repair a mismatched or
+    // invented synopsis, or convert a primary-text passage into an introduction.
+    if (EXCLUDED_SECTION.test(question.evidence.section) ||
+        question.synopsis !== redactTitle(question.evidence.excerpts.join(''), aliases)) return null;
+    const summary = summarizeExtractively(question.evidence.excerpts.join(''));
+    const synopsis = redactTitle(summary.synopsis, aliases);
+    const prepared = { ...question, synopsis, evidence: { ...question.evidence, excerpts: summary.excerpts } };
+    return questionIsValid(prepared) ? prepared : null;
+  } catch { return null; }
+}
 
-module.exports = { questionIsValid, sourceIsValid };
+module.exports = { questionIsValid, sourceIsValid, prepareQuestion };

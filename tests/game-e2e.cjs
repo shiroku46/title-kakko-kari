@@ -42,6 +42,8 @@ const openResourceQuestion = {
   id: 'aozora-128', realTitle: '公開資料の物語', aliases: [], kind: 'novel',
   synopsis: openResourceText.replaceAll('公開資料の物語', '■■■'),
   sources: [
+    { ...fixtureQuestions[0].sources[0], label: 'Wikipedia：公開資料の物語',
+      url: 'https://ja.wikipedia.org/wiki/' + encodeURIComponent('公開資料の物語') + '?oldid=100' },
     {
       provider: 'aozora', label: '青空文庫「公開資料の物語」',
       url: 'https://www.aozora.gr.jp/cards/000879/card128.html',
@@ -62,7 +64,7 @@ const openResourceQuestion = {
   ],
   generationMethod: 'extractive-v1',
   evidence: {
-    sourceId: 'aozora-128', section: '本文',
+    sourceId: 'wikipedia-ja-128-100', section: 'あらすじ',
     sourceTextSha256: createHash('sha256').update(openResourceText).digest('hex'),
     excerpts: openResourceText.match(/[^。]+。/gu),
   },
@@ -624,6 +626,21 @@ test('player mode does not expose a CPU synopsis snapshot to host or questioner'
   const questioner = bots.find((b) => b.player.id === started.questioner.id);
   await ok(questioner, 'round:submit_synopsis', { realTitle: '作品', synopsis: '手動のあらすじ。' });
   await denied(questioner, 'round:get_synopsis', request);
+});
+
+test('player introduction length is enforced before publication and the questioner can correct it', async (t) => {
+  const { bots, room } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find((b) => b.player.id === started.questioner.id);
+  const rejected = await ack(questioner, 'round:submit_synopsis', { realTitle: '作品', synopsis: '文'.repeat(281) });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /280文字以内/u);
+  assert.equal(rooms.get(room.code).rounds.at(-1).synopsis, null);
+  const synopsis = '文'.repeat(279)+'。';
+  await ok(questioner, 'round:submit_synopsis', { realTitle: '作品', synopsis });
+  const shown = await event(bots.find((b)=>b!==questioner), 'round:synopsis_presented');
+  assert.equal(shown.synopsis,synopsis);
 });
 
 for (const variant of ['exact', 'modified title', 'modified synopsis', 'unknown ID', 'reselected manual entry']) {

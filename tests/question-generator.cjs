@@ -8,13 +8,14 @@ const { createOllamaGenerator, validateOllamaUrl, parseArgs } = require('../serv
 
 test('bundled real-source bank is usable by the gameplay loader', () => {
   const bank = require('../server/src/questions/bank.json');
-  const { questionIsValid } = require('../server/src/questions');
+  const { questionIsValid, prepareQuestion } = require('../server/src/questions/validation');
   assert.equal(bank.schemaVersion, 1);
   assert.ok(bank.questions.length >= 20, 'Bundled bank must support a 20-round CPU game');
   assert.equal(new Set(bank.questions.map((q) => q.id)).size, bank.questions.length);
   assert.equal(new Set(bank.questions.map((q) => q.realTitle)).size, bank.questions.length);
-  for (const question of bank.questions) {
-    assert.ok(questionIsValid(question), `Gameplay rejects generated question ${question.id}`);
+  for (const stored of bank.questions) {
+    const question = prepareQuestion(stored);
+    assert.ok(question && questionIsValid(question), `Gameplay rejects generated question ${question.id}`);
     const sourceTitle = decodeURIComponent(new URL(question.sources[0].url).pathname.slice('/wiki/'.length))
       .replace(/_/gu, ' ').normalize('NFKC');
     assert.ok(question.aliases.includes(sourceTitle), `Source is not registered for ${question.id}`);
@@ -165,7 +166,8 @@ test('masks readings and original names from the verified lead subject without h
       assert.ok(question.aliases.includes(alias), `${title}: ${alias}`);
       assert.equal(containsTitle(question.synopsis, [alias]), false);
     }
-    assert.equal(question.evidence.excerpts.join(''), sourceText);
+    assert.ok(question.synopsis.length <= 280);
+    for (const excerpt of question.evidence.excerpts) assert.ok(sourceText.includes(excerpt));
     assert.equal(question.sources[0].revisionId, 456);
   }
   const extra = await generateQuestion(entry, { fetchImpl: sourceFetch(article({
@@ -226,7 +228,8 @@ for (const [kind, definition, description] of [
     assert.equal(question.contentType, description ? 'description' : 'synopsis');
     assert.equal(question.evidence.section, description ? '解説' : 'あらすじ');
     assert.equal(question.synopsis, sourceText);
-    assert.equal(question.evidence.excerpts.join(''), sourceText);
+    assert.ok(question.synopsis.length <= 280);
+    for (const excerpt of question.evidence.excerpts) assert.ok(sourceText.includes(excerpt));
     assert.equal(new URL(question.sources[0].url).searchParams.get('oldid'), '456');
   });
 }
