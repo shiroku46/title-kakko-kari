@@ -14,8 +14,8 @@ async function loadCpuSynopsis(io, room, round) {
   round.sourceQuestion = null;
   round.contentType = null;
   round.fetchError = null;
-  const loadingHost = room.players.find((p) => p.is_host && p.is_connected);
-  if (loadingHost) io.to(loadingHost.socket_id).emit('round:synopsis_loading', { roundId: round.id });
+  round.declarations.clear();
+  io.to(room.code).emit('round:synopsis_loading', { roundId: round.id });
   let work;
   let failure;
   try {
@@ -27,10 +27,9 @@ async function loadCpuSynopsis(io, room, round) {
   if (rooms.get(room.code) !== room || getCurrentRound(room) !== round ||
       room.status !== 'playing' || round.status !== 'selecting' ||
       round.fetchVersion !== version) return;
-  const host = room.players.find((p) => p.is_host && p.is_connected);
   if (!work) {
     round.fetchError = failure || '出典付きの問題を用意できませんでした。再取得してください。';
-    if (host) io.to(host.socket_id).emit('round:synopsis_fetch_failed', {
+    io.to(room.code).emit('round:synopsis_fetch_failed', {
       roundId: round.id, error: round.fetchError,
     });
     return;
@@ -40,7 +39,7 @@ async function loadCpuSynopsis(io, room, round) {
   round.sourceQuestion = work;
   round.contentType = work.contentType || (getKind(work.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
   room.usedQuestionIds.push(work.id);
-  if (host) io.to(host.socket_id).emit('round:synopsis_fetched', {
+  io.to(room.code).emit('round:synopsis_fetched', {
     roundId: round.id, synopsis: work.synopsis, contentType: round.contentType,
   });
 }
@@ -69,12 +68,30 @@ function requirePhase(round, phase) {
 
 function startSubmitting(io, room, round) {
   round.status = 'submitting';
-  // CPU synopsis was private to the host until confirmation. Every answerer
-  // needs it now; reuse the existing public synopsis event.
+  // Keep the synopsis available to every answerer when entering submission.
   io.to(room.code).emit('round:synopsis_presented', {
     roundId: round.id, synopsis: round.synopsis, contentType: round.contentType,
   });
   io.to(room.code).emit('round:submitting_started', { roundId: round.id });
+}
+
+function hasKnown(round) {
+  return [...round.declarations.values()].includes('known');
+}
+
+function requireUnknown(room, round) {
+  if (hasKnown(round)) throw new Error('「知ってる！」の回答があります。確認して作品を選び直してください');
+  const answerers = connectedAnswerers(room, round);
+  if (!answerers.length || answerers.some((p) => round.declarations.get(p.id) !== 'unknown')) {
+    throw new Error('全員の「知らない」宣言を待ってください');
+  }
+}
+
+function rejectQuestion(io, room, round) {
+  round.status = 'rejected';
+  io.to(room.code).emit('round:question_rejected', {
+    roundId: round.id, realTitle: round.real_title, synopsis: round.synopsis,
+  });
 }
 
 function registerGameHandlers(io, socket) {
@@ -120,9 +137,8 @@ function registerGameHandlers(io, socket) {
 
   // The initial preview can arrive while navigation is still mounting the game
   // screen. Recover it after listeners are registered, without revealing an answer.
-  on('round:get_synopsis', (payload, room, player) => {
+  on('round:get_synopsis', (payload, room) => {
     const round = getCurrentRound(room);
-    if (!player.is_host) throw new Error('ホストのみ操作できます');
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
     if (payload?.roomId !== room.id || payload?.roundId !== round.id) throw new Error('現在の部屋とラウンドを指定してください');
@@ -137,6 +153,7 @@ function registerGameHandlers(io, socket) {
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
     if (!round.synopsis) throw new Error('作品の紹介文がまだ取得されていません');
+    requireUnknown(room, round);
     startSubmitting(io, room, round);
   });
 
@@ -145,6 +162,10 @@ function registerGameHandlers(io, socket) {
     if (!player.is_host) throw new Error('ホストのみ操作できます');
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
+    if (hasKnown(round)) {
+      rejectQuestion(io, room, round);
+      return;
+    }
     void loadCpuSynopsis(io, room, round);
   });
 
@@ -152,6 +173,7 @@ function registerGameHandlers(io, socket) {
     const round = getCurrentRound(room);
     if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
     requirePhase(round, 'selecting');
+    if (round.synopsis) throw new Error('提示済みの作品は先に選び直してください');
     const synopsis = textInput(payload?.synopsis, '作品の紹介文', 10000);
     const title = textInput(payload?.realTitle, '本物のタイトル', 500);
     let sourceQuestion = null;
@@ -170,9 +192,10 @@ function registerGameHandlers(io, socket) {
   for (const kind of ['known', 'unknown']) {
     on(`round:declare_${kind}`, (_, room, player) => {
       const round = getCurrentRound(room);
-      if (round.questioner_id === player.id || round.questioner_id === null) throw new Error('回答者のみ操作できます');
+      if (round.questioner_id === player.id) throw new Error('回答者のみ操作できます');
       requirePhase(round, 'selecting');
       if (!round.synopsis) throw new Error('作品の紹介文が提示されていません');
+      if (round.declarations.has(player.id)) throw new Error('すでに回答しています');
       round.declarations.set(player.id, kind);
       io.to(room.code).emit(`round:${kind}_declared`, { player: { id: player.id, nickname: player.nickname } });
       checkAllDeclared(io, room, round);
@@ -183,6 +206,10 @@ function registerGameHandlers(io, socket) {
     const round = getCurrentRound(room);
     if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
     requirePhase(round, 'selecting');
+    if (hasKnown(round)) {
+      rejectQuestion(io, room, round);
+      return;
+    }
     round.synopsis = null;
     round.real_title = null;
     round.sourceQuestion = null;
@@ -191,18 +218,31 @@ function registerGameHandlers(io, socket) {
     io.to(room.code).emit('round:reselect_started', { message: '出題者が新しい作品を選んでいます...' });
   });
 
+  on('round:next_question', (_, room, player) => {
+    const round = getCurrentRound(room);
+    if (round.questioner_id === null ? !player.is_host : round.questioner_id !== player.id) {
+      throw new Error('CPU出題はホスト、人間出題は出題者のみ操作できます');
+    }
+    requirePhase(round, 'rejected');
+    round.status = 'selecting';
+    if (round.questioner_id === null) {
+      void loadCpuSynopsis(io, room, round);
+    } else {
+      round.synopsis = null;
+      round.real_title = null;
+      round.sourceQuestion = null;
+      round.contentType = null;
+      round.declarations.clear();
+      io.to(room.code).emit('round:reselect_started', { message: '出題者が新しい作品を選んでいます...' });
+    }
+  });
+
   on('round:start_submitting', (_, room, player) => {
     const round = getCurrentRound(room);
     if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
     requirePhase(round, 'selecting');
     if (!round.synopsis || !round.real_title) throw new Error('作品の紹介文が設定されていません');
-    const answerers = connectedAnswerers(room, round);
-    if (answerers.some((p) => round.declarations.get(p.id) === 'known')) {
-      throw new Error('「知ってる！」宣言をしたプレイヤーがいます。作品を選び直してください');
-    }
-    if (!answerers.length || answerers.some((p) => round.declarations.get(p.id) !== 'unknown')) {
-      throw new Error('全員の「知らない」宣言を待ってください');
-    }
+    requireUnknown(room, round);
     startSubmitting(io, room, round);
   });
 
@@ -250,7 +290,7 @@ function registerGameHandlers(io, socket) {
       throw new Error('次のラウンドへの移行は出題者またはホストのみ操作できます');
     }
     const questioner = room.players.find((p) => p.id === round.questioner_id);
-    const canSkip = round.status === 'selecting' && questioner && !questioner.is_connected;
+    const canSkip = ['selecting', 'rejected'].includes(round.status) && questioner && !questioner.is_connected;
     if (round.status !== 'revealed' && !canSkip) throw new Error('結果発表を待ってください');
     if (room.current_round >= room.total_rounds) {
       room.status = 'finished';
@@ -268,7 +308,7 @@ function checkAllDeclared(io, room, round) {
   const declared = answerers.filter((p) => round.declarations.has(p.id));
   if (answerers.length && declared.length === answerers.length) {
     io.to(room.code).emit('round:all_declared', {
-      knownPlayerIds: declared.filter((p) => round.declarations.get(p.id) === 'known').map((p) => p.id),
+      knownPlayerIds: [...round.declarations].filter(([, kind]) => kind === 'known').map(([id]) => id),
       declaredCount: declared.length, totalCount: answerers.length,
     });
   }

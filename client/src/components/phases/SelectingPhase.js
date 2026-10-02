@@ -124,10 +124,7 @@ export default function SelectingPhase({
   }
 
   function handleReselect() {
-    requestAction('round:reselect', null, () => {
-      setSubmitted(false);
-      setAutomaticQuestionId(null);
-    });
+    requestAction('round:reselect', null);
   }
 
   function handleStartSubmitting() {
@@ -342,7 +339,7 @@ export default function SelectingPhase({
                     <View style={styles.knownBox}>
                       <Text style={styles.knownTitle}>「知ってる！」の回答があります</Text>
                       <Text style={styles.knownNames}>{knownDeclarations.join('、')}</Text>
-                      <Text style={styles.knownNote}>別の作品を選び直してください。</Text>
+                      <Text style={styles.knownNote}>確認して変更すると、このお題の答えを全員に表示します。</Text>
                     </View>
                   ) : canAdvance ? (
                     <View style={styles.successBox}>
@@ -367,10 +364,10 @@ export default function SelectingPhase({
                       onPress={handleReselect}
                       loading={pendingAction === 'round:reselect'}
                       disabled={requestBusy}
-                      accessibilityLabel="作品を選び直す"
+                      accessibilityLabel={hasKnown ? '確認して答えを表示する' : '作品を選び直す'}
                       style={styles.actionButton}
                     >
-                      作品を選び直す
+                      {hasKnown ? '確認して答えを表示する' : '作品を選び直す'}
                     </StationeryButton>
                     <StationeryButton
                       variant="primary"
@@ -432,7 +429,7 @@ export default function SelectingPhase({
                         本物のタイトルが分かりますか？
                       </Text>
                       <Text style={styles.declareNote}>
-                        ひとりでも知っている場合は、別の作品へ変更します。
+                        ひとりでも知っている場合は、出題者が確認し、答えを表示してから別の作品へ変更します。
                       </Text>
                       {errorNotice}
                       <View style={styles.declareRow}>

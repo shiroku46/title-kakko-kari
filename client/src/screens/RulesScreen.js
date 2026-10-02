@@ -34,8 +34,8 @@ const FLOW = [
   },
   {
     num: '3',
-    title: '作品の紹介文を読む',
-    desc: '小説・映画・漫画・アニメ・音楽・ゲームなどの紹介文から、ジャンルや雰囲気を想像します。作品名は伏せられています。',
+    title: '紹介文を読んで知っているか確認',
+    desc: '小説・映画・漫画・アニメ・音楽・ゲームなどの紹介文から、ジャンルや雰囲気を想像します。作品名は伏せられています。全回答者が「知らない」を選んだら、タイトル案の提出へ進みます。',
     color: colors.cyan,
     symbol: '文',
   },
@@ -158,7 +158,7 @@ export default function RulesScreen({ navigation }) {
               <Text style={styles.tipKicker}>TIP 02</Text>
               <Text style={styles.tipTitle}>知っている作品だったら</Text>
               <Text style={styles.tipBody}>
-                「知ってる！」を選ぶと作品を変更します。全員が知らない作品で公平に遊びます。
+                誰かが「知ってる！」を選んだら、人間出題は出題者、CPU出題はホストが確認します。そのお題の答えを全員に表示してから、別の作品を選び直します。
               </Text>
             </PaperPanel>
           </View>

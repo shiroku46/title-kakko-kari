@@ -1,46 +1,29 @@
 import React, { useRef, useState } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  ActivityIndicator,
-  Platform,
-} from 'react-native';
+import { View, StyleSheet, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { Text } from '../ui/GameText';
 import { colors, radii } from '../../theme';
-import {
-  PaperPanel,
-  StationeryButton,
-  RoundHeader,
-  PopBackdrop,
-} from '../ui';
+import { PaperPanel, StationeryButton, RoundHeader, PopBackdrop } from '../ui';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../../hooks/useResponsiveLayout';
 
-export default function ConfirmingPhase({
-  currentRound,
-  totalRounds,
-  fetchedSynopsis,
-  synopsisError,
-  isHost,
-  socket,
-  onRerollStart,
-}) {
+export default function ConfirmingPhase({ currentRound, totalRounds, fetchedSynopsis,
+  synopsisError, isHost, knownDeclarations = [], allDeclared, socket }) {
   const { contentPadding } = useResponsiveLayout();
   const [pendingAction, setPendingAction] = useState(null);
   const [requestError, setRequestError] = useState(null);
+  const [declared, setDeclared] = useState(null);
   const requestPendingRef = useRef(false);
   const displayError = requestError || synopsisError;
+  const hasKnown = knownDeclarations.length > 0;
 
-  function requestAction(event, action) {
-    if (!isHost || requestPendingRef.current) return;
+  function requestAction(event, onSuccess) {
+    if (requestPendingRef.current) return;
     if (!socket?.connected) {
       setRequestError('サーバーに接続していません。接続を確認して、もう一度お試しください。');
       return;
     }
     requestPendingRef.current = true;
-    setPendingAction(action);
+    setPendingAction(event);
     setRequestError(null);
-    if (action === 'reroll') onRerollStart?.();
     socket.timeout(10000).emit(event, null, (error, res) => {
       requestPendingRef.current = false;
       setPendingAction(null);
@@ -48,136 +31,96 @@ export default function ConfirmingPhase({
         setRequestError('サーバーから応答がありません。接続を確認して、もう一度お試しください。');
       } else if (!res?.ok) {
         setRequestError(res?.error || '操作できませんでした。もう一度お試しください。');
+      } else {
+        onSuccess?.();
       }
     });
   }
 
-  function handleConfirm() {
-    if (!fetchedSynopsis) return;
-    requestAction('round:confirm_synopsis', 'confirm');
-  }
-
-  function handleReroll() {
-    requestAction('round:reroll_synopsis', 'reroll');
-  }
-
   return (
     <PopBackdrop>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.content,
-          { paddingHorizontal: contentPadding, maxWidth: CONTENT_MAX_WIDTH },
-        ]}
-      >
-        <RoundHeader
-          currentRound={currentRound}
-          totalRounds={totalRounds}
-          questioner={null}
-          phase="CPUが選んだ作品を確認"
-        />
-
-        {isHost ? (
-          <PaperPanel tone="cream" variant="elevated" style={styles.panel}>
-            {!fetchedSynopsis ? (
-              <View style={styles.loadingBox}>
-                <View style={styles.loadingIcon}>
-                  {!displayError ? (
-                    <ActivityIndicator color={colors.red} size="large" />
-                  ) : (
-                    <Text style={styles.loadingErrorIcon}>!</Text>
-                  )}
-                </View>
-                <Text style={styles.loadingTitle}>
-                  {displayError ? '作品を取得できませんでした' : '作品を探しています…'}
-                </Text>
-                <Text
-                  accessibilityRole={displayError ? 'alert' : undefined}
-                  accessibilityLiveRegion="polite"
-                  style={[styles.loadingText, displayError && styles.errorText]}
-                >
-                  {displayError || '出典付きの作品から問題を選んでいます。'}
-                </Text>
-                {displayError && (
-                  <StationeryButton
-                    variant="secondary"
-                    onPress={handleReroll}
-                    loading={pendingAction === 'reroll'}
-                    disabled={Boolean(pendingAction)}
-                    accessibilityLabel="作品の紹介文を再取得"
-                    style={styles.loadingButton}
-                  >
-                    もう一度取得する
-                  </StationeryButton>
-                )}
-              </View>
-            ) : (
-              <>
-                <View style={styles.headingRow}>
-                  <View style={styles.headingCopy}>
-                    <Text style={styles.kicker}>WORK CHECK</Text>
-                    <Text style={styles.heading}>この紹介文で進みますか？</Text>
-                  </View>
-                  <View style={styles.cpuBadge}>
-                    <Text style={styles.cpuBadgeText}>CPU出題</Text>
-                  </View>
-                </View>
-
-                <View style={styles.synopsisBox}>
-                  <View style={styles.synopsisTab}>
-                    <Text style={styles.synopsisTabText}>作品の紹介文</Text>
-                  </View>
-                  <Text style={styles.synopsisText}>{fetchedSynopsis}</Text>
-                </View>
-
-                <Text style={styles.note}>
-                  本物のタイトルと出典は、答え合わせで表示されます。
-                </Text>
-
-                {displayError ? (
-                  <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.errorText}>
-                    {displayError}
-                  </Text>
-                ) : null}
-
-                <View style={styles.buttonRow}>
-                  <StationeryButton
-                    variant="neutral"
-                    onPress={handleReroll}
-                    loading={pendingAction === 'reroll'}
-                    disabled={Boolean(pendingAction)}
-                    style={styles.secondaryButton}
-                    accessibilityLabel="別の作品を取得"
-                  >
-                    別の作品にする
-                  </StationeryButton>
-                  <StationeryButton
-                    variant="primary"
-                    onPress={handleConfirm}
-                    loading={pendingAction === 'confirm'}
-                    disabled={Boolean(pendingAction)}
-                    style={styles.primaryButton}
-                    accessibilityLabel="この紹介文で進む"
-                  >
-                    この紹介文で進む →
-                  </StationeryButton>
-                </View>
-              </>
-            )}
-          </PaperPanel>
-        ) : (
-          <PaperPanel tone="navy" variant="elevated" style={styles.waitPanel}>
-            <View style={styles.waitDots}>
-              <View style={[styles.dot, { backgroundColor: colors.red }]} />
-              <View style={[styles.dot, { backgroundColor: colors.yellow }]} />
-              <View style={[styles.dot, { backgroundColor: colors.cyan }]} />
+      <ScrollView style={styles.scroll} contentContainerStyle={[
+        styles.content, { paddingHorizontal: contentPadding, maxWidth: CONTENT_MAX_WIDTH },
+      ]}>
+        <RoundHeader currentRound={currentRound} totalRounds={totalRounds}
+          questioner={null} phase="この作品、知っていますか？" />
+        <PaperPanel tone="cream" variant="elevated" style={styles.panel}>
+          {!fetchedSynopsis ? (
+            <View style={styles.loadingBox}>
+              {!displayError ? <ActivityIndicator color={colors.red} size="large" /> : null}
+              <Text style={styles.loadingTitle}>
+                {displayError ? '作品を取得できませんでした' : '作品を探しています…'}
+              </Text>
+              <Text accessibilityRole={displayError ? 'alert' : undefined} style={styles.loadingText}>
+                {displayError || '出典付きの作品から問題を選んでいます。'}
+              </Text>
+              {displayError && isHost ? (
+                <StationeryButton variant="secondary" onPress={() => requestAction('round:reroll_synopsis')}
+                  loading={pendingAction === 'round:reroll_synopsis'} disabled={Boolean(pendingAction)}
+                  accessibilityLabel="作品の紹介文を再取得" style={styles.loadingButton}>
+                  もう一度取得する
+                </StationeryButton>
+              ) : null}
             </View>
-            <Text style={styles.waitTitle}>ホストが作品を確認しています</Text>
-            <Text style={styles.waitText}>
-              作品の紹介文が決まるまで、このままお待ちください。
-            </Text>
-          </PaperPanel>
-        )}
+          ) : (
+            <>
+              <View style={styles.headingRow}>
+                <View style={styles.headingCopy}>
+                  <Text style={styles.kicker}>WORK CHECK</Text>
+                  <Text style={styles.heading}>このタイトルを知っていますか？</Text>
+                </View>
+                <View style={styles.cpuBadge}><Text style={styles.cpuBadgeText}>CPU出題</Text></View>
+              </View>
+              <View style={styles.synopsisBox}>
+                <View style={styles.synopsisTab}><Text style={styles.synopsisTabText}>作品の紹介文</Text></View>
+                <Text style={styles.synopsisText}>{fetchedSynopsis}</Text>
+              </View>
+              <Text style={styles.note}>
+                ひとりでも知っている場合は、ホストが確認し、答えを表示してから別の作品へ変更します。
+              </Text>
+              {displayError ? <Text accessibilityRole="alert" style={styles.errorText}>{displayError}</Text> : null}
+              {declared === null ? (
+                <View style={styles.buttonRow}>
+                  <StationeryButton variant="neutral"
+                    onPress={() => requestAction('round:declare_known', () => setDeclared('known'))}
+                    loading={pendingAction === 'round:declare_known'} disabled={Boolean(pendingAction)}
+                    accessibilityLabel="知ってると宣言" style={styles.secondaryButton}>知ってる！</StationeryButton>
+                  <StationeryButton variant="primary"
+                    onPress={() => requestAction('round:declare_unknown', () => setDeclared('unknown'))}
+                    loading={pendingAction === 'round:declare_unknown'} disabled={Boolean(pendingAction)}
+                    accessibilityLabel="知らないと回答" style={styles.secondaryButton}>知らない →</StationeryButton>
+                </View>
+              ) : (
+                <Text style={styles.note}>
+                  {declared === 'known' ? '「知ってる！」と回答しました。ホストの確認を待っています。' : '「知らない」と回答しました。全員の回答を待っています。'}
+                </Text>
+              )}
+              {hasKnown ? (
+                <Text accessibilityLiveRegion="polite" style={styles.errorText}>
+                  「知ってる！」の回答があります：{knownDeclarations.join('、')}
+                </Text>
+              ) : allDeclared ? (
+                <Text style={styles.note}>全員が「知らない」と回答しました。タイトル案の提出へ進めます。</Text>
+              ) : null}
+              {isHost ? (
+                <View style={[styles.buttonRow, { marginTop: 16 }]}>
+                  <StationeryButton variant="neutral" onPress={() => requestAction('round:reroll_synopsis')}
+                    loading={pendingAction === 'round:reroll_synopsis'} disabled={Boolean(pendingAction)}
+                    accessibilityLabel={hasKnown ? '確認して答えを表示する' : '別の作品を取得'}
+                    style={styles.secondaryButton}>
+                    {hasKnown ? '確認して答えを表示する' : '別の作品にする'}
+                  </StationeryButton>
+                  <StationeryButton variant="primary" onPress={() => requestAction('round:confirm_synopsis')}
+                    loading={pendingAction === 'round:confirm_synopsis'}
+                    disabled={!allDeclared || hasKnown || Boolean(pendingAction)}
+                    accessibilityLabel="タイトル案提出へ進む" style={styles.primaryButton}>
+                    タイトル案の提出へ →
+                  </StationeryButton>
+                </View>
+              ) : null}
+            </>
+          )}
+        </PaperPanel>
       </ScrollView>
     </PopBackdrop>
   );
@@ -244,23 +187,8 @@ const styles = StyleSheet.create({
   secondaryButton: { flex: 1, minWidth: 170 },
   primaryButton: { flex: 1.5, minWidth: 220 },
   loadingBox: { alignItems: 'center', paddingVertical: 34 },
-  loadingIcon: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: '#E7F5F7',
-    borderWidth: 2,
-    borderColor: colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingErrorIcon: { color: colors.red, fontSize: 34, fontWeight: '900' },
   loadingTitle: { color: colors.navy, fontSize: 20, fontWeight: '900', marginTop: 16 },
   loadingText: { color: colors.muted, fontSize: 12, lineHeight: 19, marginTop: 6, textAlign: 'center' },
   loadingButton: { marginTop: 16, minWidth: 220 },
-  waitPanel: { alignItems: 'center', paddingVertical: 42 },
-  waitDots: { flexDirection: 'row', gap: 8, marginBottom: 18 },
-  dot: { width: 13, height: 13, borderRadius: 7 },
-  waitTitle: { color: colors.white, fontSize: 21, fontWeight: '900', textAlign: 'center' },
-  waitText: { color: '#BCD1E0', fontSize: 12, lineHeight: 19, marginTop: 7, textAlign: 'center' },
+
 });
