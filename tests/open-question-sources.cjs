@@ -143,45 +143,58 @@ test('narrative extraction rejects commentary and avoids anthology preface befor
   assert(!withDetachedLater.synopsis.startsWith('が、彼')); assert(!withDetachedLater.synopsis.startsWith('そのうち'));
 });
 
-test('Aozora generation masks title and preserves source evidence and rights without invented licensing', async () => {
-  const question = await generateAozoraQuestion(entry(), { fetchImpl: async () => bytesResponse(Buffer.from(html())),
+function modernIntroductionFetch({ author = '物語 太郎', title = '小さな灯台', kind = '小説', plot = SENTENCES.join(''), ndlFailure = false } = {}) {
+  return async (url) => {
+    if (url.startsWith('https://ndlsearch')) {
+      if (ndlFailure) { const error = new Error('budget'); error.code = 'QUESTION_REQUEST_BUDGET'; throw error; }
+      return new Response('<rss></rss>');
+    }
+    assert.equal(new URL(url).hostname, 'ja.wikipedia.org', 'primary novel text is never fetched');
+    return Response.json({ query: { pages: [{ pageid: 128, ns: 0, title,
+      canonicalurl: `https://ja.wikipedia.org/wiki/${encodeURIComponent(title)}`,
+      lastrevid: 456, revisions: [{ revid: 456 }],
+      extract: `『${title}』は、${author}による${kind}。\n== あらすじ ==\n${plot}` }] } });
+  };
+}
+
+test('Aozora candidates use a verified modern introduction and retain catalog attribution', async () => {
+  const question = await generateAozoraQuestion(entry(), { fetchImpl: modernIntroductionFetch(),
     includeNDL: false, now: () => new Date('2026-10-01T01:02:03Z') });
   assert.equal(question.realTitle, '小さな灯台'); assert.equal(question.id, 'aozora-128');
   assert(!question.synopsis.includes(question.realTitle));
+  assert.ok(question.synopsis.length >= 120 && question.synopsis.length <= 280);
   assert.equal(question.generationMethod, 'extractive-v1');
-  assert.equal(question.sources[0].license, '著作権なし（青空文庫公開情報）');
-  assert.equal(question.sources[0].licenseUrl, undefined);
-  assert.equal(question.sources[0].revisionId, undefined);
-  assert.match(question.evidence.sourceTextSha256, /^[a-f0-9]{64}$/u);
+  assert.equal(question.sources[0].license, 'CC BY-SA 4.0');
+  assert.equal(question.sources[0].revisionId, 456);
+  assert.equal(question.sources[1].provider, 'aozora');
+  assert.equal(question.sources[1].license, '著作権なし（青空文庫公開情報）');
+  assert.equal(question.evidence.section, 'あらすじ');
   assert(question.evidence.excerpts.every((excerpt) => SENTENCES.includes(excerpt)));
   assert.equal(question.sources[0].retrievedAt, '2026-10-01T01:02:03.000Z');
-  assert.equal(question.birthDate, undefined);
-  assert.equal(question.sources[0].birthDate, undefined);
 });
 
-test('Aozora rejects protected works, unexpected source hosts, incorrect file titles and invented AI prose', async () => {
-  const fetchImpl = async () => bytesResponse(Buffer.from(html()));
+test('Aozora rejects protected works, unexpected URLs, wrong titles/authors and invented AI prose', async () => {
+  const fetchImpl = modernIntroductionFetch();
   await assert.rejects(generateAozoraQuestion({ ...entry(), copyright: 'あり' }, { fetchImpl }), /作品情報/u);
   await assert.rejects(generateAozoraQuestion({ ...entry(), textUrl: 'https://evil.example/file.html' }, { fetchImpl }), /作品URL/u);
-  await assert.rejects(generateAozoraQuestion(entry(), { fetchImpl: async () => bytesResponse(Buffer.from(html('', '別の作品'))) }), /タイトル/u);
+  await assert.rejects(generateAozoraQuestion(entry(), { fetchImpl: modernIntroductionFetch({ title: '別の作品' }) }), /作品の記事/u);
+  await assert.rejects(generateAozoraQuestion(entry(), { fetchImpl: modernIntroductionFetch({ author: '別の著者' }) }), /著作者/u);
   await assert.rejects(generateAozoraQuestion(entry(), { fetchImpl, localAI: async () => ({ synopsis: '架空のあらすじ。', excerpts: ['架空のあらすじ。'] }) }), /出典本文/u);
 });
 
-test('local AI may select verifiable sentences and optional NDL outage does not discard generated question', async () => {
+test('local AI selects only modern introduction sentences and optional NDL failure preserves the question', async () => {
   const question = await generateAozoraQuestion(entry(), {
-    fetchImpl: async (url) => {
-      if (url.startsWith('https://ndlsearch')) { const error = new Error('budget'); error.code = 'QUESTION_REQUEST_BUDGET'; throw error; }
-      return bytesResponse(Buffer.from(html()));
-    }, localAI: async () => ({ synopsis: SENTENCES.slice(0, 5).join(''), excerpts: SENTENCES.slice(0, 5) }),
+    fetchImpl: modernIntroductionFetch({ ndlFailure: true }),
+    localAI: async () => ({ synopsis: SENTENCES.slice(0, 5).join(''), excerpts: SENTENCES.slice(0, 5) }),
   });
-  assert.equal(question.generationMethod, 'local-ai-v1'); assert.equal(question.sources.length, 1);
+  assert.equal(question.generationMethod, 'local-ai-v1'); assert.equal(question.sources.length, 2);
 });
 
-test('Aozora bounds local model context and labels foreign literary classification without claiming it is a novel', async () => {
+test('foreign Aozora literature also requires a readable modern introduction', async () => {
   const question = await generateAozoraQuestion({ ...entry(), classification: 'NDC 933', kind: 'literary-work' }, {
-    fetchImpl: async () => bytesResponse(Buffer.from(html(SENTENCES.join('').repeat(100)))), includeNDL: false,
-    localAI: async ({ text }) => {
-      assert(text.length <= 30000); assert(text.length > 120);
+    fetchImpl: modernIntroductionFetch({ kind: '文学作品' }), includeNDL: false,
+    localAI: async ({ text, maxLength }) => {
+      assert.equal(text, SENTENCES.join('')); assert.equal(maxLength, 280);
       return { synopsis: SENTENCES.slice(0, 5).join(''), excerpts: SENTENCES.slice(0, 5) };
     },
   });

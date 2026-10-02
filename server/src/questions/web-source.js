@@ -2,6 +2,7 @@ const { createHash } = require('node:crypto');
 const { redactTitle, summarizeExtractively } = require('./generator');
 const { getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
+const { MIN_LENGTH, MAX_LENGTH, EXCLUDED_SECTION } = require('./quality');
 
 function decode(value) {
   return String(value || '').replace(/&#(x[\da-f]+|\d+);/giu, (_m, number) => {
@@ -63,20 +64,77 @@ function structuredWorks(html) {
   }
   return works;
 }
+
+function introductionMarkup(html) {
+  const source = html.replace(/<!--[\s\S]*?-->/gu, '').replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/giu, '');
+  const stack = [];
+  const output = [];
+  let cursor = 0;
+  let suppressed = 0;
+  let tokens = 0;
+  for (const token of source.matchAll(/<\/?([a-z][\w:-]*)\b[^>]*>/giu)) {
+    if (++tokens > 20000 || stack.length > 128) throw new Error('作品紹介のHTML構造が複雑すぎます');
+    if (!suppressed) output.push(source.slice(cursor, token.index));
+    const name = token[1].toLowerCase();
+    if (token[0].startsWith('</')) {
+      const hiddenBefore = suppressed > 0;
+      const index = stack.findLastIndex((item) => item.name === name);
+      if (index >= 0) for (const frame of stack.splice(index)) if (frame.excluded) suppressed--;
+      if (!hiddenBefore && !suppressed) output.push(token[0]);
+    } else {
+      const a = attributes(token[0]);
+      const excluded = /^(?:nav|footer|aside|form|button|table|ul|ol)$/u.test(name) ||
+        /\shidden(?:\s|=|>)/iu.test(token[0]) || a['aria-hidden'] === 'true' || /^(?:navigation|complementary|contentinfo)$/u.test(a.role || '') ||
+        /(?:^|[-_\s])(?:reviews?|ratings?|recommend(?:ations)?|related|ranking|cart|purchase|price|profile|breadcrumb|navigation|toc|copyright|social|share|advert(?:isement)?|banner|metadata|specifications?|bibliograph\w*|staff|cast|credits|lyrics)(?:$|[-_\s])|author[-_]?(?:bio|profile)|track[-_]list/iu.test(`${a.id || ''} ${a.class || ''}`);
+      const empty = /^(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/u.test(name) || token[0].endsWith('/>');
+      if (!suppressed && !excluded) output.push(token[0]);
+      if (!empty) { stack.push({ name, excluded }); if (excluded) suppressed++; }
+    }
+    cursor = token.index + token[0].length;
+  }
+  if (!suppressed) output.push(source.slice(cursor));
+  return output.join('');
+}
+
+function sectionContent(markup) {
+  const headings = [...markup.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/giu)].slice(0,250);
+  const pieces = [];
+  let cursor = 0;
+  let excludedDepth = null;
+  for (const heading of headings) {
+    if (excludedDepth === null) pieces.push(markup.slice(cursor, heading.index));
+    const depth = Number(heading[1]);
+    if (excludedDepth !== null && depth <= excludedDepth) excludedDepth = null;
+    if (excludedDepth === null && EXCLUDED_SECTION.test(text(heading[2]))) excludedDepth = depth;
+    cursor = heading.index + heading[0].length;
+  }
+  if (excludedDepth === null) pieces.push(markup.slice(cursor));
+  return text(pieces.join('\n'));
+}
+
 function introductionSections(html) {
-  const cleaned = html.replace(/<(script|style|nav|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/giu, '');
+  const cleaned = introductionMarkup(html);
   const headings = [...cleaned.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/giu)].slice(0,250);
   const sections = [];
+  const ancestors = [];
+  const excludedRanges = headings.filter((h) => EXCLUDED_SECTION.test(text(h[2]))).map((h) => ({
+    start: h.index, end: headings.find((next) => next.index > h.index && Number(next[1]) <= Number(h[1]))?.index ?? cleaned.length,
+  }));
   for (let i = 0; i < headings.length; i++) {
     const heading = text(headings[i][2]);
-    if (!CONTENT_HEADING.test(heading)) continue;
+    const depth = Number(headings[i][1]);
+    while (ancestors.length && ancestors.at(-1).depth >= depth) ancestors.pop();
+    const excluded = EXCLUDED_SECTION.test(heading) || ancestors.some((parent) => parent.excluded);
+    ancestors.push({ depth, excluded });
+    if (excluded || !CONTENT_HEADING.test(heading)) continue;
     const start = headings[i].index + headings[i][0].length;
     const next = headings.slice(i + 1).find((h) => Number(h[1]) <= Number(headings[i][1]));
-    const content = text(cleaned.slice(start, Math.min(next?.index ?? cleaned.length, start+40000)));
+    const content = sectionContent(cleaned.slice(start, Math.min(next?.index ?? cleaned.length, start+40000)));
     if (content) sections.push({ section: heading, content });
   }
   for (const match of cleaned.matchAll(/<(div|section|p)\b([^>]*)>/giu)) {
     if (sections.length >= 30) break;
+    if (excludedRanges.some((range) => match.index >= range.start && match.index < range.end)) continue;
     const a = attributes(match[2]);
     if (/(?:^|[-_\s])(?:synopsis|story|introduction|description|summary)(?:$|[-_\s])|productDescription/iu.test(`${a.id || ''} ${a.class || ''}`)) {
       const start = match.index + match[0].length;
@@ -88,7 +146,7 @@ function introductionSections(html) {
         depth += end[0].startsWith('</') ? -1 : 1;
         if (!depth) break;
       }
-      const content = end ? text(cleaned.slice(start, Math.min(end.index,start+40000))) : '';
+      const content = end ? sectionContent(cleaned.slice(start, Math.min(end.index,start+40000))) : '';
       if (content) sections.push({ section: '作品紹介', content });
     }
   }
@@ -149,7 +207,9 @@ function extractWebWork(html, url, hintKind) {
   // A plain heading alone is not enough: require an explicit introduction section
   // or typed work data. Search snippets and generic SEO descriptions never qualify.
   const sections = introductionSections(html);
-  if (structured?.description) sections.unshift({ section: '作品紹介（構造化データ）', content: text(structured.description) });
+  // Prefer the explicitly bounded visible introduction. Retail structured
+  // descriptions often concatenate price, reviews and unrelated product data.
+  if (structured?.description) sections.push({ section: '作品紹介（構造化データ）', content: text(structured.description) });
   if (!sections.length) throw new Error('作品の紹介文が見つかりません');
   let summary;
   let chosen;
@@ -160,7 +220,7 @@ function extractWebWork(html, url, hintKind) {
   if (!summary) throw new Error('完全な文による十分な作品紹介がありません');
   const aliases = [structured?.alternateName].flat().filter((a) => typeof a === 'string' && text(a)).map(text);
   const synopsis = redactTitle(summary.synopsis, [realTitle, ...aliases]);
-  if (synopsis.length < 120 || synopsis.length > 450) throw new Error('題名を伏せた紹介文の長さが不十分です');
+  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH || synopsis.replace(/■■■/gu, '').length < MIN_LENGTH) throw new Error('題名を伏せた紹介文の長さが不十分です');
   const author = named(structured?.author || structured?.creator || structured?.director) || meta['book:author'] || '';
   const isbn = String(structured?.isbn || meta['books:isbn'] || meta['book:isbn'] || '').replace(/[^\dX]/giu,'');
   const workIdentity = isbn.length === 13 || isbn.length === 10 ? `isbn:${isbn}` :

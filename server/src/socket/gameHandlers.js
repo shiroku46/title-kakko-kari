@@ -2,6 +2,7 @@ const { randomUUID } = require('node:crypto');
 const { shuffle } = require('../utils/shuffle');
 const { selectQuestionAsync, findQuestion } = require('../questions');
 const { getKind } = require('../questions/kinds');
+const { MAX_LENGTH } = require('../questions/quality');
 const {
   rooms, getMember, getCurrentRound, connectedAnswerers, publicRound,
   playerScores, textInput,
@@ -152,7 +153,7 @@ function registerGameHandlers(io, socket) {
     const round = getCurrentRound(room);
     if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
     requirePhase(round, 'selecting');
-    const synopsis = textInput(payload?.synopsis, '作品の紹介文', 10000);
+    const synopsis = textInput(payload?.synopsis, '作品の紹介文', MAX_LENGTH);
     const title = textInput(payload?.realTitle, '本物のタイトル', 500);
     let sourceQuestion = null;
     if (typeof payload?.questionId === 'string') {

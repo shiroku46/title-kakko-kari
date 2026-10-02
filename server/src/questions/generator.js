@@ -1,11 +1,10 @@
 const { createHash } = require('node:crypto');
 const { getKind } = require('./kinds');
+const { MIN_LENGTH, MAX_LENGTH, TARGET_LENGTH, MAX_SENTENCES, introductionSentenceIsUsable } = require('./quality');
 
 const WIKIPEDIA_API = 'https://ja.wikipedia.org/w/api.php';
 const LICENSE = 'CC BY-SA 4.0';
 const LICENSE_URL = 'https://creativecommons.org/licenses/by-sa/4.0/';
-const MIN_LENGTH = 120;
-const MAX_LENGTH = 450;
 const TYPE_INDICATORS = {
   novel: /(?:小説(?:集|作品|シリーズ)?|童話(?:集|作品)?|児童文学(?:作品)?|児童書|短編文学|寓話)(?=。|$|、|で(?:ある|あり|、))/u,
   'short-story': /(?:短編小説|短篇小説|掌編小説|短編文学作品|ショートショート)(?=。|$|、|で(?:ある|あり|、))/u,
@@ -368,15 +367,17 @@ function sourceSentences(text) {
 }
 
 function summarizeExtractively(text, { minLength = MIN_LENGTH, maxLength = MAX_LENGTH } = {}) {
-  const sentences = sourceSentences(text);
+  const sentences = sourceSentences(text).filter(introductionSentenceIsUsable);
+  maxLength = Math.min(maxLength, MAX_LENGTH);
   const selected = [];
   let length = 0;
   for (const sentence of sentences) {
     const excerpt = sentence.trim();
+    if (excerpt.length > maxLength) continue;
     if (length + excerpt.length > maxLength) break;
     selected.push(excerpt);
     length += excerpt.length;
-    if (length >= Math.min(300, maxLength)) break;
+    if (length >= Math.min(TARGET_LENGTH, maxLength) || selected.length >= MAX_SENTENCES) break;
   }
   if (length < minLength) throw new Error('文を途中で切らずに出題できるあらすじがありません');
   return { synopsis: selected.join(''), excerpts: selected };
@@ -474,6 +475,8 @@ async function generateQuestion(entry, { fetchImpl = global.fetch, localAI = nul
   const synopsis = redactTitle(generated.synopsis, aliases);
   const usefulLength = synopsis.replace(/■■■/gu, '').length;
   if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH || usefulLength < MIN_LENGTH ||
+      sourceSentences(generated.synopsis).length > MAX_SENTENCES ||
+      !sourceSentences(generated.synopsis).every(introductionSentenceIsUsable) ||
       containsTitle(synopsis, aliases) || /https?:\/\/|\[\[|\]\]/iu.test(synopsis)) {
     throw new Error('題名を伏せた出題文の検査に合格しませんでした');
   }

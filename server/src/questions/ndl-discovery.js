@@ -1,3 +1,4 @@
+const { MIN_LENGTH, MAX_LENGTH, MAX_SENTENCES, introductionSentenceIsUsable } = require('./quality');
 const { createHash } = require('node:crypto');
 const { NDL_API, tags, decodeXml, personName, approvedNDLUrl, readNDLResponse } = require('./ndl');
 const { generateQuestion, stripDisambiguation, sourceSentences, summarizeExtractively,
@@ -225,7 +226,7 @@ function explicitIntroduction(entry) {
 
 async function generateFromIntroduction(entry, introduction, { localAI, now }) {
   let generated = localAI ? await localAI({ sourceId: `ndl-${entry.ndl.recordId}`, text: introduction.text,
-    minLength: 120, maxLength: 450 }) : summarizeExtractively(introduction.text);
+    minLength: MIN_LENGTH, maxLength: MAX_LENGTH }) : summarizeExtractively(introduction.text);
   if (localAI) {
     const source = sourceSentences(introduction.text);
     if (!generated || typeof generated.synopsis !== 'string' || !Array.isArray(generated.excerpts)) throw new Error('AIの資料抽出が不正です');
@@ -239,7 +240,9 @@ async function generateFromIntroduction(entry, introduction, { localAI, now }) {
   }
   const aliases = [...new Set([entry.title, entry.ndl.originalTitle, ...(entry.aliases || [])])];
   const synopsis = redactTitle(generated.synopsis, aliases);
-  if (synopsis.length < 120 || synopsis.length > 450 || synopsis.replace(/■■■/gu, '').length < 120 || containsTitle(synopsis, aliases)) {
+  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH || synopsis.replace(/■■■/gu, '').length < MIN_LENGTH ||
+      sourceSentences(generated.synopsis).length > MAX_SENTENCES ||
+      !sourceSentences(generated.synopsis).every(introductionSentenceIsUsable) || containsTitle(synopsis, aliases)) {
     throw new Error('題名を伏せた作品紹介の検査に合格しませんでした');
   }
   const source = bibliographySource(entry, now().toISOString());

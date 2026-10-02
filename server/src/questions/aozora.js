@@ -1,13 +1,12 @@
 const { inflateRawSync } = require('node:zlib');
 const { createHash } = require('node:crypto');
-const { sourceSentences, redactTitle, containsTitle } = require('./generator');
+const { sourceSentences, generateQuestion } = require('./generator');
 const { enrichWithNDL } = require('./ndl');
 
 const CATALOG_URL = 'https://www.aozora.gr.jp/index_pages/list_person_all_extended_utf8.zip';
 const MAX_CATALOG_BYTES = 64 * 1024 * 1024;
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;
 const DISCOVERY_ORDER_VERSION = 2;
-const MAX_AI_SOURCE_CHARACTERS = 30000;
 const catalogCaches = new WeakMap();
 
 function normalize(text) {
@@ -294,18 +293,6 @@ function summarizeNarrative(text, { minLength = 120, maxLength = 450 } = {}) {
   return { synopsis: excerpts.join(''), excerpts };
 }
 
-function validateLocalSummary(generated, text) {
-  const sentences = sourceSentences(text);
-  if (!generated || typeof generated.synopsis !== 'string' || !Array.isArray(generated.excerpts) ||
-      !generated.excerpts.length) throw new Error('AIの抽出結果が不正です');
-  const excerpts = generated.excerpts.map(normalize);
-  const positions = excerpts.map((excerpt) => sentences.indexOf(excerpt));
-  if (excerpts.some((excerpt, index) => !excerpt || positions[index] < 0 ||
-      (index > 0 && positions[index] <= positions[index - 1])) ||
-      normalize(generated.synopsis) !== excerpts.join('')) throw new Error('AIの出力が出典本文の文と一致しません');
-  return { synopsis: excerpts.join(''), excerpts };
-}
-
 async function generateAozoraQuestion(entry, { fetchImpl = global.fetch, localAI = null,
   now = () => new Date(), includeNDL = true } = {}) {
   if (!entry || entry.provider !== 'aozora' || !/^aozora-\d+$/u.test(entry.id) ||
@@ -315,41 +302,16 @@ async function generateAozoraQuestion(entry, { fetchImpl = global.fetch, localAI
     throw new Error('青空文庫の作品情報が不正です');
   }
   const cardUrl = aozoraUrl(entry.cardUrl, 'card', entry.workId);
-  const textUrl = aozoraUrl(entry.textUrl, 'text');
-  const response = await fetchImpl(textUrl, { signal: AbortSignal.timeout(20000), redirect: 'error',
-    headers: { 'User-Agent': 'TitleKakkoKariQuestionCollector/1.0 (open-literature questions)' } });
-  const encoding = /^(?:utf-?8)$/iu.test(entry.encoding) ? 'utf-8'
-    : /^(?:shift[-_]?jis|sjis)$/iu.test(entry.encoding) ? 'shift_jis' : null;
-  if (!encoding) throw new Error('青空文庫本文の文字コードを確認できません');
-  const html = new TextDecoder(encoding, { fatal: true }).decode(await readBytes(response, MAX_TEXT_BYTES));
-  const text = extractAozoraText(html, entry.title);
-  const sourceId = entry.id;
-  let aiSourceText = '';
-  if (localAI) {
-    const context = [];
-    let length = 0;
-    for (const sentence of sourceSentences(text)) {
-      if (length + sentence.length > MAX_AI_SOURCE_CHARACTERS) break;
-      context.push(sentence); length += sentence.length;
-    }
-    aiSourceText = context.join('');
-    if (aiSourceText.length < 120) throw new Error('AIの文選択に使える本文が不足しています');
-  }
-  const generated = localAI ? validateLocalSummary(await localAI({ sourceId, text: aiSourceText,
-    minLength: 120, maxLength: 450 }), aiSourceText) : summarizeNarrative(text);
-  const aliases = [...new Set([entry.title, ...entry.aliases].map(normalize))];
-  const synopsis = redactTitle(generated.synopsis, aliases);
-  if (synopsis.length < 120 || synopsis.length > 450 || synopsis.replace(/■■■/gu, '').length < 120 ||
-      containsTitle(synopsis, aliases) || /https?:\/\/|\[\[|\]\]/iu.test(synopsis)) {
-    throw new Error('題名を伏せた出題文の検査に合格しませんでした');
-  }
+  aozoraUrl(entry.textUrl, 'text');
+  if (typeof entry.author !== 'string' || !entry.author.trim()) throw new Error('作品の著作者を確認できません');
   const kind = /\b913(?:\.\d+)?\b/u.test(entry.classification) ? 'novel' : 'literary-work';
-  const question = { id: entry.id, realTitle: normalize(entry.title), aliases, kind, synopsis,
-    sources: [{ provider: 'aozora', label: `青空文庫「${entry.title}」`, url: cardUrl,
-      textUrl, retrievedAt: now().toISOString(), license: '著作権なし（青空文庫公開情報）' }],
-    generationMethod: localAI ? 'local-ai-v1' : 'extractive-v1',
-    evidence: { sourceId, section: '本文', sourceTextSha256: createHash('sha256').update(text).digest('hex'),
-      excerpts: generated.excerpts } };
+  // A primary-text excerpt is not a synopsis, even with modern orthography.
+  // Resolve a modern work introduction and verify the named creator instead.
+  const question = await generateQuestion({ id: entry.id, title: entry.title, realTitle: entry.title,
+    aliases: entry.aliases, kind }, { fetchImpl, localAI, now, expectedAuthors: [entry.author] });
+  question.sources.push({ provider: 'aozora', label: `青空文庫「${entry.title}」作品情報`, url: cardUrl,
+    textUrl: aozoraUrl(entry.textUrl, 'text'), retrievedAt: now().toISOString(),
+    license: '著作権なし（青空文庫公開情報）' });
   return includeNDL ? enrichWithNDL(question, entry, { fetchImpl, now }) : question;
 }
 

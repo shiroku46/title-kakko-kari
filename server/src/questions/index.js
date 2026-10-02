@@ -1,6 +1,6 @@
 const { randomInt } = require('node:crypto');
 const { readBankSync, defaultPaths } = require('./store');
-const { questionIsValid } = require('./validation');
+const { questionIsValid, prepareQuestion } = require('./validation');
 const { createQuestionService } = require('./service');
 
 const paths = defaultPaths();
@@ -10,7 +10,7 @@ const service = createQuestionService({
 
 function getQuestionBank() {
   const bank = readBankSync(paths);
-  const questions = bank.questions.filter(questionIsValid);
+  const questions = bank.questions.map(prepareQuestion).filter(Boolean);
   if (!questions.length) throw new Error('出題できる問題がありません。問題集を自動生成して補充してください。');
   if (new Set(questions.map((question) => question.id)).size !== questions.length) {
     throw new Error('問題集に重複した問題IDがあります。問題集を再生成してください。');
