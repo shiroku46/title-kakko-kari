@@ -379,3 +379,19 @@ test('description containers cannot reintroduce AI disclosure sections or pad a 
   assert.deepEqual(q.evidence.excerpts, summarizeExtractively(story).excerpts);
   assert.throws(() => extractWebWork(wrap('少年は灯台に向かい、消えた旅人を探し始める。'), 'https://store.steampowered.com/app/123/','game'));
 });
+
+
+test('rating annotations and parenthetical punctuation cannot pad or fragment a plot', () => {
+  const notice = 'R15推奨と残酷描写有りは、念のためにつけてあります。';
+  assert.equal(introductionSentenceIsUsable(notice), false);
+  const actual = '侯爵様にとある仕方のない理由で雇われた魔法使いムウラは、侯爵様の頼み通りにクソガ...悪ガキ三兄弟を観察していく。手に負えないほどやんちゃな三人は、使用人を困らせるのが日常茶飯事。そんななか、三人はとうとう取り返しのつかないことをしたので、ムウラはしっかり侯爵様にお伝えするのだった。';
+  for (const tail of [notice,'('+notice+')','('+notice]) {
+    const q=summarizeExtractively(actual+tail);
+    assert.ok(!q.synopsis.includes('R15'));
+    assert.deepEqual(q.excerpts,summarizeExtractively(actual).excerpts);
+  }
+  const nested='主人公(「大人」は失踪した旅人の兄だ。)は、誰も参列していない葬儀に戸惑いを覚える。';
+  assert.deepEqual(sourceSentences(nested),[nested]);
+  assert.equal(introductionSentenceIsUsable('主人公は残酷な事件の真相を調べるため、友人と古い港へ向かう。'),true);
+  assert.throws(()=>summarizeExtractively('少女は港で旅人を見つけた。('+notice+')'));
+});

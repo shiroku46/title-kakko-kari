@@ -351,7 +351,7 @@ function assertStandalonePlot(text) {
 function sourceSentences(text) {
   const source = normalize(text);
   const sentences = [];
-  const closingQuotes = { '「': '」', '『': '』', '“': '”' };
+  const closingQuotes = { '「': '」', '『': '』', '“': '”', '(': ')' };
   const openQuotes = [];
   let beginning = 0;
   for (let index = 0; index < source.length; index++) {

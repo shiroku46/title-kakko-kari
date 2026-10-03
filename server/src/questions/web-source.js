@@ -304,14 +304,13 @@ function extractWebWork(html, url, hintKind) {
   if (!structured && WRITING_TOOL.test(sections.map(s => s.content).join(' '))) throw new Error('執筆ツールは創作作品として採用しません');
   if (!sections.length) throw new Error('作品の紹介文が見つかりません');
   // A localized store name can differ completely from its heading. Read only
-  // the named subject of the opening work definition in an explicit intro,
+  // the named subject of an explicit self-work definition in an intro,
   // never character dialogue, a comparison, or a later reference to a work.
   const definitionKinds = { game: /ゲーム|アドベンチャー|RPG|パズル/iu,
     film: /映画|アニメーション/iu, anime: /アニメ|映像作品/iu,
     novel: /小説|物語|ノベル/u, manga: /漫画|マンガ|コミック/u };
-  const localizedNames = sections.flatMap(section => {
-    const first = sourceSentences(section.content)[0] || '';
-    const subject = first.match(/^[『「]([^』」\n]{2,150})[』」]\s*(?:と)?は[、,]?\s*(.+)$/u);
+  const localizedNames = sections.flatMap(section => sourceSentences(section.content)).flatMap(sentence => {
+    const subject = sentence.match(/^[『「]([^』」\n]{2,150})[』」]\s*(?:と)?は[、,]?\s*(.+)$/u);
     if (!subject || !definitionKinds[kind]?.test(subject[2]) ||
         !/(?:です|である|作品|ゲーム)[。！？!?]$/u.test(subject[2]) ||
         /(?:と(?:同じ|似た)|の(?:続編|影響)|に(?:登場|影響)|比較|原作)/u.test(subject[2])) return [];

@@ -443,3 +443,15 @@ test('character dialogue and later unrelated work references do not supply local
     assert.deepEqual(q.aliases,['Quiet Harbor']);
   }
 });
+
+
+test('an explicit localized self-work definition after plot prose still hides every occurrence', () => {
+  const preceding='主人公(「大人」)は、老人の葬儀に誰も参列しなかったことに戸惑いを覚える。その時、町全体を揺るがす大地震が発生し、町全体が迷宮へと変貌し、時間の流れまでもが狂ってしまう。';
+  const definition='『迷路の中の迷路』は、迷路と化した町を舞台にした2Dピクセルアートのパズルアドベンチャーゲームです。';
+  const markup='<title>Steam:A Maze In Labyrinth</title><h1>A Maze In Labyrinth</h1><h2>このゲームについて</h2>'+preceding+definition+story+'迷路の中の迷路では、家族を見つけるために町を探索する。';
+  const q=extractWebWork(markup,'https://store.steampowered.com/app/333/','game');
+  assert.ok(q.aliases.includes('迷路の中の迷路'));
+  assert.ok(!q.synopsis.includes('迷路の中の迷路'));
+  assert.ok(q.evidence.excerpts.every(s=>!s.includes('迷路の中の迷路')));
+  assert.equal(q.realTitle,'A Maze In Labyrinth');
+});
