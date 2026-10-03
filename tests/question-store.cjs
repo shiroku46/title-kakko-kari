@@ -37,6 +37,18 @@ test('simultaneous independent saves retain works from both collectors', async (
   assert.equal(readdirSync(paths.directory).some((name) => name.endsWith('.tmp')), false);
 });
 
+test('web work pages distinguished by query IDs survive saving and later appends', async (t) => {
+  const paths = fixture(t);
+  const first = { ...question(30), sources: [{ provider: 'web', url: 'https://shop.example.org/detail?id=1' }] };
+  const second = { ...question(31), sources: [{ provider: 'web', url: 'https://shop.example.org/detail?id=2' }] };
+  await saveStore(paths, { questions: [first, second], state: {} });
+  assert.equal((await readStore(paths)).questions.length,2);
+  await saveStore(paths, { questions: [{ ...first, synopsis: '更新した紹介文' }], state: {} });
+  const saved = await readStore(paths);
+  assert.equal(saved.questions.length,2);
+  assert.equal(saved.questions.find((q)=>q.id===first.id).synopsis,'更新した紹介文');
+});
+
 test('serialized discovery transactions read the latest checkpoint before appending new works', async (t) => {
   const paths = fixture(t);
   let release;

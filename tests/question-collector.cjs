@@ -210,11 +210,12 @@ test('all default providers rotate fairly even when an older provider has a pend
     nextProvider: 'wikipedia', pendingCandidates: [candidate(100), candidate(101), candidate(102)], processedKeys: [],
   } };
   const result = await collectQuestions({ ...options, providers: DEFAULT_PROVIDERS,
-    state, limit: 3, maxRequests: 10,
+    state, limit: 4, maxRequests: 10,
     discoverImpl: async ({ provider, state }) => ({
       state: { ...state, newCursor: 1 }, requests: 0, exhausted: true,
       candidates: provider === 'aozora' ? [candidate(500, 'aozora')]
-        : provider === 'ndl' ? [ndlCandidate('R100000002-I000003')] : [],
+        : provider === 'ndl' ? [ndlCandidate('R100000002-I000003')]
+          : provider === 'web' ? [{ ...candidate(800), provider: 'web' }] : [],
     }),
     generateImpl: async (entry, { fetchImpl }) => {
       generatedProviders.push(entry.provider);
@@ -222,7 +223,7 @@ test('all default providers rotate fairly even when an older provider has a pend
       return entry.provider === 'ndl' ? question(candidate(700)) : question(entry);
     } });
   assert.deepEqual(new Set(generatedProviders), new Set(DEFAULT_PROVIDERS));
-  assert.equal(result.added.length, 3);
+  assert.equal(result.added.length, 4);
   assert.equal(result.state.providers.wikipedia.oldCursor, 9);
   assert.equal(result.state.providers.aozora.oldCursor, 4);
   assert.equal(result.state.providers.ndl.newCursor, 1);
@@ -351,7 +352,7 @@ test('a Wiki 429 checkpoints the exact candidate while other providers continue 
   assert.deepEqual(calls, ['ja.wikipedia.org', 'www.aozora.gr.jp', 'ndlsearch.ndl.go.jp']);
   assert.equal(result.added.length, 2);
   assert.deepEqual(result.state.collector.pendingCandidates, [original]);
-  assert.deepEqual(result.state.providers, initialState.providers);
+  assert.deepEqual(result.state.providers, { ...initialState.providers, web: {} });
   assert.ok(!result.state.collector.processedKeys.includes('attempt:wikipedia:novel:page:100'));
   assert.ok(!result.state.collector.processedKeys.includes('page:100'));
   const deadline = Date.now() + 120000;
@@ -458,7 +459,12 @@ test('the service deadline aborts a Wiki pacing wait and saves already collected
   const service = createQuestionService({ bankPath, statePath, validateQuestion: () => true,
     collectionTimeoutMilliseconds: 75,
     collectionOptions: { providers: ['wikipedia'], limit: 2, maxRequests: 3,
-      discoverImpl: discoveryOf([candidate(100), candidate(101)]), generateImpl: generatedWithFetch() },
+      discoverImpl: discoveryOf([candidate(100), candidate(101)]), generateImpl: async (...args) => {
+        const q = await generatedWithFetch()(...args);
+        q.evidence.visibility = require('../server/src/questions/selection-policy').visibilityEvidence({
+          title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['個人制作']});
+        return q;
+      } },
     fetchImpl: async () => Response.json({}) });
   t.after(() => service.stop());
   const startedAt = Date.now();
@@ -527,4 +533,12 @@ test('CLI replenishes the same configured persistent store as the running server
   assert.equal(explicit.output, '/tmp/separate-bank/bank.json');
   assert.equal(explicit.state, '/tmp/separate-bank/discovery.json');
   assert.equal(explicit.explicitOutput, true);
+});
+
+test('small-work acceptance continues past unknown works while preserving the saved bank and request budget',async()=>{
+  const saved=question(candidate(700)),unknown=candidate(701),small=candidate(702);
+  const result=await collectQuestions({...options,questions:[saved],providers:['wikipedia'],limit:1,maxRequests:3,
+    discoverImpl:discoveryOf([unknown,small]),acceptCandidate:q=>q.id===small.id});
+  assert.equal(result.requests,2);assert.deepEqual(result.questions.map(q=>q.id),[saved.id,small.id]);
+  assert.equal(result.added.length,1);assert.match(result.rejected[0].error,/小規模制作/);
 });

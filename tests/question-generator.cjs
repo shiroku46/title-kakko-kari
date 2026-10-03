@@ -8,13 +8,15 @@ const { createOllamaGenerator, validateOllamaUrl, parseArgs } = require('../serv
 
 test('bundled real-source bank is usable by the gameplay loader', () => {
   const bank = require('../server/src/questions/bank.json');
-  const { questionIsValid } = require('../server/src/questions');
+  const { questionIsValid, prepareQuestion } = require('../server/src/questions/validation');
   assert.equal(bank.schemaVersion, 1);
   assert.ok(bank.questions.length >= 20, 'Bundled bank must support a 20-round CPU game');
   assert.equal(new Set(bank.questions.map((q) => q.id)).size, bank.questions.length);
   assert.equal(new Set(bank.questions.map((q) => q.realTitle)).size, bank.questions.length);
-  for (const question of bank.questions) {
-    assert.ok(questionIsValid(question), `Gameplay rejects generated question ${question.id}`);
+  const usable = bank.questions.map(prepareQuestion).filter(Boolean);
+  assert.ok(usable.length >= 20, 'Title-free fallback must still support 20 CPU rounds');
+  for (const question of usable) {
+    assert.ok(question && questionIsValid(question), `Gameplay rejects generated question ${question.id}`);
     const sourceTitle = decodeURIComponent(new URL(question.sources[0].url).pathname.slice('/wiki/'.length))
       .replace(/_/gu, ' ').normalize('NFKC');
     assert.ok(question.aliases.includes(sourceTitle), `Source is not registered for ${question.id}`);
@@ -139,10 +141,10 @@ test('discovers and masks verified redirect aliases without a manual title list'
   assert.equal(question.aliases.includes('Category:関係のない題名'), false);
   assert.equal(question.synopsis.includes('短題'), false);
   assert.equal(containsTitle(question.synopsis, question.aliases), false);
-  assert.match(question.synopsis, /■■■と■■■は/u);
+  assert.equal(question.synopsis, plot);
   assert.equal(question.realTitle, '確認作品');
   assert.equal(new URL(question.sources[0].url).searchParams.get('oldid'), '456');
-  assert.equal(question.evidence.excerpts.join(''), source.normalize('NFKC'));
+  assert.equal(question.evidence.excerpts.join(''), plot);
 });
 
 test('masks readings and original names from the verified lead subject without harvesting other annotations', async () => {
@@ -153,9 +155,9 @@ test('masks readings and original names from the verified lead subject without h
       `${artDescription}原語名のGuernica [ɡeɾˈnika]も、この作品の主題と結び付いている。`, ['Guernica', 'ɡeɾˈnika']],
     ['鋼の錬金術師', 'manga', '『鋼の錬金術師』(はがねのれんきんじゅつし、英題: FULLMETAL ALCHEMIST)は、日本の漫画作品。',
       `${plot}FULLMETAL ALCHEMISTという呼び名が町に伝わっている。`, ['はがねのれんきんじゅつし', 'FULLMETAL ALCHEMIST']],
-    ['ファイナルファンタジーVII', 'game', '『ファイナルファンタジーVII』(ファイナルファンタジーセブン、FINAL FANTASY VII、略称: FFVII、FF7)は、スクウェアが発売したコンピュータRPG。',
-      `${plot}FFVIIとFF7、FINAL FANTASY VIIという呼び名が町に伝わっている。`,
-      ['ファイナルファンタジーセブン', 'FINAL FANTASY VII', 'FFVII', 'FF7']],
+    ['STEINS;GATE', 'game', '『STEINS;GATE』(シュタインズ・ゲート、略称: シュタゲ)は、日本のコンピュータRPG。',
+      `${plot}シュタインズ・ゲートとシュタゲという呼び名が町に伝わっている。`,
+      ['シュタインズ・ゲート', 'シュタゲ']],
   ]) {
     const candidate = { id: `reading-${kind}`, title, kind, aliases: [] };
     const page = article({ title, canonicalurl: `https://ja.wikipedia.org/wiki/${encodeURIComponent(title)}`,
@@ -165,7 +167,8 @@ test('masks readings and original names from the verified lead subject without h
       assert.ok(question.aliases.includes(alias), `${title}: ${alias}`);
       assert.equal(containsTitle(question.synopsis, [alias]), false);
     }
-    assert.equal(question.evidence.excerpts.join(''), sourceText);
+    assert.ok(question.synopsis.length <= 280);
+    for (const excerpt of question.evidence.excerpts) assert.ok(sourceText.includes(excerpt));
     assert.equal(question.sources[0].revisionId, 456);
   }
   const extra = await generateQuestion(entry, { fetchImpl: sourceFetch(article({
@@ -226,7 +229,8 @@ for (const [kind, definition, description] of [
     assert.equal(question.contentType, description ? 'description' : 'synopsis');
     assert.equal(question.evidence.section, description ? '解説' : 'あらすじ');
     assert.equal(question.synopsis, sourceText);
-    assert.equal(question.evidence.excerpts.join(''), sourceText);
+    assert.ok(question.synopsis.length <= 280);
+    for (const excerpt of question.evidence.excerpts) assert.ok(sourceText.includes(excerpt));
     assert.equal(new URL(question.sources[0].url).searchParams.get('oldid'), '456');
   });
 }
@@ -397,7 +401,7 @@ test('rejects failed upstream requests and a title-only synopsis', async () => {
   await assert.rejects(generateQuestion(entry, { fetchImpl: async () => new Response('', { status: 503 }) }), /取得できません/);
   await assert.rejects(generateQuestion(entry, { fetchImpl: sourceFetch(article({
     extract: `『確認作品』は日本の小説。\n== あらすじ ==\n${'確認作品'.repeat(40)}。`,
-  })) }), /検査に合格/);
+  })) }), /検査に合格|あらすじ|紹介文/);
 });
 
 test('local AI retains deterministic source metadata and must supply exact source evidence', async () => {
@@ -481,4 +485,21 @@ test('bank generation excludes invalid questions and rejects duplicate IDs', asy
   assert.equal(result.rejected.length, 1);
   assert.equal(result.rejected[0].id, missingEntry.id);
   await assert.rejects(generateBank([entry, entry], { fetchImpl, throttleMilliseconds: 0 }), /重複/);
+});
+
+test('Wikipedia generation rejects numbered sequels before fetching and masks normalized edition titles', async () => {
+  for (const [title,kind] of [['小説 ヒトラー II 戦前篇','novel'],['ファイナルファンタジーVII','game'],['港の約束 2','film']]) {
+    let calls=0;
+    await assert.rejects(generateQuestion({id:'numbered-work',title,kind,aliases:[]}, {
+      fetchImpl:async()=>{calls++;throw new Error('must not fetch');},
+    }), /出題対象外/);
+    assert.equal(calls,0);
+  }
+  const title='確認作品 4Kリマスター版';
+  const q=await generateQuestion({id:'edition-film',title,kind:'film',aliases:[]}, {
+    fetchImpl:async()=>Response.json({query:{pages:[article({title,canonicalurl:'https://ja.wikipedia.org/wiki/'+encodeURIComponent(title),
+      extract:`『${title}』は日本の映画。\n== あらすじ ==\n${plot}確認作品の舞台は古い港町である。`})]}}),
+  });
+  assert.equal(q.realTitle,'確認作品');assert.ok(q.aliases.includes(title));
+  assert.ok(!q.synopsis.includes('確認作品'));
 });

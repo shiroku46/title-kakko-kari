@@ -1,6 +1,6 @@
-const { randomInt } = require('node:crypto');
 const { readBankSync, readStore, saveStore, defaultPaths, withStoreLock } = require('./store');
-const { questionIsValid } = require('./validation');
+const { questionIsValid, prepareQuestion } = require('./validation');
+const { createSelectionPolicy } = require('./selection-policy');
 
 const STATUS_FAILURE_MESSAGES = Object.freeze({
   failed: '作品の自動収集に失敗しました。保存済みの問題は引き続き使用できます。',
@@ -13,11 +13,13 @@ function createQuestionService({
   bankPath, statePath, seedPath,
   enabled = true, collectImpl, fetchImpl,
   collectionTimeoutMilliseconds = 60000,
-  collectionOptions = {}, minimumAvailable = 8,
+  collectionOptions = { providers: ['web'] }, minimumAvailable = 8,
   cooldownMilliseconds = 300000, intervalMilliseconds = 3600000,
   now = Date.now, validateQuestion = questionIsValid,
+  prepareSavedQuestion = validateQuestion === questionIsValid ? prepareQuestion : (question) => question,
 } = {}) {
   const paths = bankPath ? { bankPath, statePath: statePath || `${bankPath}.discovery.json`, seedPath } : defaultPaths();
+  const selection = createSelectionPolicy(paths.seedPath ? readBankSync({ bankPath: paths.seedPath }).questions : []);
   let pending = null;
   let controller = null;
   let interval = null;
@@ -40,7 +42,7 @@ function createQuestionService({
 
   function available(excludedIds = []) {
     const excluded = new Set(excludedIds);
-    return readBankSync(paths).questions.filter((q) => validateQuestion(q) && !excluded.has(q.id));
+    return readBankSync(paths).questions.map(prepareSavedQuestion).filter((q) => q && validateQuestion(q) && !excluded.has(q.id));
   }
 
   function collectNow() {
@@ -63,11 +65,14 @@ function createQuestionService({
     pending = (async () => {
       try {
         return await withStoreLock(paths, async () => {
-          const { questions, state } = await readStore(paths);
+          const saved = await readStore(paths);
+          const questions = saved.questions.map(prepareSavedQuestion).filter((q) => q && validateQuestion(q));
+          const state = saved.state;
           const collector = collectImpl || require('./collector').collectQuestions;
           const collection = collector({
             ...collectionOptions, questions, state, ...(fetchImpl && { fetchImpl }),
             signal: activeController.signal, validateQuestion,
+            acceptCandidate: (question) => selection.tier(question) === 0,
           });
           let onAbort;
           const aborted = new Promise((_, reject) => {
@@ -132,18 +137,16 @@ function createQuestionService({
   }
 
   async function selectQuestion(excludedIds = []) {
-    let choices = available(excludedIds);
-    if (!choices.length && enabled) {
+    let choices = selection.eligible(available(excludedIds));
+    if (enabled && !choices.length) {
       await collectNow();
-      choices = available(excludedIds);
+      choices = selection.eligible(available(excludedIds));
     }
     if (!choices.length) {
-      throw new Error(lastError || (excludedIds.length
-        ? '未使用の問題をまだ用意できません。時間をおいて再取得してください。'
-        : '出題できる問題がありません。問題の自動収集を再試行してください。'));
+      throw new Error('小規模制作の未使用問題をまだ用意できません。収集を再試行するか、手動で出題してください。');
     }
-    const chosen = choices[randomInt(choices.length)];
-    if (enabled && choices.length < minimumAvailable) void collectNow();
+    const chosen = selection.select(choices);
+    if (enabled && selection.preferred(choices).length < minimumAvailable) void collectNow();
     return chosen;
   }
 

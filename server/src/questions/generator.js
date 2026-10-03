@@ -1,11 +1,12 @@
 const { createHash } = require('node:crypto');
+const { visibilityEvidence } = require('./selection-policy');
 const { getKind } = require('./kinds');
+const { MIN_LENGTH, MAX_LENGTH, TARGET_LENGTH, MAX_SENTENCES, introductionSentenceIsUsable, selectIntroductionSentences } = require('./quality');
+const { requirePlayableTitle, questionTitleAliases } = require('./title-policy');
 
 const WIKIPEDIA_API = 'https://ja.wikipedia.org/w/api.php';
 const LICENSE = 'CC BY-SA 4.0';
 const LICENSE_URL = 'https://creativecommons.org/licenses/by-sa/4.0/';
-const MIN_LENGTH = 120;
-const MAX_LENGTH = 450;
 const TYPE_INDICATORS = {
   novel: /(?:小説(?:集|作品|シリーズ)?|童話(?:集|作品)?|児童文学(?:作品)?|児童書|短編文学|寓話)(?=。|$|、|で(?:ある|あり|、))/u,
   'short-story': /(?:短編小説|短篇小説|掌編小説|短編文学作品|ショートショート)(?=。|$|、|で(?:ある|あり|、))/u,
@@ -314,7 +315,7 @@ function extractDescription(extract, aliases, kind = null) {
     const excerpts = descriptionSentences(candidate.text, aliases, kind);
     if (excerpts.join('').length < MIN_LENGTH) continue;
     try {
-      const summary = summarizeExtractively(excerpts.join(''));
+      const summary = summarizeWithoutTitles(excerpts.join(''), aliases);
       return { ...candidate, ...summary, allowedSentences: excerpts, contentType: 'description' };
     } catch {
       // Another section may contain sufficient complete descriptive sentences.
@@ -327,7 +328,7 @@ function extractWorkContent(page, kind, aliases) {
   if (getKind(kind).contentMode === 'story') {
     try {
       const plot = extractPlotSection(page.extract);
-      const summary = summarizeExtractively(plot.text);
+      const summary = summarizeWithoutTitles(plot.text, aliases);
       return { ...plot, ...summary, allowedSentences: sourceSentences(plot.text), contentType: 'synopsis' };
     } catch {
       // An overview is labelled as a description; no plot is invented for it.
@@ -357,7 +358,8 @@ function sourceSentences(text) {
     const character = source[index];
     if (Object.hasOwn(closingQuotes, character)) openQuotes.push(closingQuotes[character]);
     else if (character === openQuotes.at(-1)) openQuotes.pop();
-    if (/[。！？]/u.test(character) && !openQuotes.length) {
+    if (/[。!?！？]/u.test(character) && !openQuotes.length) {
+      while (/[。!?！？]/u.test(source[index + 1] || '')) index++;
       sentences.push(source.slice(beginning, index + 1));
       beginning = index + 1;
     }
@@ -368,18 +370,26 @@ function sourceSentences(text) {
 }
 
 function summarizeExtractively(text, { minLength = MIN_LENGTH, maxLength = MAX_LENGTH } = {}) {
-  const sentences = sourceSentences(text);
+  const sentences = selectIntroductionSentences(sourceSentences(text));
+  maxLength = Math.min(maxLength, MAX_LENGTH);
   const selected = [];
   let length = 0;
   for (const sentence of sentences) {
     const excerpt = sentence.trim();
+    if (excerpt.length > maxLength) continue;
     if (length + excerpt.length > maxLength) break;
     selected.push(excerpt);
     length += excerpt.length;
-    if (length >= Math.min(300, maxLength)) break;
+    if (length >= Math.min(TARGET_LENGTH, maxLength) || selected.length >= MAX_SENTENCES) break;
   }
   if (length < minLength) throw new Error('文を途中で切らずに出題できるあらすじがありません');
   return { synopsis: selected.join(''), excerpts: selected };
+}
+
+function summarizeWithoutTitles(text, aliases) {
+  const sentences = selectIntroductionSentences(sourceSentences(text)).filter((sentence) =>
+    !sentence.includes('■■■') && !containsTitle(sentence, aliases));
+  return summarizeExtractively(sentences.join(''));
 }
 
 function validateWikipediaUrl(value, title) {
@@ -440,11 +450,13 @@ async function retrieveArticle(entry, fetchImpl) {
 async function generateQuestion(entry, { fetchImpl = global.fetch, localAI = null,
   expectedAuthors = null, now = () => new Date() } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('取得関数がありません');
+  requirePlayableTitle(entry.title, entry.kind);
   const page = await retrieveArticle(entry, fetchImpl);
   if (expectedAuthors !== null && !authoredWorkMatches(page, expectedAuthors)) {
     throw new Error('紹介元の著作者とWikipediaの作品定義が一致しません');
   }
-  const aliases = retrievedTitleAliases(entry, page);
+  const realTitle = requirePlayableTitle(entry.realTitle || stripDisambiguation(page.title), entry.kind);
+  const aliases = questionTitleAliases(realTitle, retrievedTitleAliases(entry, page), entry.kind);
   const plot = extractWorkContent(page, entry.kind, aliases);
   const sourceId = `wikipedia-ja-${page.pageid}-${page.revisionId}`;
   let generated;
@@ -471,18 +483,20 @@ async function generateQuestion(entry, { fetchImpl = global.fetch, localAI = nul
   } else {
     generated = { synopsis: plot.synopsis, excerpts: plot.excerpts };
   }
-  const synopsis = redactTitle(generated.synopsis, aliases);
-  const usefulLength = synopsis.replace(/■■■/gu, '').length;
-  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH || usefulLength < MIN_LENGTH ||
+  generated = summarizeWithoutTitles(generated.synopsis, aliases);
+  const synopsis = generated.synopsis;
+  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH ||
+      sourceSentences(generated.synopsis).length > MAX_SENTENCES ||
+      !sourceSentences(generated.synopsis).every(introductionSentenceIsUsable) ||
       containsTitle(synopsis, aliases) || /https?:\/\/|\[\[|\]\]/iu.test(synopsis)) {
-    throw new Error('題名を伏せた出題文の検査に合格しませんでした');
+    throw new Error('題名を含まない出題文の検査に合格しませんでした');
   }
   const retrievedAt = now().toISOString();
   const revisionUrl = new URL(page.sourceUrl);
   revisionUrl.searchParams.set('oldid', String(page.revisionId));
   return {
     id: entry.id,
-    realTitle: normalize(entry.realTitle || stripDisambiguation(page.title)),
+    realTitle,
     aliases, kind: entry.kind, synopsis, contentType: plot.contentType,
     sources: [{
       label: `Wikipedia「${page.title}」${plot.section}`,
@@ -494,6 +508,8 @@ async function generateQuestion(entry, { fetchImpl = global.fetch, localAI = nul
       sourceId, section: plot.section,
       sourceTextSha256: createHash('sha256').update(plot.text).digest('hex'),
       excerpts: generated.excerpts.map(normalize),
+      visibility: visibilityEvidence({ title: realTitle, aliases, kind: entry.kind, sourceUrl: revisionUrl.href,
+        introductions: [page.extract.split(/\n\s*={2,6}/u)[0], plot.text] }),
     },
   };
 }
@@ -516,6 +532,7 @@ async function generateBank(catalog, options = {}) {
 
 module.exports = {
   generateQuestion, generateBank, retrieveArticle, extractPlotSection, summarizeExtractively,
+  summarizeWithoutTitles,
   redactTitle, containsTitle, titleAliases, retrievedTitleAliases, matchesWorkType,
   validateWikipediaUrl, stripDisambiguation, sourceSentences, assertStandalonePlot, workDefinition,
   authoredWorkMatches, descriptionSections, descriptionSentences, extractDescription, extractWorkContent,

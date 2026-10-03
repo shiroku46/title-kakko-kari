@@ -11,7 +11,7 @@ const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const { registerSocketHandlers } = require('./socket');
-const { selectQuestionAsync, startQuestionCollection, stopQuestionCollection,
+const { startQuestionCollection, stopQuestionCollection,
   getQuestionCollectionStatus } = require('./questions');
 
 const app = express();
@@ -97,15 +97,9 @@ app.get('/health/network', async (req, res) => {
   }
 });
 
-// 出典付きの自動生成済み問題を、出題者の入力補助として取得する。
-app.get('/api/random-work', async (req, res) => {
-  try {
-    const question = await selectQuestionAsync();
-    return res.json({ ok: true, title: question.realTitle, synopsis: question.synopsis,
-      questionId: question.id, contentType: question.contentType || 'synopsis' });
-  } catch (error) {
-    return res.json({ ok: false, error: error.message });
-  }
+// Answers are now delivered only to the current questioner via a private ack.
+app.get('/api/random-work', (_req, res) => {
+  return res.status(404).json({ ok: false, error: '出題者の画面から出題の補助を使ってください。' });
 });
 
 // Socket.io ハンドラーを登録

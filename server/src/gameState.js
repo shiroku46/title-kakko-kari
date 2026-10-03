@@ -47,7 +47,8 @@ function publicRoom(room) {
 }
 
 function publicRound(round) {
-  const { answers, votes, declarations, fetchVersion, fetchError, mvpAnswerId, sourceQuestion, ...view } = round;
+  const { answers, votes, declarations, fetchVersion, fetchError, mvpAnswerId, sourceQuestion,
+    previewConfirmed, manualCpu, ...view } = round;
   return { ...view, real_title: null };
 }
 

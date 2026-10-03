@@ -44,6 +44,7 @@ export default function GameScreen({ navigation, route }) {
   const [questionerDisconnected, setQuestionerDisconnected] = useState(false);
   const [departureNotice, setDepartureNotice] = useState(null);
   const [stoppedMessage, setStoppedMessage] = useState(null);
+  const [discardedTitle, setDiscardedTitle] = useState(null);
   const leavingRef = useRef(false);
 
   const isQuestioner = player.id === questioner?.id;
@@ -116,6 +117,7 @@ export default function GameScreen({ navigation, route }) {
       setQuestionerDisconnected(false);
       setDepartureNotice(null);
       setStoppedMessage(null);
+      setDiscardedTitle(null);
     },
     'round:synopsis_loading': (data) => {
       if (data.roundId !== round.id) return;
@@ -148,12 +150,21 @@ export default function GameScreen({ navigation, route }) {
         knownPlayerIds.length === 0 ? [] : prev
       );
     },
-    'round:reselect_started': () => {
+    'round:declaration_started': ({ roundId }) => {
+      if (roundId === round.id) setPhase('selecting');
+    },
+    'round:question_discarded': ({ roundId, realTitle }) => {
+      if (roundId === round.id) setDiscardedTitle(realTitle);
+    },
+    'round:reselect_started': ({ mode: nextMode }) => {
       setSynopsis(null);
+      setFetchedSynopsis(null);
+      setSynopsisError(null);
       setContentType('synopsis');
       setKnownDeclarations([]);
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
+      if (nextMode === 'cpu') setPhase('confirming');
     },
     'round:submitting_started': () => {
       if (mode === 'cpu' && fetchedSynopsis) setSynopsis(fetchedSynopsis);
@@ -263,6 +274,7 @@ export default function GameScreen({ navigation, route }) {
             synopsis={synopsis}
             isQuestioner={amQuestioner}
             isHost={isHost}
+            isCpu={mode === 'cpu'}
             questionerDisconnected={questionerDisconnected}
             playerId={player.id}
             knownDeclarations={knownDeclarations}
@@ -352,6 +364,12 @@ export default function GameScreen({ navigation, route }) {
               {departureNotice}
             </Text>
           ) : null}
+          {discardedTitle ? (
+            <View style={styles.discardedPanel} accessibilityLiveRegion="polite">
+              <Text style={styles.discardedLabel}>変更したお題の答え</Text>
+              <Text style={styles.discardedTitle}>{discardedTitle}</Text>
+            </View>
+          ) : null}
           {renderPhase()}
         </>
       )}
@@ -365,6 +383,9 @@ const styles = StyleSheet.create({
   roomLabel: { fontSize: 12, color: colors.muted },
   exitButton: { minHeight: 44, paddingVertical: 6 },
   departureNotice: { color: colors.navy, backgroundColor: colors.cream, paddingHorizontal: 16, paddingVertical: 10, fontSize: 13, lineHeight: 20 },
+  discardedPanel: { backgroundColor: colors.cream, paddingHorizontal: 20, paddingVertical: 12 },
+  discardedLabel: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  discardedTitle: { color: colors.navy, fontSize: 18, lineHeight: 27, fontWeight: '700' },
   stoppedPanel: { width: '100%', maxWidth: 540, alignSelf: 'center', padding: 24, gap: 18 },
   stoppedTitle: { fontSize: 22, lineHeight: 30, fontWeight: '700', color: colors.navy },
   stoppedBody: { fontSize: 15, lineHeight: 25, color: colors.ink },

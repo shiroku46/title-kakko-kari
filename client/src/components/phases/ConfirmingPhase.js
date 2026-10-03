@@ -110,13 +110,20 @@ export default function ConfirmingPhase({
                     もう一度取得する
                   </StationeryButton>
                 )}
+                <StationeryButton variant="neutral"
+                  onPress={() => requestAction('round:use_manual', 'manual')}
+                  loading={pendingAction === 'manual'} disabled={Boolean(pendingAction)}
+                  accessibilityLabel="手動で出題する" style={styles.loadingButton}>
+                  手動で出題する
+                </StationeryButton>
+                <Text style={styles.loadingText}>ホストが文章と答えを入力して、この回を続けられます。</Text>
               </View>
             ) : (
               <>
                 <View style={styles.headingRow}>
                   <View style={styles.headingCopy}>
                     <Text style={styles.kicker}>WORK CHECK</Text>
-                    <Text style={styles.heading}>この紹介文で進みますか？</Text>
+                    <Text style={styles.heading}>この紹介文をみんなに提示しますか？</Text>
                   </View>
                   <View style={styles.cpuBadge}>
                     <Text style={styles.cpuBadgeText}>CPU出題</Text>
@@ -159,7 +166,7 @@ export default function ConfirmingPhase({
                     style={styles.primaryButton}
                     accessibilityLabel="この紹介文で進む"
                   >
-                    この紹介文で進む →
+                    この紹介文を提示する →
                   </StationeryButton>
                 </View>
               </>
