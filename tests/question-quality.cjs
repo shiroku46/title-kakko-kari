@@ -345,3 +345,37 @@ test('Chinese-only introductions and source endorsements are rejected in new and
   const q=extractWebWork(page('<h2>作品紹介</h2>'+noisy),'https://publisher.example.org/book/meta','novel');
   assert.ok(!/開発元|リリース日/u.test(q.synopsis));assert.ok(q.synopsis.length>=120);
 });
+
+
+test('observed unlabelled film review cannot pad a short plot, even with a schemeless URL', () => {
+  const plot = '女子高生のフミコは、想いを寄せるタカシに告白するがフラれてしまう。思わず走り出すフミコだが...。';
+  const review = 'www.youtube.com 作画の素晴らしさが際立つ自主制作の傑作ショートアニメ 本作の大半は少女が全力で坂を下る描写に費やされる。その疾走感たるや、素晴らしいのひと言。素晴らしい疾走感を生み出しているのは、他ならぬ作画の素晴らしさである。駆け抜けていく町並みや、すれ違う人物まで実に細かく描いている。';
+  assert.throws(() => summarizeExtractively(plot + review));
+  assert.throws(() => extractWebWork('<title>自主制作映画「フミコの告白」</title><h2>あらすじ</h2><p>'+plot+'</p><p>'+review+'</p>', 'https://film.example.org/work/1','film'));
+  assert.deepEqual(summarizeExtractively(story + review).excerpts, summarizeExtractively(story).excerpts);
+  assert.equal(introductionSentenceIsUsable('www.youtube.com 主人公が家族を探して旅に出る物語です。'), false);
+});
+
+test('reading time, early-access notices, controls and AI disclosure are not introduction prose', () => {
+  for (const noise of [
+    '読了時間:約2分。', '早期アクセス。', 'VRでも、VRなしのPCでも遊べます。',
+    '矢印キーまたはWASDで移動します。',
+    '間違えても、Zで一手戻し、Rでフロアをリセットしてすぐに再挑戦できます。',
+    '開発者は、ゲームでのAI生成コンテンツの使用について次のように説明しています。',
+    'Studioで自分だけのキャラクターを作り、Steamワークショップで共有しましょう。',
+    'クラウドもアカウントも不要。',
+  ]) {
+    assert.equal(introductionSentenceIsUsable(noise), false, noise);
+    assert.deepEqual(summarizeExtractively(story + noise).excerpts, summarizeExtractively(story).excerpts);
+  }
+  assert.equal(introductionSentenceIsUsable('AIとの会話を手がかりに、主人公は宇宙船で失踪した家族を探し始める。'), true);
+  assert.equal(introductionSentenceIsUsable('旅人は古い鍵を手に入れ、港にある倉庫の扉を開ける。'), true);
+});
+
+test('description containers cannot reintroduce AI disclosure sections or pad a short game introduction', () => {
+  const disclosure = '<div id="game_area_content_descriptors" class="game_area_description"><h2>AI生成コンテンツの開示</h2><p>開発者は、ゲームでのAI生成コンテンツの使用について次のように説明しています。</p><p>'+story+'</p></div>';
+  const wrap = intro => '<title>Steam:静かな港</title><h1>静かな港</h1><div id="game_area_description" class="game_area_description"><h2>このゲームについて</h2><p>'+intro+'</p></div>'+disclosure;
+  const q = extractWebWork(wrap(story), 'https://store.steampowered.com/app/123/','game');
+  assert.deepEqual(q.evidence.excerpts, summarizeExtractively(story).excerpts);
+  assert.throws(() => extractWebWork(wrap('少年は灯台に向かい、消えた旅人を探し始める。'), 'https://store.steampowered.com/app/123/','game'));
+});

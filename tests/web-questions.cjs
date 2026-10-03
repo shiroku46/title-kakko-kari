@@ -418,3 +418,28 @@ test('sidebars and related widgets cannot supply the selected work production or
   const q=await generateWebQuestion({url:base,kind:'game'},{fetchImpl:async()=>page(html)});
   assert.equal(policy.tier(q),1);assert.ok(!q.evidence.visibility);
 });
+
+
+test('localized name in the opening work definition is removed throughout the intro', () => {
+  const intro = '『残響のモーラ』は、水に呑まれた村と兄を捜す少女をめぐるナラティブアドベンチャーです。';
+  const repeated = '残響のモーラでは少女が村の過去を調べ始める。';
+  const markup = '<title>Steam:Echoes of Mora</title><h1>Echoes of Mora</h1><div class="game_area_description"><h2>このゲームについて</h2><p>'+intro+story+repeated+'</p></div>';
+  const q = extractWebWork(markup,'https://store.steampowered.com/app/3129050/','game');
+  assert.ok(q.aliases.includes('残響のモーラ'));
+  assert.ok(!q.synopsis.includes('残響のモーラ'));
+  assert.ok(q.evidence.excerpts.every(s => !s.includes('残響のモーラ')));
+  assert.equal(q.realTitle,'Echoes of Mora');
+  assert.throws(() => extractWebWork(markup.replaceAll('残響のモーラ','残響のモーラ2'),'https://store.steampowered.com/app/3129050/','game'));
+});
+
+test('character dialogue and later unrelated work references do not supply localized aliases', () => {
+  for (const intro of [
+    '「旅人」は少年を見つけ、物語の始まりを告げる。',
+    '少年が気に入っているのは、昔読んだ『遠い港』という小説です。',
+    '『遠い港』は、主人公が読んでいた小説に登場するゲームです。',
+  ]) {
+    const markup = '<title>Steam:Quiet Harbor</title><h1>Quiet Harbor</h1><h2>このゲームについて</h2>'+intro+story;
+    const q=extractWebWork(markup,'https://store.steampowered.com/app/321/','game');
+    assert.deepEqual(q.aliases,['Quiet Harbor']);
+  }
+});
