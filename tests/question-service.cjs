@@ -8,7 +8,7 @@ const { createQuestionService } = require('../server/src/questions/service');
 
 function question(number) {
   const realTitle = `収集作品${number}の物語`;
-  const sourceText = `${realTitle}では、` +
+  const sourceText =
     '海辺に暮らす青年は、届いた手紙をきっかけに故郷を離れる。友人とともに旅を続け、街に隠された家族の秘密を知る。二人は住民たちと助け合いながら新たな道を探す。'.repeat(2);
   return {
     id: `service-work-${number}`, realTitle, aliases: [], kind: 'novel',

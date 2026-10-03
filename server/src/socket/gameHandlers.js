@@ -1,12 +1,19 @@
 const { randomUUID } = require('node:crypto');
 const { shuffle } = require('../utils/shuffle');
-const { selectQuestionAsync, findQuestion } = require('../questions');
+const { selectQuestionAsync } = require('../questions');
 const { getKind } = require('../questions/kinds');
 const { MAX_LENGTH } = require('../questions/quality');
 const {
   rooms, getMember, getCurrentRound, connectedAnswerers, publicRound,
   playerScores, textInput,
 } = require('../gameState');
+
+// WeakMap entries cannot leak through the public round/room serializers.
+const helperStates = new WeakMap();
+function invalidateHelper(round) {
+  const state = helperStates.get(round);
+  if (state) { state.version++; state.loading = false; state.question = null; }
+}
 
 async function loadCpuSynopsis(io, room, round) {
   const version = ++round.fetchVersion;
@@ -96,6 +103,43 @@ function registerGameHandlers(io, socket) {
     });
   }
 
+  socket.on('round:prepare_question', async (payload, callback) => {
+    if (typeof callback !== 'function') return;
+    let state;
+    let version;
+    try {
+      const { room, player } = getMember(socket);
+      const round = getCurrentRound(room);
+      const check = () => {
+        const member = getMember(socket);
+        if (member.room !== room || member.player !== player || room.status !== 'playing' ||
+            getCurrentRound(room) !== round || payload?.roomId !== room.id || payload?.roundId !== round.id) {
+          throw new Error('現在の部屋とラウンドを指定してください');
+        }
+        if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
+        requirePhase(round, 'selecting');
+        if (round.synopsis) throw new Error('作品を選び直してから補助を使ってください');
+      };
+      check();
+      state = helperStates.get(round) || { version: 0, loading: false, question: null };
+      if (state.loading) throw new Error('問題の補助を取得中です');
+      helperStates.set(round, state);
+      version = ++state.version;
+      state.loading = true;
+      const work = await selectQuestionAsync([...room.usedQuestionIds]);
+      check();
+      if (state.version !== version) throw new Error('取得中に出題内容が変更されました。もう一度お試しください');
+      state.question = work;
+      room.usedQuestionIds.push(work.id);
+      callback({ ok: true, roundId: round.id, questionId: work.id, title: work.realTitle,
+        synopsis: work.synopsis, contentType: work.contentType || 'synopsis' });
+    } catch (error) {
+      callback({ ok: false, error: error.message });
+    } finally {
+      if (state && version !== undefined && state.version === version) state.loading = false;
+    }
+  });
+
   on('game:start', (payload, room, player) => {
     if (!player.is_host) throw new Error('ゲーム開始はホストのみ操作できます');
     if (room.status !== 'waiting') throw new Error('すでにゲームが開始しています');
@@ -157,9 +201,10 @@ function registerGameHandlers(io, socket) {
     const title = textInput(payload?.realTitle, '本物のタイトル', 500);
     let sourceQuestion = null;
     if (typeof payload?.questionId === 'string') {
-      const original = findQuestion(payload.questionId);
-      if (original && original.realTitle === title && original.synopsis === synopsis) sourceQuestion = original;
+      const original = helperStates.get(round)?.question;
+      if (original?.id === payload.questionId && original.realTitle === title && original.synopsis === synopsis) sourceQuestion = original;
     }
+    invalidateHelper(round);
     round.synopsis = synopsis;
     round.real_title = title;
     round.sourceQuestion = sourceQuestion;
@@ -184,6 +229,7 @@ function registerGameHandlers(io, socket) {
     const round = getCurrentRound(room);
     if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
     requirePhase(round, 'selecting');
+    invalidateHelper(round);
     round.synopsis = null;
     round.real_title = null;
     round.sourceQuestion = null;

@@ -14,7 +14,7 @@ const fixtureDirectory = mkdtempSync(join(tmpdir(), 'title-question-bank-e2e-'))
 const fixturePath = join(fixtureDirectory, 'bank.json');
 const fixtureQuestions = Array.from({ length: 6 }, (_, i) => {
   const realTitle = `正解の物語${i + 1}のお話`;
-  const synopsis = `■■■のあらすじ識別${i + 1}。` +
+  const synopsis = `港町で起こる事件のあらすじ識別${i + 1}。` +
     'ある青年は見知らぬ街で暮らし始める。失われた手紙を探すうちに、住民たちの秘密を知る。青年は友人と力を合わせ、故郷への道を探して旅に出る。'.repeat(3);
   const sourceText = synopsis.replace('■■■', realTitle);
   return {
@@ -36,7 +36,7 @@ const fixtureQuestions = Array.from({ length: 6 }, (_, i) => {
     },
   };
 });
-const openResourceText = '公開資料の物語では、' +
+const openResourceText =
   '街で暮らす青年が失われた手紙を探し始める。住民たちに話を聞くうちに、家族の秘密を知る。青年は友人たちと協力して旅に出る。'.repeat(3);
 const openResourceQuestion = {
   id: 'aozora-128', realTitle: '公開資料の物語', aliases: [], kind: 'novel',
@@ -73,7 +73,7 @@ const genreQuestions = [
   ['manga', 'synopsis'], ['anime', 'synopsis'], ['song', 'description'], ['artwork', 'description'],
 ].map(([kind, contentType], index) => {
   const realTitle = `ジャンル検証作品${index + 1}のお話`;
-  const text = `${realTitle}について、` + '作品の内容と表現には作者の工夫が込められている。制作の背景や特徴を資料で確かめながら、作品に込められた思いとその表現を紹介する。'.repeat(3);
+  const text = '作品の内容と表現には作者の工夫が込められている。制作の背景や特徴を資料で確かめながら、作品に込められた思いとその表現を紹介する。'.repeat(3);
   return {
     ...fixtureQuestions[0], id: `test-genre-${kind}`, realTitle, aliases: [], kind, contentType,
     synopsis: text.replaceAll(realTitle, '■■■'),
@@ -216,7 +216,9 @@ function ack(b, event, payload = null) {
     (error, response) => {
       if (error) return reject(error);
       try {
-        assertNoSources(response);
+        const { questionId, ...publicResponse } = response || {};
+        if (event === 'round:prepare_question' && response?.ok) assertNoSources(publicResponse);
+        else assertNoSources(response);
         resolve(response);
       } catch (failure) {
         reject(failure);
@@ -347,7 +349,7 @@ for (const count of [4, 5, 6]) {
           for (const b of bots) {
             const presented = await event(b, 'round:synopsis_presented');
             assertNoSources(presented);
-            assert.ok(presented.synopsis.includes('■■■'));
+            assert.ok(!presented.synopsis.includes('■■■'));
             assert.ok(!presented.synopsis.includes(realTitle));
           }
         }
@@ -650,10 +652,8 @@ for (const variant of ['exact', 'modified title', 'modified synopsis', 'unknown 
     const started = await event(bots[0], 'game:started');
     const questioner = bots.find((b) => b.player.id === started.questioner.id);
     const answerers = bots.filter((b) => b !== questioner);
-    const response = await fetch(`${url}/api/random-work`);
-    assert.equal(response.ok, true);
-    const work = await response.json();
-    assert.deepEqual(Object.keys(work).sort(), ['contentType', 'ok', 'questionId', 'synopsis', 'title']);
+    const work = await ok(questioner, 'round:prepare_question', { roomId:started.round.room_id, roundId:started.round.id });
+    assert.deepEqual(Object.keys(work).sort(), ['contentType', 'ok', 'questionId', 'roundId', 'synopsis', 'title']);
     assert.equal(work.ok, true);
     const question = fixtureQuestions.find((q) => q.id === work.questionId);
     assert.ok(question);
@@ -933,4 +933,104 @@ test('native notices retain the original platform Alert', () => {
   const native = { alert() {} };
   assert.equal(loadAlertHelper('ios', undefined, native), native);
   assert.equal(loadAlertHelper('android', undefined, native), native);
+});
+
+test('question preparation is private to the current player questioner and avoids repeated works', async (t) => {
+  const { bots, room } = await roomWith(t,4);
+  const outsider = await bot(t);
+  await ok(bots[0], 'game:start', {mode:'player'});
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find(b=>b.player.id===started.questioner.id);
+  const answerers = bots.filter(b=>b!==questioner);
+  const request = {roomId:room.id,roundId:started.round.id};
+  await denied(outsider,'round:prepare_question',request);
+  await Promise.all(answerers.map(b=>denied(b,'round:prepare_question',request)));
+  await denied(questioner,'round:prepare_question',{...request,roomId:'wrong-room'});
+  await denied(questioner,'round:prepare_question',{...request,roundId:'wrong-round'});
+  await denied(questioner,'round:prepare_question',null);
+  const before = JSON.stringify((await ok(answerers[0],'room:get_state')).round);
+  const first = await ok(questioner,'round:prepare_question',request);
+  const second = await ok(questioner,'round:prepare_question',request);
+  assert.notEqual(first.questionId,second.questionId);
+  assert.equal(JSON.stringify((await ok(answerers[0],'room:get_state')).round),before);
+  for (const b of bots) {
+    const shared=JSON.stringify(b.events);
+    assert.ok(!shared.includes(first.title) && !shared.includes(second.title));
+    assert.ok(!shared.includes(first.synopsis) && !shared.includes(second.synopsis));
+  }
+  const oldPublicApi=await fetch(url+'/api/random-work');
+  assert.equal(oldPublicApi.status,404);
+  const body=await oldPublicApi.json();
+  assert.equal(body.title,undefined);assert.equal(body.synopsis,undefined);
+  await ok(questioner,'round:submit_synopsis',{realTitle:second.title,synopsis:second.synopsis,questionId:second.questionId});
+  await denied(questioner,'round:prepare_question',request);
+});
+
+test('CPU mode cannot return a real title through player preparation', async (t) => {
+  const { bots, room }=await roomWith(t,4);
+  await ok(bots[0],'game:start',{mode:'cpu'});
+  const started=await event(bots[0],'game:started');
+  await event(bots[0],'round:synopsis_fetched');
+  await Promise.all(bots.map(b=>denied(b,'round:prepare_question',{roomId:room.id,roundId:started.round.id})));
+});
+
+for (const action of ['manual submission','reselection']) {
+  test(`late player preparation cannot overwrite ${action} or consume an unused work`,async(t)=>{
+    const { bots,room }=await roomWith(t,4);
+    await ok(bots[0],'game:start',{mode:'player'});
+    const started=await event(bots[0],'game:started');
+    const questioner=bots.find(b=>b.player.id===started.questioner.id);
+    const request={roomId:room.id,roundId:started.round.id};
+    const delayed=delayNextQuestionSelection(t);
+    const pending=ack(questioner,'round:prepare_question',request);
+    await delayed.started;
+    await denied(questioner,'round:prepare_question',request);
+    await ok(questioner,'round:submit_synopsis',{realTitle:'手動の作品名',synopsis:'出題者が考えて書いた文章。'});
+    if(action==='reselection') await ok(questioner,'round:reselect');
+    delayed.release();
+    const result=await pending;
+    assert.equal(result.ok,false);
+    assert.equal(result.title,undefined);assert.equal(result.synopsis,undefined);
+    assert.deepEqual(rooms.get(room.code).usedQuestionIds,[]);
+    if(action==='reselection') assert.equal((await ok(questioner,'round:prepare_question',request)).ok,true);
+  });
+}
+
+
+test('departure and next round suppress a pending private preparation result', async(t)=>{
+  const {bots,room}=await roomWith(t,4);
+  await ok(bots[0],'game:start',{mode:'player'});
+  const started=await event(bots[0],'game:started');
+  const questioner=bots.find(b=>b.player.id===started.questioner.id);
+  const delayed=delayNextQuestionSelection(t);
+  let delivered=false;
+  questioner.socket.emit('round:prepare_question',{roomId:room.id,roundId:started.round.id},()=>{delivered=true;});
+  await delayed.started;
+  questioner.socket.disconnect();
+  const remaining=bots.filter(b=>b!==questioner);
+  await event(remaining[0],'game:questioner_disconnected');
+  await ok(remaining[0],'game:next_round');
+  delayed.release();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(delivered,false);
+  assert.deepEqual(rooms.get(room.code).usedQuestionIds,[]);
+  assert.notEqual(rooms.get(room.code).rounds.at(-1).id,started.round.id);
+});
+
+test('failed private assistance leaves player input and manual publication available', async(t)=>{
+  t.after(()=>writeBank());
+  const {bots,room}=await roomWith(t,4);
+  await ok(bots[0],'game:start',{mode:'player'});
+  const started=await event(bots[0],'game:started');
+  const questioner=bots.find(b=>b.player.id===started.questioner.id);
+  writeBank([]);
+  const result=await ack(questioner,'round:prepare_question',{roomId:room.id,roundId:started.round.id});
+  assert.equal(result.ok,false);assert.equal(result.title,undefined);assert.equal(result.synopsis,undefined);
+  assert.equal(rooms.get(room.code).rounds.at(-1).synopsis,null);
+  writeBank();
+  const text='出題者が自分で用意した紹介文。';
+  await ok(questioner,'round:submit_synopsis',{realTitle:'手入力の正解',synopsis:text});
+  const shown=await event(bots.find(b=>b!==questioner),'round:synopsis_presented');
+  assert.equal(shown.synopsis,text);
+  assert.ok(!JSON.stringify(shown).includes('手入力の正解'));
 });
