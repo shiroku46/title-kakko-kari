@@ -3,13 +3,22 @@ const { publicUrl } = require('./web-fetch');
 const { decode, text, attributes, hash } = require('./web-source');
 const ENGINES = ['duckduckgo', 'bing'];
 const ANGLES = ['作品紹介', '新作', '話題', 'インディー'];
+const SEARCH_KINDS = ['novel', 'film', 'game', 'manga', ...KIND_IDS.filter((k) => !['novel','film','game','manga'].includes(k))];
 const REVISIT_MS = 6 * 60 * 60 * 1000;
 
 function searchQuery(kind, angle, now = new Date()) {
   const label = getKind(kind).label.replace(/・/gu, ' ');
-  const content = getKind(kind).contentMode === 'description' ? '作品紹介' : 'あらすじ 内容紹介';
-  const prefix = angle === '新作' ? `${now.getFullYear()} 新作 新刊` : angle === '話題' ? `${now.getFullYear()} 話題` : angle === 'インディー' ? '自主制作 インディー 同人' : '';
-  return `${prefix} ${label} ${content}`.trim();
+  const story = getKind(kind).contentMode === 'story';
+  const book = ['novel','short-story','literary-work','manga','nonfiction','poem'].includes(kind);
+  if (angle === '作品紹介') {
+    if (kind === 'game') return 'アドベンチャーゲーム ストーリー 公式サイト';
+    if (['film','anime','drama'].includes(kind)) return `${label} ストーリー 公式サイト`;
+    if (kind === 'manga') return '漫画 電子書籍 1巻';
+    return `${label} ${story ? '内容紹介' : '作品紹介'}`;
+  }
+  if (angle === '新作') return `${now.getFullYear()} ${book ? '新刊' : '新作'} ${label} ${story ? 'あらすじ' : '作品紹介'}`;
+  if (angle === '話題') return `${now.getFullYear()} ${label} ${story ? 'あらすじ' : '作品紹介'}`;
+  return `${kind === 'game' ? 'インディー' : book ? '同人' : '自主制作'} ${label} ${story ? 'ストーリー' : '作品紹介'}`;
 }
 function searchUrl(engine, query, page) {
   const url = new URL(engine === 'duckduckgo' ? 'https://html.duckduckgo.com/html/' : 'https://www.bing.com/search');
@@ -49,7 +58,8 @@ function parseResults(html, engine, kind) {
   for (const item of raw) {
     try {
       const url = resultUrl(item.link, searchUrl(engine, '', 0));
-      if (!item.title || seen.has(url)) continue;
+      if (!item.title || seen.has(url) || (!/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(item.title) &&
+        !/game|steam|xbox|playstation|movie|film|comic|manga|novel|book/iu.test(item.title))) continue;
       seen.add(url);
       const domain = new URL(url).hostname;
       if (!groups.has(domain)) groups.set(domain, []);
@@ -65,8 +75,9 @@ function parseResults(html, engine, kind) {
 }
 
 async function discoverWebCandidates({ state = {}, limit = 4, maxRequests = 2, fetchImpl,
-  now = () => new Date() } = {}) {
-  const plan = ANGLES.flatMap((_angle, angleIndex) => KIND_IDS.map((kind, kindIndex) => ({ kind, angle: ANGLES[(angleIndex + kindIndex) % ANGLES.length] })));
+  now = () => new Date(), kinds = SEARCH_KINDS } = {}) {
+  if (!Array.isArray(kinds) || !kinds.length || kinds.some((kind) => !KIND_IDS.includes(kind))) throw new Error('検索ジャンルが不正です');
+  const plan = ANGLES.flatMap((angle) => [...new Set(kinds)].map((kind) => ({ kind, angle })));
   let cursor = Number.isSafeInteger(state.cursor) && state.cursor >= 0 ? state.cursor % plan.length : 0;
   let engineIndex = Number.isSafeInteger(state.engineIndex) ? Math.abs(state.engineIndex) % ENGINES.length : 0;
   let page = Number.isSafeInteger(state.page) && state.page >= 0 && state.page <= 2 ? state.page : 0;
@@ -104,18 +115,21 @@ async function discoverWebCandidates({ state = {}, limit = 4, maxRequests = 2, f
       }
       const found = parseResults(html, engine, kind);
       for (const candidate of found) if (!visited.has(candidate.url)) { visited.add(candidate.url); queued.push(candidate); }
-      page = found.length >= 10 && page < 2 ? page + 1 : 0;
+      // Change the query after one result page; the pending results are kept.
+      // Deep pagination of a broad query otherwise entrenches one result type.
+      page = 0;
       if (!page) { cursor = (cursor + 1) % plan.length; if (!cursor) completedCycle = true; }
+      engineIndex = 0;
     } catch (error) {
       if (error.code === 'QUESTION_REQUEST_BUDGET' || error.name === 'AbortError') throw error;
       errors.push({ message: String(error.message).slice(0,200), engine });
       // Retry the same genre with the next engine rather than silently skipping it.
+      engineIndex = (engineIndex + 1) % ENGINES.length;
     }
-    engineIndex = (engineIndex + 1) % ENGINES.length;
   }
   const candidates = queued.splice(0,limit);
   return { candidates, requests, errors, exhausted: false,
     state: { cursor, engineIndex, page, pending: queued, cooldowns, visited: [...visited].slice(-5000), completedCycle,
       ...(completedCycle && !queued.length && { revisitAt: new Date(now().getTime() + REVISIT_MS).toISOString() }) } };
 }
-module.exports = { discoverWebCandidates, parseResults, searchQuery, searchUrl, resultUrl, ENGINES };
+module.exports = { discoverWebCandidates, parseResults, searchQuery, searchUrl, resultUrl, ENGINES, SEARCH_KINDS };
