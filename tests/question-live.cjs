@@ -27,7 +27,7 @@ test('production ignores missing/corrupt/populated banks and freshly fetches on 
     } });
   t.after(() => source.stop());
   for (let i = 0; i < 3; i++) assert.equal(questionIsValid(await source.selectQuestion()), true);
-  assert.equal(calls, 3); assert.equal(discoveries, 3); assert.equal(readFileSync(bankPath, 'utf8'), before);
+  assert.equal(calls, 3); assert.ok(discoveries >= 3); assert.equal(readFileSync(bankPath, 'utf8'), before);
   assert.equal(source.getStatus().mode, 'live'); assert.equal(source.getStatus().successfulRequests, 3);
 });
 
@@ -56,7 +56,7 @@ test('concurrent room requests perform independent searches and retain each excl
     fetchImpl: async url => response(html(url === work(1).url ? 1 : 2)) });
   t.after(() => source.stop());
   const [a,b] = await Promise.all([source.selectQuestion([work(1).id]), source.selectQuestion([work(2).id])]);
-  assert.equal(a.id, work(2).id); assert.equal(b.id, work(1).id); assert.equal(discoveries, 2);
+  assert.equal(a.id, work(2).id); assert.equal(b.id, work(1).id); assert.ok(discoveries >= 2);
   assert.equal(source.getStatus().activeRequests, 0);
 });
 
@@ -163,4 +163,61 @@ test('a used work cannot return through a different URL during reselection', asy
 test('a self-produced comics event fundraiser is not a manga work even with a quoted project name', async () => {
   const source = `<title>「続く即売会」自主制作漫画誌展示即売会 開催継続支援プロジェクト</title><h1>続く即売会</h1><div class="description">${story}</div>`;
   await assert.rejects(generateWebQuestion({url:work(1).url,kind:'manga'},{fetchImpl:async()=>response(source)}), /イベント/u);
+});
+
+const mediaPage = (kind, title) => `<title>${{novel:'自主出版小説',film:'自主制作映画',game:'個人制作ゲーム',manga:'同人漫画'}[kind]}「${title}」</title><h1>${title}</h1><h2>あらすじ</h2><p>${story}</p>`;
+
+test('actual delivered media stay balanced across rounds, including reselection, and rooms retain independent histories', async t => {
+  let next = 0;
+  const pages = new Map();
+  const source = createLiveQuestionSource({ discoverImpl: async ({kind}) => {
+    const n = ++next, url = `https://creator.example.org/works/${n}`;
+    pages.set(url, mediaPage(kind, `海に届く便り${n}の日`));
+    return { candidates: [{id:`web-${hash(url)}`,url,kind}] };
+  }, fetchImpl: async url => response(pages.get(url)) });
+  t.after(()=>source.stop());
+  const rooms = [[],[]], counts = [new Map(), new Map()];
+  for (let round=0; round<9; round++) for (let room=0; room<2; room++) {
+    const q = await source.selectQuestion(rooms[room]);
+    assert.equal(questionIsValid(q), true); rooms[room].push(q.id);
+    counts[room].set(q.kind,(counts[room].get(q.kind)||0)+1);
+    const values = ['novel','film','game','manga'].map(kind=>counts[room].get(kind)||0);
+    assert.ok(Math.max(...values)-Math.min(...values)<=1, JSON.stringify(values));
+  }
+  assert.equal(source.getStatus().successfulRequests,18);
+});
+
+test('an underrepresented medium gets a fresh second-engine attempt before used media can win', async t => {
+  let second = false; const seen=[];
+  const source = createLiveQuestionSource({ discoverImpl: async ({kind,pass}) => {
+    seen.push({kind,pass});
+    if (!second && kind==='novel' || second && kind==='film' && pass===1) {
+      const url=`https://creator.example.org/${kind}`;
+      return {candidates:[{url,kind}]};
+    }
+    return {candidates:[]};
+  }, fetchImpl: async url=>response(mediaPage(url.endsWith('film')?'film':'novel','消えない便り')) });
+  t.after(()=>source.stop());
+  const first=await source.selectQuestion(); second=true; seen.length=0;
+  assert.equal((await source.selectQuestion([first.id])).kind,'film');
+  assert.ok(seen.some(s=>s.kind==='film' && s.pass===1));
+  assert.ok(seen.every(s=>s.kind!=='novel'));
+});
+
+test('wrong-medium results cannot satisfy a film search, and an unavailable medium permits bounded fallback', async t => {
+  const source = createLiveQuestionSource({ maxRequests:16, discoverImpl:async({kind})=>({candidates:[{
+    kind,url:kind==='film'?'https://creator.example.org/wrong-game':`https://creator.example.org/${kind}`,
+  }]}), initialKind:1, fetchImpl:async url=>response(mediaPage(url.endsWith('wrong-game')?'game':url.split('/').pop(),'明日の灯台')) });
+  t.after(()=>source.stop());
+  const q=await source.selectQuestion();
+  assert.equal(q.kind,'game'); assert.notEqual(q.sources[0].url,'https://creator.example.org/wrong-game');
+});
+
+test('film catalogue uses the current category path and comics query targets original creator works', () => {
+  const {catalogueUrl}=require('../server/src/questions/catalogues');
+  assert.equal(new URL(catalogueUrl('film',3)).pathname,'/categories/Film');
+  assert.equal(new URL(catalogueUrl('film',3)).searchParams.get('page'),'4');
+  assert.equal(new URL(catalogueUrl('manga',0)).searchParams.get('tags[]'),'創作漫画');
+  const cs=catalogueLinks('<a href="/projects/a"><h3>自主制作映画「小さな灯」</h3><span>99人 現在100000円</span></a>','https://motion-gallery.net/categories/Film','film');
+  assert.equal(cs[0].title,'自主制作映画「小さな灯」');
 });

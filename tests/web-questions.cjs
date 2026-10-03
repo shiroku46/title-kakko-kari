@@ -455,3 +455,49 @@ test('an explicit localized self-work definition after plot prose still hides ev
   assert.ok(q.evidence.excerpts.every(s=>!s.includes('迷路の中の迷路')));
   assert.equal(q.realTitle,'A Maze In Labyrinth');
 });
+
+const creatorComicUrl='https://booth.pm/ja/items/123';
+function creatorComic({id='123',category='56',name='港の灯り',description=`オリジナル漫画です。${story}`,productDescription=description,related='',brand='小さな作者',aggregateRating}={}) {
+  const data={'@type':'Product',name,description:productDescription,url:creatorComicUrl,brand:{name:brand,url:'https://creator.booth.pm/'},aggregateRating};
+  return `<title>${name} - ${brand} - BOOTH</title><meta property="og:url" content="${creatorComicUrl}"><div data-tracking="detail_item" data-product-id="${id}" data-product-category="${category}" data-product-name="${name}" data-product-brand="creator"></div><h2>${name}</h2><div>${brand}</div><div class="js-market-item-detail-description description"><p>${description}</p></div><script type="application/ld+json">${JSON.stringify(data)}</script><div class="related">${related}</div>`;
+}
+
+test('creator comic identity is bound to its product ID, visible title, own category, original prose and creator', async () => {
+  const q=await generateWebQuestion({url:creatorComicUrl,kind:'manga'},{fetchImpl:async()=>page(creatorComic(),creatorComicUrl)});
+  assert.equal(q.realTitle,'港の灯り');assert.equal(q.kind,'manga');assert.equal(questionIsValid(q),true);
+  assert.equal(require('../server/src/questions/selection-policy').evidenceTier(q),0);
+  const wide=await generateWebQuestion({url:creatorComicUrl,kind:'manga'},{fetchImpl:async()=>page(creatorComic({aggregateRating:{ratingCount:200}}),creatorComicUrl)});
+  assert.equal(require('../server/src/questions/selection-policy').evidenceTier(wide),2);
+  assert.ok(q.evidence.excerpts.every(s=>story.includes(s)));
+  for(const options of [{id:'999'},{category:'177'},{description:story,related:'オリジナル漫画です。'},{description:`二次創作のオリジナル漫画です。${story}`},{productDescription:'別の商品の作品紹介。'}]) {
+    await assert.rejects(generateWebQuestion({url:creatorComicUrl,kind:'manga'},{fetchImpl:async()=>page(creatorComic(options),creatorComicUrl)}),/当該商品/u);
+  }
+  const unrelatedUrl='https://bookstore.example.org/item/123';
+  assert.equal(questionIsValid({...q,sources:[{...q.sources[0],url:unrelatedUrl}]}),false);
+});
+
+test('quoted film projects expose their own named plot without treating support reports or unrelated productions as plot/reach', async () => {
+  const url='https://motion-gallery.net/projects/small-film';
+  const source=`<title>短編映画『港の灯り』制作支援プロジェクト</title><meta property="og:type" content="article"><meta property="og:url" content="${url}"><h1>短編映画『港の灯り』制作支援プロジェクト</h1><div id="project-description"><p>映画『港の灯り』は本作の自主制作による映画です。</p><h2>◾︎『港の灯り』STORY</h2><p>${story}</p><h2>制作について</h2><p>制作資金へのご支援をお願いいたします。</p></div><aside>別作品は世界的大ヒットです。</aside>`;
+  const q=await generateWebQuestion({url,kind:'film'},{fetchImpl:async()=>page(source,url)});
+  assert.equal(questionIsValid(q),true);assert.equal(q.realTitle,'港の灯り');assert.equal(q.synopsis,story);
+  assert.equal(require('../server/src/questions/selection-policy').evidenceTier(q),0);
+  const short=source.replace(story,'手紙を受け取った青年は港へ向かう。');
+  await assert.rejects(generateWebQuestion({url,kind:'film'},{fetchImpl:async()=>page(short,url)}),/十分な作品紹介/u);
+  const article=source.replaceAll('https://motion-gallery.net/projects/small-film',base);
+  await assert.rejects(generateWebQuestion({url:base,kind:'film'},{fetchImpl:async()=>page(article,base)}),/一般記事/u);
+});
+
+test('a headed short film plot cannot be duplicated as a flat label and padded from later production headings', async () => {
+  const url='https://motion-gallery.net/projects/small-film';
+  const source=`<title>自主制作映画「港の灯り」制作支援</title><meta property="og:type" content="article"><meta property="og:url" content="${url}"><h1>自主制作映画「港の灯り」制作支援</h1><div id="project-description"><p>映画「港の灯り」は自主制作映画です。</p><h2>あらすじ</h2><p>青年は手紙を受け取って港へ向かう。</p><h2>キャストに関して</h2><p>撮影に協力した人々。</p><h2>関係者とのこれまで</h2><p>${story}</p></div>`;
+  await assert.rejects(generateWebQuestion({url,kind:'film'},{fetchImpl:async()=>page(source,url)}),/十分な作品紹介/u);
+  const mixed=source.replaceAll('自主制作映画「港の灯り」制作支援','「別の旧作」「他の旧作」監督の自主制作映画「港の灯り」制作支援');
+  await assert.rejects(generateWebQuestion({url,kind:'film'},{fetchImpl:async()=>page(mixed,url)}),/単一映画/u);
+});
+
+test('bracketed creator-store synopsis labels separate the plot from preceding product specifications', async () => {
+  const description=`オリジナル漫画です。\n【収録内容】\n全66ページの仕様です。\n【あらすじ】\n${story}\n【仕様】\n販売形式の説明です。`;
+  const q=await generateWebQuestion({url:creatorComicUrl,kind:'manga'},{fetchImpl:async()=>page(creatorComic({description}),creatorComicUrl)});
+  assert.equal(q.synopsis,story);assert.equal(questionIsValid(q),true);
+});

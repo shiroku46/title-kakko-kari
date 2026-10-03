@@ -9,9 +9,9 @@ const LIVE_ENGINES = ['yahoo', 'bing', 'duckduckgo'];
 // current links, and every chosen work is independently fetched and verified.
 function catalogueUrl(kind, page) {
   if (kind === 'novel') return `https://kakuyomu.jp/search?q=${encodeURIComponent('短編')}&order=published_at&page=${page+1}`;
-  if (kind === 'film') return `https://motion-gallery.net/projects?category=film&page=${page+1}`;
+  if (kind === 'film') return `https://motion-gallery.net/categories/Film?page=${page+1}`;
   if (kind === 'game') return `https://store.steampowered.com/search/?tags=492,21&category1=998&supportedlang=japanese&sort_by=Released_DESC&l=japanese&page=${page+1}`;
-  return `https://booth.pm/ja/browse/${encodeURIComponent('漫画')}?sort=new&page=${page+1}`;
+  return `https://booth.pm/ja/browse/${encodeURIComponent('漫画')}?tags%5B%5D=${encodeURIComponent('創作漫画')}&sort=new&page=${page+1}`;
 }
 
 function catalogueLinks(html, base, kind) {
@@ -26,7 +26,7 @@ function catalogueLinks(html, base, kind) {
       const url = publicUrl(new URL(a.href, base).href);
       if (url.hostname !== host || !patterns[host]?.test(url.pathname)) continue;
       url.search = host === 'store.steampowered.com' ? '?l=japanese' : '';
-      const title = text(a.title || m[2]);
+      const title = text(a.title || m[2].match(/<h[2-6]\b[^>]*>([\s\S]*?)<\/h[2-6]>/iu)?.[1] || m[2]);
       if (!title || title.length < 2 || title.length > 300 || links.has(url.href)) continue;
       links.set(url.href, { id: `web-${hash(url.href)}`, provider: 'web', kind, title, url: url.href });
     } catch { /* Only exact public work links from this catalogue. */ }

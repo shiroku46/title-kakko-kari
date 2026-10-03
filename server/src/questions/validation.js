@@ -49,8 +49,10 @@ function evidenceMatchesPrimarySource(question) {
     const { hash, canonicalTitle, workPageTitleIsEligible } = require('./web-source');
     const work = question.evidence.work;
     return work?.version === 2 && playableTitle(work.title, work.kind) === question.realTitle && work.kind === question.kind
-      && ['typed-work','page-title','posted-work'].includes(work.method) && typeof work.pageTitle === 'string' && canonicalTitle(work.pageTitle).includes(question.realTitle)
+      && ['typed-work','page-title','posted-work','creator-work'].includes(work.method) && typeof work.pageTitle === 'string' && canonicalTitle(work.pageTitle).includes(question.realTitle)
       && (work.method !== 'posted-work' || new URL(source.url).hostname === 'kakuyomu.jp' && /^\/works\/\d+$/u.test(new URL(source.url).pathname))
+      && (work.method !== 'creator-work' || question.kind === 'manga' && new URL(source.url).hostname === 'booth.pm' && /^\/ja\/items\/\d+$/u.test(new URL(source.url).pathname) ||
+        work.method === 'creator-work' && question.kind === 'film' && new URL(source.url).hostname === 'motion-gallery.net' && /^\/projects\/[\w-]+$/u.test(new URL(source.url).pathname))
       && workPageTitleIsEligible(work.pageTitle, work.method, question.evidence.excerpts?.join(''))
       && id === `web-${hash(source.url)}` && question.id === id;
   }

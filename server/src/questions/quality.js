@@ -16,6 +16,7 @@ const CLASSICAL_ENDING = /(?:けり|なりけり|にけり|たりけり|ざる�
 // Retain the actual story sentences, but never use that report as the question.
 const PRODUCTION_PROCESS = /物語で描くことは|^しないと後悔する|ファンディング|目標金額|(?:ご|皆様の|制作への)支援|支援(?:金|募集)|支援を(?:お願い|募る|募集)|支援者(?:への|向けの)(?:リターン|特典)|資金(?:調達|の使い道)|撮影(?:支援|資金)|スタッフ(?:募集|を集め)|(?:映画|撮影|制作).{0,80}(?:人|メンバー)を集め|四苦八苦|プロジェクトの(?:始まり|開始|目標|きっかけ)|初めての(?:映画|映像|ゲーム|作品)?制作|制作する短編映画|映像作品を.{0,30}制作したい|大学在学中に制作|それぞれができること|(?:監督|企画|脚本).{0,60}(?:務め|担当)|(?:自主制作|自主製作).{0,30}(?:完成|制作)|制作(?:費|資金|支援|メンバー|スタッフ)/u;
 const CREATOR_REPORT = /進捗をご報告|作品制作.{0,70}進めております|お知らせ(?:致します|いたします)|^今回が初めて|撮影.{0,35}(?:始まりました|残り|準備|終了|完了)|(?:学年|学科|メンバー).{0,80}(?:集ま|創って|取り組)|プロジェクト.{0,50}(?:支援|達成|目標)|支援して(?:くださ|いただ)|描いていきたい|作品を通して.{0,80}(?:伝えたい|考えてもらいたい)|テーマで描くことに|(?:知りました|考えています|取り組んでまいりました|嬉しいです|よろしくお願いいたします)[。！!]/u;
+const CREATOR_PUBLICATION = /(?:既存作品|実在作家).{0,40}(?:画風|模倣|制作)|監督の新境地|(?:コミティア|COMITIA|コミックマーケット).{0,80}(?:販売|頒布)|(?:HP|BOOTH|pixiv|FANBOX).{0,70}(?:配信|公開予定|販売|更新)|先読み有料配信|特典付きでお楽しみ|^ご自身の閲覧環境|^単行本化に伴い|予告なく改訂|価格変動|差額の返金|^あらかじめご了承ください|^オリジナル(?:BL|百合)?(?:漫画|マンガ|コミック)です/iu;
 
 // Unlabelled reviews may immediately follow a short plot. Once the prose turns
 // to the reviewer's judgement, later sentences must not pad that plot.
@@ -24,7 +25,7 @@ const REVIEW_COMMENTARY = /(?:作画|演出|脚本|描写|映像|疾走感).{0,4
 function introductionSentenceIsUsable(sentence) {
   if (typeof sentence !== 'string' || !/[。!?！？][」』”"]?$/u.test(sentence.trim())) return false;
   if (/三題噺|投稿作|(?:約)?[\d,]+文字|^この度は|^さあ働け|支援を募(?:る|り)/u.test(sentence)) return false;
-  if (NON_CONTENT.test(sentence) || REVIEW_COMMENTARY.test(sentence) || EDITORIAL.test(sentence) || METADATA.test(sentence) || PERSON_PROFILE.test(sentence) || PROMOTION.test(sentence) || PRODUCTION_PROCESS.test(sentence) || CREATOR_REPORT.test(sentence) || OLD_KANA.test(sentence) || CLASSICAL_ENDING.test(sentence)) return false;
+  if (NON_CONTENT.test(sentence) || REVIEW_COMMENTARY.test(sentence) || EDITORIAL.test(sentence) || METADATA.test(sentence) || PERSON_PROFILE.test(sentence) || PROMOTION.test(sentence) || PRODUCTION_PROCESS.test(sentence) || CREATOR_REPORT.test(sentence) || CREATOR_PUBLICATION.test(sentence) || OLD_KANA.test(sentence) || CLASSICAL_ENDING.test(sentence)) return false;
   // Primary dialogue/lyrics are not a work introduction. A synopsis may still
   // contain a short quotation within a sentence explaining the story.
   if (/^[「『“"].*[」』”"](?:。)?$/u.test(sentence.trim())) return false;
