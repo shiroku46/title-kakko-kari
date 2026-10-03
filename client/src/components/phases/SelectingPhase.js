@@ -24,6 +24,7 @@ export default function SelectingPhase({
   synopsis,
   isQuestioner,
   isHost,
+  isCpu = false,
   questionerDisconnected = false,
   knownDeclarations = [],
   allDeclared,
@@ -175,6 +176,28 @@ export default function SelectingPhase({
             questioner={questioner}
             phase={isQuestioner ? '作品と紹介文を決める' : 'この作品、知っていますか？'}
           />
+
+          {isCpu && isHost && synopsis ? (
+            <PaperPanel tone="cream" style={styles.synopsisPanel}>
+              <Text style={styles.heading}>全員が知らない作品で進めましょう</Text>
+              <Text style={styles.declareNote}>
+                {hasKnown ? `「知ってる！」の回答：${knownDeclarations.join('、')}。確認して別の作品を選んでください。`
+                  : canAdvance ? '全員が「知らない」と回答しました。タイトル案の提出へ進めます。'
+                    : 'ホストも「知ってる／知らない」を回答してください。全員の回答を待っています。'}
+              </Text>
+              {errorNotice}
+              <View style={styles.actionRow}>
+                <StationeryButton variant="neutral" onPress={handleReselect} disabled={requestBusy}
+                  loading={pendingAction === 'round:reselect'} accessibilityLabel="作品を選び直す" style={styles.actionButton}>
+                  作品を選び直す
+                </StationeryButton>
+                <StationeryButton variant="primary" onPress={handleStartSubmitting} disabled={!canAdvance || requestBusy}
+                  loading={pendingAction === 'round:start_submitting'} accessibilityLabel="タイトル案提出へ進む" style={styles.actionButton}>
+                  タイトル案の提出へ →
+                </StationeryButton>
+              </View>
+            </PaperPanel>
+          ) : null}
 
           {questionerDisconnected ? (
             <PaperPanel tone="navy" variant="elevated" style={styles.waitPanel}>
@@ -401,7 +424,7 @@ export default function SelectingPhase({
                 <PaperPanel tone="navy" variant="elevated" style={styles.waitPanel}>
                   <Text style={styles.waitKicker}>WAITING FOR QUESTION</Text>
                   <Text style={styles.waitTitle}>
-                    {questioner?.nickname}さんが作品を選んでいます
+                    {isCpu ? 'ホストが作品を選んでいます' : `${questioner?.nickname}さんが作品を選んでいます`}
                   </Text>
                   <Text style={styles.waitText}>
                     作品の紹介文が届くまで、このままお待ちください。
@@ -488,7 +511,7 @@ export default function SelectingPhase({
                         </Text>
                         <Text style={styles.declaredNote}>
                           {declared === 'known'
-                            ? '出題者が別の作品を選び直します。'
+                            ? `${isCpu ? 'ホスト' : '出題者'}が確認して別の作品を選び直します。`
                             : '全員の回答が揃うまでお待ちください。'}
                         </Text>
                       </View>

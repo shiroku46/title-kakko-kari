@@ -70,6 +70,19 @@ test('promotion, bibliography and author biography sentences are filtered even w
   assert.throws(() => summarizeExtractively(noise.repeat(5)));
 });
 
+test('crowdfunding production reports cannot become questions, while their actual story paragraphs remain usable', () => {
+  const report = '日芸生を中心として集まり、制作する短編映画です。初めての映画制作という人が多い中、それぞれができることを行い進めています。物語で描くことは「生きることとその決断がどれだけ難しいか」です。映像作品を大学在学中に制作したい!しないと後悔する!と思い、行動に移したのがこのプロジェクトの始まりです。とは言え、映画を制作することはほぼ無かった状態だったので、どう人を集めたら良いのかなど四苦八苦しながら準備を進めていきました。';
+  assert.throws(() => summarizeExtractively(report));
+  assert.equal(prepareQuestion(storedQuestion(report)), null);
+  const summary = summarizeExtractively(report + story);
+  assert.ok(summary.excerpts.every((s) => sentences.includes(s)), 'keep only source story prose');
+  assert.equal(introductionSentenceIsUsable('個人制作で生まれた作品の主人公は、支援者のいない港町で家族の行方を探し始める。'), true);
+  const source = `<title>自主制作映画「港の約束」</title><h2>作品紹介</h2><p>${report}</p>`;
+  assert.throws(() => extractWebWork(source, 'https://indie.example.org/project/1', 'film'));
+  const work = extractWebWork(source + `<h2>あらすじ</h2><p>${story}</p>`, 'https://indie.example.org/project/1', 'film');
+  assert.ok(work.evidence.excerpts.every((s) => sentences.includes(s)));
+});
+
 test('old orthography, classical prose and non-Japanese descriptions are not emitted', () => {
   for (const text of [
     '少年は海を見てゐた。旅人は島に帰らうと思ひ、家族に会ふことを願った。'.repeat(5),

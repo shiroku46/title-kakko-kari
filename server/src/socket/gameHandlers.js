@@ -15,6 +15,16 @@ function invalidateHelper(round) {
   if (state) { state.version++; state.loading = false; state.question = null; }
 }
 
+function discardQuestion(io, room, round) {
+  if (round.real_title) io.to(room.code).emit('round:question_discarded', {
+    roundId: round.id, realTitle: round.real_title,
+  });
+}
+
+function isRoundController(round, player) {
+  return round.questioner_id === null ? player.is_host : round.questioner_id === player.id;
+}
+
 async function loadCpuSynopsis(io, room, round) {
   const version = ++round.fetchVersion;
   round.synopsis = null;
@@ -22,6 +32,8 @@ async function loadCpuSynopsis(io, room, round) {
   round.sourceQuestion = null;
   round.contentType = null;
   round.fetchError = null;
+  round.previewConfirmed = false;
+  round.declarations.clear();
   const loadingHost = room.players.find((p) => p.is_host && p.is_connected);
   if (loadingHost) io.to(loadingHost.socket_id).emit('round:synopsis_loading', { roundId: round.id });
   let work;
@@ -34,7 +46,7 @@ async function loadCpuSynopsis(io, room, round) {
   // A late selection must not overwrite a confirmed, skipped or abandoned round.
   if (rooms.get(room.code) !== room || getCurrentRound(room) !== round ||
       room.status !== 'playing' || round.status !== 'selecting' ||
-      round.fetchVersion !== version) return;
+      round.questioner_id !== null || round.previewConfirmed || round.fetchVersion !== version) return;
   const host = room.players.find((p) => p.is_host && p.is_connected);
   if (!work) {
     round.fetchError = failure || '出典付きの問題を用意できませんでした。再取得してください。';
@@ -61,6 +73,7 @@ function startRound(io, room, mode, event, playerOrder) {
     questioner_id: questioner?.id ?? null, status: 'selecting',
     synopsis: null, contentType: null, real_title: null, answers: [], votes: [],
     declarations: new Map(), fetchVersion: 0, fetchError: null, mvpAnswerId: null, sourceQuestion: null,
+    previewConfirmed: false, manualCpu: false,
   };
   room.rounds.push(round);
   io.to(room.code).emit(event, {
@@ -182,7 +195,13 @@ function registerGameHandlers(io, socket) {
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
     if (!round.synopsis) throw new Error('作品の紹介文がまだ取得されていません');
-    startSubmitting(io, room, round);
+    if (round.previewConfirmed) throw new Error('すでに紹介文を提示しています');
+    round.previewConfirmed = true;
+    round.declarations.clear();
+    io.to(room.code).emit('round:synopsis_presented', {
+      roundId: round.id, synopsis: round.synopsis, contentType: round.contentType,
+    });
+    io.to(room.code).emit('round:declaration_started', { roundId: round.id });
   });
 
   on('round:reroll_synopsis', (_, room, player) => {
@@ -190,7 +209,30 @@ function registerGameHandlers(io, socket) {
     if (!player.is_host) throw new Error('ホストのみ操作できます');
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
+    if (round.previewConfirmed) throw new Error('提示した作品は確認画面から選び直してください');
+    discardQuestion(io, room, round);
     void loadCpuSynopsis(io, room, round);
+  });
+
+  on('round:use_manual', (_, room, player) => {
+    const round = getCurrentRound(room);
+    if (!player.is_host) throw new Error('ホストのみ操作できます');
+    requirePhase(round, 'selecting');
+    if (round.questioner_id !== null || round.previewConfirmed) throw new Error('CPUの取得待ち画面から操作してください');
+    discardQuestion(io, room, round);
+    ++round.fetchVersion;
+    round.questioner_id = player.id;
+    round.manualCpu = true;
+    round.synopsis = null;
+    round.real_title = null;
+    round.sourceQuestion = null;
+    round.contentType = null;
+    round.fetchError = null;
+    round.declarations.clear();
+    io.to(room.code).emit('game:round_started', {
+      totalRounds: room.total_rounds, currentRound: room.current_round,
+      questioner: { id: player.id, nickname: player.nickname }, round: publicRound(round), mode: 'player',
+    });
   });
 
   on('round:submit_synopsis', (payload, room, player) => {
@@ -216,9 +258,10 @@ function registerGameHandlers(io, socket) {
   for (const kind of ['known', 'unknown']) {
     on(`round:declare_${kind}`, (_, room, player) => {
       const round = getCurrentRound(room);
-      if (round.questioner_id === player.id || round.questioner_id === null) throw new Error('回答者のみ操作できます');
+      if (round.questioner_id === player.id) throw new Error('回答者のみ操作できます');
       requirePhase(round, 'selecting');
       if (!round.synopsis) throw new Error('作品の紹介文が提示されていません');
+      if (round.questioner_id === null && !round.previewConfirmed) throw new Error('ホストの紹介文提示を待ってください');
       round.declarations.set(player.id, kind);
       io.to(room.code).emit(`round:${kind}_declared`, { player: { id: player.id, nickname: player.nickname } });
       checkAllDeclared(io, room, round);
@@ -227,21 +270,25 @@ function registerGameHandlers(io, socket) {
 
   on('round:reselect', (_, room, player) => {
     const round = getCurrentRound(room);
-    if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
+    if (!isRoundController(round, player)) throw new Error('出題者またはCPU出題のホストのみ操作できます');
     requirePhase(round, 'selecting');
+    discardQuestion(io, room, round);
     invalidateHelper(round);
     round.synopsis = null;
     round.real_title = null;
     round.sourceQuestion = null;
     round.contentType = null;
     round.declarations.clear();
-    io.to(room.code).emit('round:reselect_started', { message: '出題者が新しい作品を選んでいます...' });
+    io.to(room.code).emit('round:reselect_started', { roundId: round.id,
+      mode: round.questioner_id === null ? 'cpu' : 'player', message: '別の作品を選んでいます...' });
+    if (round.questioner_id === null) void loadCpuSynopsis(io, room, round);
   });
 
   on('round:start_submitting', (_, room, player) => {
     const round = getCurrentRound(room);
-    if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
+    if (!isRoundController(round, player)) throw new Error('出題者またはCPU出題のホストのみ操作できます');
     requirePhase(round, 'selecting');
+    if (round.questioner_id === null && !round.previewConfirmed) throw new Error('先に紹介文を提示してください');
     if (!round.synopsis || !round.real_title) throw new Error('作品の紹介文が設定されていません');
     const answerers = connectedAnswerers(room, round);
     if (answerers.some((p) => round.declarations.get(p.id) === 'known')) {
@@ -306,7 +353,7 @@ function registerGameHandlers(io, socket) {
       return;
     }
     room.current_round += 1;
-    startRound(io, room, round.questioner_id === null ? 'cpu' : 'player', 'game:round_started');
+    startRound(io, room, round.questioner_id === null || round.manualCpu ? 'cpu' : 'player', 'game:round_started');
   });
 }
 
