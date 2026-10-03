@@ -92,6 +92,9 @@ function questionIsValid(question) {
 
 function prepareQuestion(question) {
   try {
+    // A quoted endorsement can span multiple sentences before its credit.
+    // Reject such legacy evidence rather than retaining the uncredited quote.
+    if (/書評より(?:抜粋|引用)/u.test(question.evidence?.excerpts?.join('') || '')) return null;
     const realTitle = playableTitle(question.realTitle, question.kind);
     if (!realTitle) return null;
     if (questionIsValid(question)) return question;
@@ -104,7 +107,13 @@ function prepareQuestion(question) {
     const aliases = questionTitleAliases(realTitle, originalAliases, question.kind);
     const summary = summarizeWithoutTitles(question.evidence.excerpts.join(''), aliases);
     const synopsis = summary.synopsis;
-    const prepared = { ...question, realTitle, aliases, synopsis, evidence: { ...question.evidence, excerpts: summary.excerpts } };
+    const visibility = question.evidence.visibility;
+    const prepared = { ...question, realTitle, aliases, synopsis, evidence: { ...question.evidence, excerpts: summary.excerpts,
+      // Edition normalization changes the bound title, not the production
+      // source. Rebind only evidence that matched the original title exactly.
+      ...(visibility?.workTitle === question.realTitle && realTitle !== question.realTitle && {
+        visibility: { ...visibility, workTitle: realTitle },
+      }) } };
     return questionIsValid(prepared) ? prepared : null;
   } catch { return null; }
 }

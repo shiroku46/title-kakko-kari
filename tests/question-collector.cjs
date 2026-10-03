@@ -459,7 +459,12 @@ test('the service deadline aborts a Wiki pacing wait and saves already collected
   const service = createQuestionService({ bankPath, statePath, validateQuestion: () => true,
     collectionTimeoutMilliseconds: 75,
     collectionOptions: { providers: ['wikipedia'], limit: 2, maxRequests: 3,
-      discoverImpl: discoveryOf([candidate(100), candidate(101)]), generateImpl: generatedWithFetch() },
+      discoverImpl: discoveryOf([candidate(100), candidate(101)]), generateImpl: async (...args) => {
+        const q = await generatedWithFetch()(...args);
+        q.evidence.visibility = require('../server/src/questions/selection-policy').visibilityEvidence({
+          title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['個人制作']});
+        return q;
+      } },
     fetchImpl: async () => Response.json({}) });
   t.after(() => service.stop());
   const startedAt = Date.now();
@@ -528,4 +533,12 @@ test('CLI replenishes the same configured persistent store as the running server
   assert.equal(explicit.output, '/tmp/separate-bank/bank.json');
   assert.equal(explicit.state, '/tmp/separate-bank/discovery.json');
   assert.equal(explicit.explicitOutput, true);
+});
+
+test('small-work acceptance continues past unknown works while preserving the saved bank and request budget',async()=>{
+  const saved=question(candidate(700)),unknown=candidate(701),small=candidate(702);
+  const result=await collectQuestions({...options,questions:[saved],providers:['wikipedia'],limit:1,maxRequests:3,
+    discoverImpl:discoveryOf([unknown,small]),acceptCandidate:q=>q.id===small.id});
+  assert.equal(result.requests,2);assert.deepEqual(result.questions.map(q=>q.id),[saved.id,small.id]);
+  assert.equal(result.added.length,1);assert.match(result.rejected[0].error,/小規模制作/);
 });

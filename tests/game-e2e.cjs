@@ -94,6 +94,11 @@ const directNDLQuestion = {
   evidence: { ...genreQuestions[0].evidence, sourceId: 'ndl-R100000002-I000000000123', section: '内容紹介' },
 };
 const allFixtureQuestions = [...fixtureQuestions, openResourceQuestion, ...genreQuestions, directNDLQuestion];
+// These socket fixtures represent individually produced works. Their source
+// preference metadata is private and independent of the test's story text.
+for(const q of allFixtureQuestions) q.evidence.visibility = require('../server/src/questions/selection-policy').visibilityEvidence({
+  title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['個人制作'],
+});
 function writeBank(questions = fixtureQuestions) {
   writeFileSync(fixturePath, JSON.stringify({
     schemaVersion: 1, generatedAt: '2026-10-01T00:00:00.000Z', questions,
