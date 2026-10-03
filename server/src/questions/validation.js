@@ -46,10 +46,11 @@ function evidenceMatchesPrimarySource(question) {
   const source = question.sources[0];
   const id = question.evidence.sourceId;
   if (source.provider === 'web') {
-    const { hash, canonicalTitle } = require('./web-source');
+    const { hash, canonicalTitle, workPageTitleIsEligible } = require('./web-source');
     const work = question.evidence.work;
     return work?.version === 2 && playableTitle(work.title, work.kind) === question.realTitle && work.kind === question.kind
       && ['typed-work','page-title'].includes(work.method) && typeof work.pageTitle === 'string' && canonicalTitle(work.pageTitle).includes(question.realTitle)
+      && workPageTitleIsEligible(work.pageTitle, work.method, question.evidence.excerpts?.join(''))
       && id === `web-${hash(source.url)}` && question.id === id;
   }
   if (source.provider === 'aozora') {

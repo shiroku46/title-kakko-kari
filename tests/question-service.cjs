@@ -410,3 +410,87 @@ test('failure status sanitizes source errors and preserves the last successful c
     assert.ok(!serialized.includes(saved.realTitle));
   }
 });
+
+function withVisibility(q, input) {
+  const {visibilityEvidence} = require('../server/src/questions/selection-policy');
+  return {...q,evidence:{...q.evidence,visibility:visibilityEvidence({title:q.realTitle,aliases:q.aliases,
+    kind:q.kind,sourceUrl:q.sources[0].url,...input})}};
+}
+
+test('source-backed small works outrank unknown and widely promoted works across domains',async(t)=>{
+  const unknown=question(40);
+  const small=withVisibility(question(41),{introductions:['本作は自主出版の小説として制作された作品である。']});
+  const wide=withVisibility(question(42),{introductions:['原作シリーズの累計発行部数は1,000万部を超えている。']});
+  const files=fixture(t,[unknown,small,wide]);const service=files.service({enabled:false});
+  for(let i=0;i<10;i++)assert.equal((await service.selectQuestion()).id,small.id);
+  assert.equal((await service.selectQuestion([small.id])).id,unknown.id);
+  assert.equal((await service.selectQuestion([small.id,unknown.id])).id,wide.id);
+  await assert.rejects(service.selectQuestion([small.id,unknown.id,wide.id]));
+  assert.equal(JSON.parse(readFileSync(files.bankPath)).questions.length,3);
+});
+
+test('a seed re-collected under a different source ID remains a fallback and triggers discovery',async(t)=>{
+  const seed=question(43),copy={...seed,id:'different-source-id'};
+  const unknown=question(44);const files=fixture(t,[copy]);
+  writeFileSync(files.seedPath,JSON.stringify({schemaVersion:1,questions:[seed]}));
+  let calls=0;const service=files.service({collectImpl:async()=>{calls++;return collected([copy,unknown]);}});
+  assert.equal((await service.selectQuestion()).id,unknown.id);assert.equal(calls,1);
+  assert.equal((await service.selectQuestion([unknown.id])).id,copy.id);
+});
+
+test('few reviews, minor search wording, missing Wikipedia and a character making indie games do not prove low visibility',()=>{
+  const {createSelectionPolicy}=require('../server/src/questions/selection-policy');const policy=createSelectionPolicy();
+  for(const input of [{reviewCount:1},{reviewCount:999},{introductions:['少年は趣味で同人漫画を制作している。']},
+    {introductions:['本作はインディーゲームではありません。']}])assert.equal(policy.tier(withVisibility(question(45),input)),1);
+  assert.equal(policy.tier({...question(45),discovery:{angle:'インディー'},popularity:{score:0}}),1);
+});
+
+test('large sales and structured review counts override indie labels; invalid preference evidence is ignored',()=>{
+  const {createSelectionPolicy}=require('../server/src/questions/selection-policy');const policy=createSelectionPolicy();
+  const small=withVisibility(question(46),{genres:['インディー']});assert.equal(policy.tier(small),0);
+  for(const input of [{genres:['インディー'],reviewCount:'1,000'},
+    {genres:['インディー'],introductions:['累計販売本数100万本を突破した。']},
+    {introductions:['本作は世界的な人気を集めた作品である。']}])assert.equal(policy.tier(withVisibility(question(46),input)),2);
+  const visibility=small.evidence.visibility;
+  for(const changed of [{version:99},{sourceUrl:'https://other.example.org/'},{workTitle:'他の作品'},{kind:'game'},
+    {sha256:'a'.repeat(64)},{signals:[{type:'genre',excerpt:'これは普通の作品'}]}]){
+    assert.equal(policy.tier({...small,evidence:{...small.evidence,visibility:{...visibility,...changed}}}),1);
+  }
+});
+
+test('both sync gameplay selection and service use the shared preference policy',async(t)=>{
+  const {spawnSync}=require('node:child_process');
+  const small=withVisibility(question(47),{genres:['自主出版']});
+  const unknown=question(48),files=fixture(t,[unknown,small]);
+  const api=join(__dirname,'../server/src/questions/index.js');
+  const program=`const api=require(${JSON.stringify(api)}); Promise.all([api.selectQuestion(),api.selectQuestionAsync()]).then(q=>console.log(JSON.stringify(q.map(x=>x.id))));`;
+  const child=spawnSync(process.execPath,['-e',program],{encoding:'utf8',env:{...process.env,QUESTION_COLLECTION_ENABLED:'false',QUESTION_BANK_PATH:files.bankPath}});
+  assert.equal(child.status,0,child.stderr);
+  assert.deepEqual(JSON.parse(child.stdout),[small.id,small.id]);
+  assert.equal((await files.service({enabled:false}).selectQuestion()).id,small.id);
+});
+
+test('low small-work stock refills in the background without stalling the preferred choice',async(t)=>{
+  const small=withVisibility(question(49),{genres:['自主出版']});const files=fixture(t,[small,question(50),question(51)]);
+  let release;const gate=new Promise(r=>{release=r;});let started;const begun=new Promise(r=>{started=r;});
+  const service=files.service({minimumAvailable:2,collectImpl:async({questions})=>{started();await gate;return collected(questions);}});
+  assert.equal((await service.selectQuestion()).id,small.id);await begun;
+  assert.equal((await service.selectQuestion()).id,small.id);
+  const pending=service.collectNow();release();await pending;
+});
+
+test('saved source excerpts can supply small-work evidence without changing the stored record',async(t)=>{
+  const old=question(52),text='本作は自主出版の小説として刊行された作品である。'+old.synopsis;
+  old.synopsis=text;old.evidence={...old.evidence,excerpts:text.match(/[^。]+。/gu),sourceTextSha256:createHash('sha256').update(text).digest('hex')};
+  const files=fixture(t,[question(53),old]);const before=readFileSync(files.bankPath,'utf8');
+  assert.equal((await files.service({enabled:false}).selectQuestion()).id,old.id);
+  assert.equal(readFileSync(files.bankPath,'utf8'),before);
+});
+
+test('source production credits identify a small independent film but fictional characters do not',()=>{
+  const {createSelectionPolicy}=require('../server/src/questions/selection-policy');const policy=createSelectionPolicy();
+  const q={...question(54),kind:'film'};
+  const credit='監督が企画・脚本・監督を務め、着想から10年の歳月を経て自主制作で完成させたヒューマンドラマ。';
+  assert.equal(policy.tier(withVisibility(q,{introductions:[credit]})),0);
+  assert.equal(policy.tier(withVisibility(q,{introductions:['本作の主人公は自主制作で完成させた映画を持って旅に出る。']})),1);
+});

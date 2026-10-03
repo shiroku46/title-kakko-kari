@@ -2,7 +2,8 @@ const { KIND_IDS, getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
 const { decode, text, attributes, hash } = require('./web-source');
 const ENGINES = ['duckduckgo', 'bing'];
-const ANGLES = ['作品紹介', '新作', '話題', 'インディー'];
+const QUERY_VERSION = 2;
+const ANGLES = ['インディー', '小規模', '埋もれた作品', '作品紹介'];
 const SEARCH_KINDS = ['novel', 'film', 'game', 'manga', ...KIND_IDS.filter((k) => !['novel','film','game','manga'].includes(k))];
 const REVISIT_MS = 6 * 60 * 60 * 1000;
 
@@ -10,6 +11,15 @@ function searchQuery(kind, angle, now = new Date()) {
   const label = getKind(kind).label.replace(/・/gu, ' ');
   const story = getKind(kind).contentMode === 'story';
   const book = ['novel','short-story','literary-work','manga','nonfiction','poem'].includes(kind);
+  if (angle === 'インディー' || angle === '小規模') {
+    const small = angle === '小規模';
+    if (kind === 'game') return `${small ? '個人開発 短編' : 'インディー'} ゲーム ストーリー 公式 -作り方 -攻略`;
+    if (kind === 'film') return `${small ? '単館公開' : '自主制作'} 映画 あらすじ -作り方 -方法 -制作ガイド`;
+    if (kind === 'manga') return `${small ? '創作 読み切り' : '同人 オリジナル'} 漫画 あらすじ 全年齢 -描き方 -作り方`;
+    if (book) return `${small ? '小出版社' : '自主出版'} ${label} 内容紹介 -費用 -方法 -作り方`;
+    return `${small ? '小規模' : '自主制作'} ${label} ${story ? 'あらすじ' : '作品紹介'}`;
+  }
+  if (angle === '埋もれた作品') return `隠れた ${label} ${story ? 'あらすじ' : '作品紹介'}`;
   if (angle === '作品紹介') {
     if (kind === 'game') return 'アドベンチャーゲーム ストーリー 公式サイト';
     if (['film','anime','drama'].includes(kind)) return `${label} ストーリー 公式サイト`;
@@ -78,16 +88,19 @@ async function discoverWebCandidates({ state = {}, limit = 4, maxRequests = 2, f
   now = () => new Date(), kinds = SEARCH_KINDS } = {}) {
   if (!Array.isArray(kinds) || !kinds.length || kinds.some((kind) => !KIND_IDS.includes(kind))) throw new Error('検索ジャンルが不正です');
   const plan = ANGLES.flatMap((angle) => [...new Set(kinds)].map((kind) => ({ kind, angle })));
-  let cursor = Number.isSafeInteger(state.cursor) && state.cursor >= 0 ? state.cursor % plan.length : 0;
+  const migrated = state.queryVersion !== QUERY_VERSION;
+  let cursor = !migrated && Number.isSafeInteger(state.cursor) && state.cursor >= 0 ? state.cursor % plan.length : 0;
   let engineIndex = Number.isSafeInteger(state.engineIndex) ? Math.abs(state.engineIndex) % ENGINES.length : 0;
-  let page = Number.isSafeInteger(state.page) && state.page >= 0 && state.page <= 2 ? state.page : 0;
-  const queued = Array.isArray(state.pending) ? [...state.pending] : [];
+  let page = !migrated && Number.isSafeInteger(state.page) && state.page >= 0 && state.page <= 2 ? state.page : 0;
+  const queued = !migrated && Array.isArray(state.pending) ? [...state.pending] : [];
+  // Relegate old broad-search URLs after the new search without deleting them.
+  const legacyPending = migrated && Array.isArray(state.pending) ? [...state.pending] : [];
   const errors = [];
   let requests = 0;
   const cooldowns = { ...(state.cooldowns || {}) };
   const visited = new Set(Array.isArray(state.visited) ? state.visited : []);
-  let completedCycle = Boolean(state.completedCycle);
-  const revisitAt = Date.parse(state.revisitAt);
+  let completedCycle = !migrated && Boolean(state.completedCycle);
+  const revisitAt = migrated ? NaN : Date.parse(state.revisitAt);
   if (revisitAt > now().getTime() && !queued.length) return { candidates: [], state, requests: 0, exhausted: true };
   if (Number.isFinite(revisitAt) && revisitAt <= now().getTime()) { visited.clear(); completedCycle = false; }
   while (queued.length < limit && requests < maxRequests) {
@@ -127,9 +140,10 @@ async function discoverWebCandidates({ state = {}, limit = 4, maxRequests = 2, f
       engineIndex = (engineIndex + 1) % ENGINES.length;
     }
   }
+  queued.push(...legacyPending);
   const candidates = queued.splice(0,limit);
   return { candidates, requests, errors, exhausted: false,
-    state: { cursor, engineIndex, page, pending: queued, cooldowns, visited: [...visited].slice(-5000), completedCycle,
+    state: { queryVersion: QUERY_VERSION, cursor, engineIndex, page, pending: queued, cooldowns, visited: [...visited].slice(-5000), completedCycle,
       ...(completedCycle && !queued.length && { revisitAt: new Date(now().getTime() + REVISIT_MS).toISOString() }) } };
 }
-module.exports = { discoverWebCandidates, parseResults, searchQuery, searchUrl, resultUrl, ENGINES, SEARCH_KINDS };
+module.exports = { discoverWebCandidates, parseResults, searchQuery, searchUrl, resultUrl, ENGINES, SEARCH_KINDS, QUERY_VERSION };

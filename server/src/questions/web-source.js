@@ -1,4 +1,5 @@
 const { createHash } = require('node:crypto');
+const { visibilityEvidence } = require('./selection-policy');
 const { summarizeWithoutTitles } = require('./generator');
 const { getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
@@ -44,6 +45,12 @@ const ARTICLE_TITLE = /ネタバレ|考察|徹底解説|レビュー|感想|死�
 const NON_WORK_PATH = /\/(?:author|authors|profile|profiles|category|categories|tag|tags|search|ranking|gameguide)(?:\/|$)/iu;
 const GENERIC_HEADING = /^(?:予告編|ニュース|お知らせ|作品紹介|ストーリー|あらすじ|キャスト|スタッフ|トップ|ホーム|NEWS|STORY|TRAILER|INTRODUCTION)$/iu;
 const LIST_TITLE = /おすすめ(?:の)?\d*|ランキング|一覧|まとめ|新刊情報|発売予定|作品検索|検索結果|総合サイト|キャンペーン|クーポン|今だけ|[0-9]+巻無料|編集者が推す|第1巻はスゴイ|best\s*\d+|top\s*\d+/iu;
+const EDITORIAL_TITLE = /作り方|実践ガイド|制作方法|出版方法|(?:制作|出版|開発)(?:の)?(?:費用|手順|方法)|[0-9]+\s*選|(?:映画|ゲーム|漫画|小説)(?:たち|作品たち)|テキストエディタ|小説執筆.{0,12}(?:エディタ|ツール|ソフト|アプリ)/u;
+const WRITING_TOOL = /テキストエディタ|執筆(?:作業|支援|特化|用|デスクトップ)|小説(?:執筆|制作).{0,12}(?:ツール|ソフト|アプリ)|novel[- ]writing.{0,12}(?:software|tool|editor)/iu;
+function workPageTitleIsEligible(title, method, introduction = '') {
+  return typeof title === 'string' && !LIST_TITLE.test(title) && !ARTICLE_TITLE.test(title) &&
+    (method === 'typed-work' || !EDITORIAL_TITLE.test(title) && !WRITING_TOOL.test(introduction));
+}
 function canonicalTitle(value) {
   return text(text(value).replace(/【[^】]*(?:限定特典|電子限定|デジタル版限定|無料お試し|期間限定無料)[^】]*】/gu, '')
     .replace(/^[『「](.+)[』」]$/u, '$1'));
@@ -183,7 +190,7 @@ function linkedCandidates(html, baseUrl, kind, { onlyStory = false } = {}) {
       if (url.href === baseUrl || url.pathname === '/' || NON_WORK_PATH.test(url.pathname) ||
         /\.(?:jpg|png|pdf|zip)$/iu.test(url.pathname) || /rss|feed|bookmark/iu.test(url.pathname) ||
         /^(?:.*こちら|.*サービス|.*書影)$/u.test(title)) continue;
-      const score = /story|synopsis|introduction|about|comic|manga|books|product|works|shinkan|\/dp\//iu.test(url.pathname) ? 3
+      const score = /story|synopsis|introduction|about|comic|manga|books|product|works|shinkan|\/(?:dp|movie|film|games?)\//iu.test(url.pathname) ? 3
         : /<img|<h[2-6]/iu.test(match[2]) ? 2 : /book|item/iu.test(url.pathname) ? 1 : 0;
       if (!score) continue;
       for (const param of [...url.searchParams.keys()]) if (/^utm_|^(?:ref|ref_|tag|fbclid|gclid)$/iu.test(param)) url.searchParams.delete(param);
@@ -206,13 +213,16 @@ function extractWebWork(html, url, hintKind) {
   const works = structuredWorks(html);
   if (works.length > 1) throw new Error('複数作品の一覧はお題に使用しません');
   const structured = works[0];
+  // Search for independent production also finds tutorials and recommendation
+  // articles. A guide is a work only with independently typed work evidence.
+  if (!structured && EDITORIAL_TITLE.test(pageTitle)) throw new Error('解説記事・作品一覧は作品として採用しません');
   const cleanTitle = (value) => {
     const raw = value.split(/\s*[|｜]\s*/u)[0].trim();
     const quoted = raw.match(/^(?:(?:映画|劇場版|TVアニメ|アニメ|ゲーム|想定科学ADV|アドベンチャーゲーム)\s*)?[『「](.+)[』」](?:\s*(?:公式.*|official\s*(?:web\s*site|site).*)?)$/iu);
     return (quoted?.[1] || raw.replace(/\s*(?:[-–—]\s*)?(?:公式サイト|公式ホームページ|オフィシャルサイト).*$/u, '')).trim();
   };
   const titleFromPage = cleanTitle(pageTitle);
-  const heading = headings.find((h) => !GENERIC_HEADING.test(h) && key(titleFromPage).includes(key(cleanTitle(h)))) || '';
+  const heading = headings.find((h) => !GENERIC_HEADING.test(h) && key(titleFromPage).startsWith(key(cleanTitle(h)))) || '';
   let realTitle = structured ? text(structured.name) : /[『「].+[』」].*(?:公式|official)/iu.test(pageTitle) ? titleFromPage : heading ? cleanTitle(heading) : titleFromPage;
   if (structured && heading && key(realTitle).includes(key(cleanTitle(heading)))) realTitle = cleanTitle(heading);
   const sourceTitle = realTitle;
@@ -248,6 +258,7 @@ function extractWebWork(html, url, hintKind) {
   // Prefer the explicitly bounded visible introduction. Retail structured
   // descriptions often concatenate price, reviews and unrelated product data.
   if (structured?.description) sections.push({ section: '作品紹介（構造化データ）', content: text(structured.description) });
+  if (!structured && WRITING_TOOL.test(sections.map(s => s.content).join(' '))) throw new Error('執筆ツールは創作作品として採用しません');
   if (!sections.length) throw new Error('作品の紹介文が見つかりません');
   let summary;
   let chosen;
@@ -266,7 +277,12 @@ function extractWebWork(html, url, hintKind) {
     contentType: getKind(kind).contentMode === 'description' ? 'description' : 'synopsis',
     evidence: { sourceId: `web-${hash(url)}`, section: chosen.section,
       work: { version: 2, title: realTitle, kind, pageTitle, method: structured ? 'typed-work' : 'page-title' },
-      sourceTextSha256: hash(chosen.content), excerpts: summary.excerpts } };
+      sourceTextSha256: hash(chosen.content), excerpts: summary.excerpts,
+      visibility: visibilityEvidence({ title: realTitle, aliases, kind, sourceUrl: url,
+        // The page identity has already been checked. Description metadata is
+        // a reach signal only; it is never enough to generate a question text.
+        introductions: [...sections.map(s => s.content), meta['og:description'], meta.description], genres: [genre],
+        reviewCount: structured?.aggregateRating?.ratingCount ?? structured?.aggregateRating?.reviewCount }) } };
 }
 
 async function generateWebQuestion(candidate, { fetchImpl, now = () => new Date() }) {
@@ -281,7 +297,8 @@ async function generateWebQuestion(candidate, { fetchImpl, now = () => new Date(
   try { work = extractWebWork(html, url, candidate.kind); }
   catch (error) {
     if (!candidate.webDepth && !/再利用|取得できません/u.test(error.message)) error.additionalCandidates = linkedCandidates(html, url, candidate.kind, { onlyStory: new URL(url).pathname !== '/' &&
-      !LIST_TITLE.test(text(metadata(html)['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1])) });
+      !LIST_TITLE.test(text(metadata(html)['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1])) &&
+      !EDITORIAL_TITLE.test(text(metadata(html)['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1])) });
     throw error;
   }
   return { id: `web-${hash(url)}`, ...work, generationMethod: 'extractive-v1',
@@ -289,4 +306,4 @@ async function generateWebQuestion(candidate, { fetchImpl, now = () => new Date(
       retrievedAt: now().toISOString() }] };
 }
 
-module.exports = { generateWebQuestion, extractWebWork, introductionSections, structuredWorks, linkedCandidates, metadata, attributes, text, decode, hash, canonicalTitle };
+module.exports = { generateWebQuestion, extractWebWork, introductionSections, structuredWorks, linkedCandidates, metadata, attributes, text, decode, hash, canonicalTitle, workPageTitleIsEligible };

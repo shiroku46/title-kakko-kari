@@ -275,3 +275,80 @@ test('series headings cannot turn typed sequel data into a base-work question', 
   const markup = book({title:'港の約束 II',extra:{'@type':'Movie',genre:'映画'}}).replace('<h1>港の約束 II</h1>','<h1>港の約束</h1>');
   assert.throws(()=>extractWebWork(markup,base,'film'),/出題対象外/);
 });
+
+test('long-tail searches lead the new plan for films, games, comics and commercial small presses',async()=>{
+  const {QUERY_VERSION}=require('../server/src/questions/web-search');
+  for(const [kind,keyword] of [['film','自主制作'],['game','インディー'],['manga','同人'],['novel','自主出版']]){
+    let query;const result=await discoverWebCandidates({kinds:[kind],limit:1,maxRequests:1,fetchImpl:async(url)=>{
+      query=new URL(url).searchParams.get('q');return page(results(['https://independent.example.org/work']));}});
+    assert.ok(query.includes(keyword));assert.ok(!/site:|話題|ランキング|新刊/u.test(query));assert.equal(result.state.queryVersion,QUERY_VERSION);
+  }
+  assert.ok(searchQuery('novel','小規模').includes('小出版社'));
+  assert.ok(searchQuery('game','小規模').includes('個人開発'));
+});
+
+test('old broad search state begins a new query while preserving pending URLs, visits and cooldowns',async()=>{
+  const old={id:'old',provider:'web',kind:'film',title:'古い候補',url:'https://old.example.org/work'};
+  let calls=0;
+  const result=await discoverWebCandidates({kinds:['film'],limit:1,maxRequests:1,state:{cursor:31,page:2,pending:[old],
+    visited:[old.url],cooldowns:{bing:Date.now()+100000},completedCycle:true,revisitAt:'2099-01-01T00:00:00Z'},
+    fetchImpl:async(url)=>{calls++;assert.ok(new URL(url).searchParams.get('q').includes('自主制作'));assert.equal(new URL(url).searchParams.get('s'),null);return page(results(['https://new.example.org/work']));}});
+  assert.equal(calls,1);assert.equal(result.candidates[0].url,'https://new.example.org/work');
+  assert.equal(result.state.pending[0].url,old.url);assert.ok(result.state.visited.includes(old.url));assert.ok(result.state.cooldowns.bing>Date.now());
+  const next=await discoverWebCandidates({kinds:['film'],state:result.state,limit:1,maxRequests:1,fetchImpl:async()=>{throw Error('must use backlog');}});
+  assert.equal(next.candidates[0].url,old.url);
+});
+
+test('source visibility evidence comes from the identified work rather than search labels or unrelated page widgets',async()=>{
+  const {createSelectionPolicy}=require('../server/src/questions/selection-policy');const policy=createSelectionPolicy();
+  const generate=async extra=>generateWebQuestion({url:base,kind:'game',discovery:{angle:'インディー'}},
+    {fetchImpl:async()=>page(book({extra:{'@type':'VideoGame',genre:'アドベンチャーゲーム',...extra}}))});
+  const ordinary=await generate({});assert.equal(questionIsValid(ordinary),true);assert.equal(policy.tier(ordinary),1);
+  const indie=await generate({genre:['ゲーム','インディー']});assert.equal(policy.tier(indie),0);assert.equal(questionIsValid(indie),true);
+  const hit=await generate({genre:['ゲーム','インディー'],aggregateRating:{'@type':'AggregateRating',ratingCount:3000}});
+  assert.equal(policy.tier(hit),2);assert.equal(questionIsValid(hit),true);
+  const markup=book({extra:{'@type':'VideoGame',genre:'ゲーム'}})+'<aside>インディーゲーム特集 本作は自主制作ゲームである。</aside>';
+  const widget=await generateWebQuestion({url:base,kind:'game'},{fetchImpl:async()=>page(markup)});
+  assert.equal(policy.tier(widget),1);
+  const round=publicRound({id:'r',real_title:indie.realTitle,sourceQuestion:indie});
+  assert.ok(!JSON.stringify(round).includes('visibility'));
+});
+
+test('collector starts long-tail queries ahead of an old genre backlog and retains its work URLs',async()=>{
+  const old={id:'old',provider:'web',kind:'novel',title:'旧小説',url:'https://old.example.org/book/1'};
+  let searched=0;const fresh='https://small.example.org/book/1';
+  const result=await collectQuestions({providers:['web'],webKinds:['novel'],limit:1,maxRequests:3,throttleMilliseconds:0,
+    state:{collector:{pendingCandidates:[old]},providers:{web:{byKind:{novel:{cursor:10,pending:[],visited:[]}}}}},
+    fetchImpl:async(url)=>{if(url.includes('duckduckgo')){searched++;return page(results([fresh]));}
+      assert.equal(url,fresh);return page(book({extra:{genre:['小説','自主出版']}}),url);},validateQuestion:questionIsValid});
+  assert.equal(searched,1);assert.equal(result.added.length,1);assert.equal(result.added[0].sources[0].url,fresh);
+  assert.ok(result.state.collector.pendingCandidates.some(q=>q.url===old.url));
+});
+
+test('long-tail production tutorials and untyped recommendation articles never become work answers',()=>{
+  for(const title of ['自主制作映画の作り方:感性と物語を紡ぐ実践ガイド','隠れた名作小説10選',
+    'お金がなくてもここまでやれる!低予算で成功した迫力の映画たち']){
+    assert.throws(()=>extractWebWork(`<title>${title}</title><h1>${title}</h1><h2>あらすじ</h2>${story}`,base,'film'),/記事|一覧/);
+  }
+  // An actual reference book may have a how-to title, if its typed work data
+  // and page title agree; an editorial headline alone is insufficient.
+  const q=extractWebWork(book({title:'自主制作映画の作り方',extra:{genre:'書籍'}}),base,'nonfiction');
+  assert.equal(q.realTitle,'自主制作映画の作り方');
+  const links=linkedCandidates('<main><a href="/movie/123"><img alt="映画の題名">映画の題名</a></main>',
+    'https://film.example.org/list','film');assert.equal(links[0].url,'https://film.example.org/movie/123');
+});
+
+test('writing apps discovered by minor-novel searches and store-owner headings cannot become novels',async()=>{
+  for(const [title,name,description] of [
+    ['ノベルストーン - NovelStone - ASR SHOP - STORE','ASR SHOP','NovelStoneはWindows用テキストエディタです。'+story],
+    ['Web作家向けテキストエディタ「Lyll-writer」 - l-kettle - STORE','l-kettle',story],
+    ['小説執筆エディタ NIGHTOVER','STORE',story],
+  ]){
+    assert.throws(()=>extractWebWork(`<title>${title}</title><h1>${name}</h1><h2>商品説明</h2>${description}`,
+      'https://creator.example.org/items/1','novel'),/作品|ツール|記事/);
+  }
+  assert.throws(()=>extractWebWork(`<title>港の約束 - 著者の店 - STORE</title><h1>著者の店</h1><h2>あらすじ</h2>${story}`,
+    'https://creator.example.org/items/1','novel'), /作品/);
+  const {workPageTitleIsEligible}=require('../server/src/questions/web-source');
+  assert.equal(workPageTitleIsEligible('ノベルストーン','page-title','小説執筆に役立つテキストエディタです。'),false);
+});
