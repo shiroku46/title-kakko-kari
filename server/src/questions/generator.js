@@ -1,4 +1,5 @@
 const { createHash } = require('node:crypto');
+const { visibilityEvidence } = require('./selection-policy');
 const { getKind } = require('./kinds');
 const { MIN_LENGTH, MAX_LENGTH, TARGET_LENGTH, MAX_SENTENCES, introductionSentenceIsUsable } = require('./quality');
 const { requirePlayableTitle, questionTitleAliases } = require('./title-policy');
@@ -507,6 +508,8 @@ async function generateQuestion(entry, { fetchImpl = global.fetch, localAI = nul
       sourceId, section: plot.section,
       sourceTextSha256: createHash('sha256').update(plot.text).digest('hex'),
       excerpts: generated.excerpts.map(normalize),
+      visibility: visibilityEvidence({ title: realTitle, aliases, kind: entry.kind, sourceUrl: revisionUrl.href,
+        introductions: [page.extract.split(/\n\s*={2,6}/u)[0], plot.text] }),
     },
   };
 }

@@ -2,7 +2,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const timers = require('node:timers/promises');
 const { generateQuestion, stripDisambiguation } = require('./generator');
-const { SEARCH_KINDS } = require('./web-search');
+const { SEARCH_KINDS, QUERY_VERSION } = require('./web-search');
 
 const execute = promisify(execFile);
 const DEFAULT_BATCH_SIZE = 8;
@@ -277,6 +277,9 @@ async function collectQuestions({
     };
     const eligible = (item) => (item?.provider || 'wikipedia') === provider && !attempted.has(attemptIdentity(item));
     let pendingIndex = collectorState.pendingCandidates.findIndex((item) => eligible(item) && (!webByGenre || item.kind === webKind));
+    // Begin the new long-tail search before consuming an older famous-work
+    // backlog, provided there is budget both to discover and verify a work.
+    if (webByGenre && (Number.isSafeInteger(genreState.cursor) || Number.isSafeInteger(webState.cursor)) && genreState.queryVersion !== QUERY_VERSION && maxRequests - requests > 1) pendingIndex = -1;
     if (webByGenre && pendingIndex >= 0 && collectorState.webAttemptsSinceDiscovery[webKind] >= 6 && maxRequests - requests > 1) pendingIndex = -1;
     if (webByGenre && pendingIndex >= 0) {
       const diverse = collectorState.pendingCandidates.findIndex((item) => eligible(item) && item.kind === webKind &&
