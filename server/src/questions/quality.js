@@ -15,10 +15,11 @@ const CLASSICAL_ENDING = /(?:けり|なりけり|にけり|たりけり|ざる�
 // Crowdfunding pages often mix story prose with the creators' progress report.
 // Retain the actual story sentences, but never use that report as the question.
 const PRODUCTION_PROCESS = /物語で描くことは|^しないと後悔する|クラウドファンディング|(?:ご|皆様の|制作への)支援|支援(?:金|募集)|支援を(?:お願い|募る|募集)|支援者(?:への|向けの)(?:リターン|特典)|資金(?:調達|の使い道)|撮影(?:支援|資金)|スタッフ(?:募集|を集め)|(?:映画|撮影|制作).{0,80}(?:人|メンバー)を集め|四苦八苦|プロジェクトの(?:始まり|開始|目標|きっかけ)|初めての(?:映画|映像|ゲーム|作品)?制作|制作する短編映画|映像作品を.{0,30}制作したい|大学在学中に制作|それぞれができること|(?:監督|企画|脚本).{0,60}(?:務め|担当)|(?:自主制作|自主製作).{0,30}(?:完成|制作)|制作(?:費|資金|支援|メンバー|スタッフ)/u;
+const CREATOR_REPORT = /撮影.{0,35}(?:始まりました|残り|準備)|(?:学年|学科|メンバー).{0,80}(?:集ま|創って|取り組)|プロジェクト.{0,50}(?:支援|達成|目標)|支援して(?:くださ|いただ)|描いていきたい|(?:知りました|考えています|取り組んでまいりました|嬉しいです|よろしくお願いいたします)[。！!]/u;
 
 function introductionSentenceIsUsable(sentence) {
   if (typeof sentence !== 'string' || !/[。!?！？][」』”"]?$/u.test(sentence.trim())) return false;
-  if (NON_CONTENT.test(sentence) || EDITORIAL.test(sentence) || METADATA.test(sentence) || PERSON_PROFILE.test(sentence) || PROMOTION.test(sentence) || PRODUCTION_PROCESS.test(sentence) || OLD_KANA.test(sentence) || CLASSICAL_ENDING.test(sentence)) return false;
+  if (NON_CONTENT.test(sentence) || EDITORIAL.test(sentence) || METADATA.test(sentence) || PERSON_PROFILE.test(sentence) || PROMOTION.test(sentence) || PRODUCTION_PROCESS.test(sentence) || CREATOR_REPORT.test(sentence) || OLD_KANA.test(sentence) || CLASSICAL_ENDING.test(sentence)) return false;
   // Primary dialogue/lyrics are not a work introduction. A synopsis may still
   // contain a short quotation within a sentence explaining the story.
   if (/^[「『“"].*[」』”"](?:。)?$/u.test(sentence.trim())) return false;

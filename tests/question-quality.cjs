@@ -72,12 +72,15 @@ test('promotion, bibliography and author biography sentences are filtered even w
 
 test('crowdfunding production reports cannot become questions, while their actual story paragraphs remain usable', () => {
   const report = '日芸生を中心として集まり、制作する短編映画です。初めての映画制作という人が多い中、それぞれができることを行い進めています。物語で描くことは「生きることとその決断がどれだけ難しいか」です。映像作品を大学在学中に制作したい!しないと後悔する!と思い、行動に移したのがこのプロジェクトの始まりです。とは言え、映画を制作することはほぼ無かった状態だったので、どう人を集めたら良いのかなど四苦八苦しながら準備を進めていきました。';
+  const progress = 'そして何とか、最低限の人数が集まり、2025年1月に撮影が始まりました。今回が初めて!という人も多数いる中、日芸生を中心としながら、学年・学科関係なくひとつの作品を創っていく気持ちは絶やさずに取り組んでまいりました。撮影は残り僅かという状態ではありますが、今回のプロジェクトに支援してくださりますと嬉しいです。よろしくお願いいたします!今回は「自殺」「若者」をテーマに描いていきたいと考えています。大学生を含め、学生が路頭に迷い、様々な壁にぶつかり、自ら命を絶つ人が少しずつ減ってはいるものの、それでも多いことを知りました。';
+  assert.throws(() => summarizeExtractively(report + progress));
+  assert.equal(prepareQuestion(storedQuestion(report + progress)), null);
   assert.throws(() => summarizeExtractively(report));
   assert.equal(prepareQuestion(storedQuestion(report)), null);
   const summary = summarizeExtractively(report + story);
   assert.ok(summary.excerpts.every((s) => sentences.includes(s)), 'keep only source story prose');
   assert.equal(introductionSentenceIsUsable('個人制作で生まれた作品の主人公は、支援者のいない港町で家族の行方を探し始める。'), true);
-  const source = `<title>自主制作映画「港の約束」</title><h2>作品紹介</h2><p>${report}</p>`;
+  const source = `<title>自主制作映画「港の約束」</title><h2>作品紹介</h2><p>${report + progress}</p>`;
   assert.throws(() => extractWebWork(source, 'https://indie.example.org/project/1', 'film'));
   const work = extractWebWork(source + `<h2>あらすじ</h2><p>${story}</p>`, 'https://indie.example.org/project/1', 'film');
   assert.ok(work.evidence.excerpts.every((s) => sentences.includes(s)));
