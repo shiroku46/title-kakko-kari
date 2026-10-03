@@ -1,6 +1,7 @@
 const { redactTitle, sourceSentences, summarizeExtractively } = require('./generator');
 const { MIN_LENGTH, MAX_LENGTH, MAX_SENTENCES, EXCLUDED_SECTION, introductionSentenceIsUsable } = require('./quality');
 const { KIND_IDS } = require('./kinds');
+const { playableTitle } = require('./title-policy');
 const KINDS = new Set(KIND_IDS);
 
 function sourceIsValid(source) {
@@ -47,7 +48,7 @@ function evidenceMatchesPrimarySource(question) {
   if (source.provider === 'web') {
     const { hash, canonicalTitle } = require('./web-source');
     const work = question.evidence.work;
-    return work?.version === 2 && work.title === question.realTitle && work.kind === question.kind
+    return work?.version === 2 && playableTitle(work.title, work.kind) === question.realTitle && work.kind === question.kind
       && ['typed-work','page-title'].includes(work.method) && typeof work.pageTitle === 'string' && canonicalTitle(work.pageTitle).includes(question.realTitle)
       && id === `web-${hash(source.url)}` && question.id === id;
   }
@@ -66,6 +67,7 @@ function evidenceMatchesPrimarySource(question) {
 function questionIsValid(question) {
   return question && typeof question.id === 'string' && question.id.length > 0
     && typeof question.realTitle === 'string' && question.realTitle.trim().length > 0
+    && playableTitle(question.realTitle, question.kind) === question.realTitle
     && Array.isArray(question.aliases) && question.aliases.every((alias) => typeof alias === 'string' && alias.trim())
     && KINDS.has(question.kind)
     && (question.contentType === undefined || ['synopsis', 'description'].includes(question.contentType))
@@ -89,15 +91,18 @@ function questionIsValid(question) {
 
 function prepareQuestion(question) {
   try {
+    const realTitle = playableTitle(question.realTitle, question.kind);
+    if (!realTitle) return null;
     if (questionIsValid(question)) return question;
-    const aliases = [question.realTitle, ...question.aliases];
+    const originalAliases = [question.realTitle, ...question.aliases];
     // Only adjust verifiable saved excerpts. Never repair a mismatched or
     // invented synopsis, or convert a primary-text passage into an introduction.
     if (EXCLUDED_SECTION.test(question.evidence.section) ||
-        question.synopsis !== redactTitle(question.evidence.excerpts.join(''), aliases)) return null;
+        question.synopsis !== redactTitle(question.evidence.excerpts.join(''), originalAliases)) return null;
+    const aliases = [...new Set([realTitle, ...originalAliases])];
     const summary = summarizeExtractively(question.evidence.excerpts.join(''));
     const synopsis = redactTitle(summary.synopsis, aliases);
-    const prepared = { ...question, synopsis, evidence: { ...question.evidence, excerpts: summary.excerpts } };
+    const prepared = { ...question, realTitle, aliases, synopsis, evidence: { ...question.evidence, excerpts: summary.excerpts } };
     return questionIsValid(prepared) ? prepared : null;
   } catch { return null; }
 }

@@ -154,9 +154,9 @@ test('masks readings and original names from the verified lead subject without h
       `${artDescription}原語名のGuernica [ɡeɾˈnika]も、この作品の主題と結び付いている。`, ['Guernica', 'ɡeɾˈnika']],
     ['鋼の錬金術師', 'manga', '『鋼の錬金術師』(はがねのれんきんじゅつし、英題: FULLMETAL ALCHEMIST)は、日本の漫画作品。',
       `${plot}FULLMETAL ALCHEMISTという呼び名が町に伝わっている。`, ['はがねのれんきんじゅつし', 'FULLMETAL ALCHEMIST']],
-    ['ファイナルファンタジーVII', 'game', '『ファイナルファンタジーVII』(ファイナルファンタジーセブン、FINAL FANTASY VII、略称: FFVII、FF7)は、スクウェアが発売したコンピュータRPG。',
-      `${plot}FFVIIとFF7、FINAL FANTASY VIIという呼び名が町に伝わっている。`,
-      ['ファイナルファンタジーセブン', 'FINAL FANTASY VII', 'FFVII', 'FF7']],
+    ['STEINS;GATE', 'game', '『STEINS;GATE』(シュタインズ・ゲート、略称: シュタゲ)は、日本のコンピュータRPG。',
+      `${plot}シュタインズ・ゲートとシュタゲという呼び名が町に伝わっている。`,
+      ['シュタインズ・ゲート', 'シュタゲ']],
   ]) {
     const candidate = { id: `reading-${kind}`, title, kind, aliases: [] };
     const page = article({ title, canonicalurl: `https://ja.wikipedia.org/wiki/${encodeURIComponent(title)}`,
@@ -484,4 +484,21 @@ test('bank generation excludes invalid questions and rejects duplicate IDs', asy
   assert.equal(result.rejected.length, 1);
   assert.equal(result.rejected[0].id, missingEntry.id);
   await assert.rejects(generateBank([entry, entry], { fetchImpl, throttleMilliseconds: 0 }), /重複/);
+});
+
+test('Wikipedia generation rejects numbered sequels before fetching and masks normalized edition titles', async () => {
+  for (const [title,kind] of [['小説 ヒトラー II 戦前篇','novel'],['ファイナルファンタジーVII','game'],['港の約束 2','film']]) {
+    let calls=0;
+    await assert.rejects(generateQuestion({id:'numbered-work',title,kind,aliases:[]}, {
+      fetchImpl:async()=>{calls++;throw new Error('must not fetch');},
+    }), /出題対象外/);
+    assert.equal(calls,0);
+  }
+  const title='確認作品 4Kリマスター版';
+  const q=await generateQuestion({id:'edition-film',title,kind:'film',aliases:[]}, {
+    fetchImpl:async()=>Response.json({query:{pages:[article({title,canonicalurl:'https://ja.wikipedia.org/wiki/'+encodeURIComponent(title),
+      extract:`『${title}』は日本の映画。\n== あらすじ ==\n${plot}確認作品の舞台は古い港町である。`})]}}),
+  });
+  assert.equal(q.realTitle,'確認作品');assert.ok(q.aliases.includes(title));
+  assert.ok(!q.synopsis.includes('確認作品'));
 });

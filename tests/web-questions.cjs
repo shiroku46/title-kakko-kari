@@ -217,7 +217,7 @@ test('retail edition promotion is not the answer or synopsis but remains a hidde
   const title='【デジタル版限定特典付き】港の約束 1巻';
   const q=await generateWebQuestion({url:base,kind:'manga'},{fetchImpl:async()=>page(book({title,
     description:story+'※こちらの商品には限定特典イラストが収録されています。',extra:{genre:'コミック'}}))});
-  assert.equal(q.realTitle,'港の約束 1巻'); assert.ok(q.aliases.includes(title));
+  assert.equal(q.realTitle,'港の約束'); assert.ok(q.aliases.includes(title));
   assert.ok(!/特典/u.test(q.synopsis)); assert.equal(questionIsValid(q),true);
 });
 
@@ -238,7 +238,7 @@ test('edition suffixes do not expose the base game title and installation notes 
   const title='港の約束(オリジナル版)';
   const q=await generateWebQuestion({url:base,kind:'game'},{fetchImpl:async()=>page(book({title,extra:{'@type':'VideoGame',genre:'ゲーム'},
     description:`${title}では、${story}※こちらのタイトルには追加パックは含まれておりません。`}))});
-  assert.ok(q.aliases.includes('港の約束')); assert.ok(!q.synopsis.includes('港の約束'));
+  assert.equal(q.realTitle,'港の約束'); assert.ok(q.aliases.includes(title)); assert.ok(!q.synopsis.includes('港の約束'));
   assert.ok(!q.synopsis.includes('追加パック')); assert.equal(questionIsValid(q),true);
   assert.throws(()=>extractWebWork(book({title:'【電子版】月刊コミックアライブ 2026年11月号',extra:{genre:'漫画'}}),base,'manga'));
 });
@@ -268,5 +268,10 @@ test('all work cards inside a main or multiple articles are inspected, rather th
 test('trial-edition labels inside a retail name are removed without invalidating page evidence', async () => {
   const title='港の約束【期間限定無料】 1';
   const q=await generateWebQuestion({url:base,kind:'manga'},{fetchImpl:async()=>page(book({title,extra:{genre:'漫画'}}))});
-  assert.equal(q.realTitle,'港の約束 1');assert.ok(q.aliases.includes('港の約束'));assert.equal(questionIsValid(q),true);
+  assert.equal(q.realTitle,'港の約束');assert.ok(q.aliases.includes(title));assert.equal(questionIsValid(q),true);
+});
+
+test('series headings cannot turn typed sequel data into a base-work question', () => {
+  const markup = book({title:'港の約束 II',extra:{'@type':'Movie',genre:'映画'}}).replace('<h1>港の約束 II</h1>','<h1>港の約束</h1>');
+  assert.throws(()=>extractWebWork(markup,base,'film'),/出題対象外/);
 });
