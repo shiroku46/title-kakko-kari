@@ -25,6 +25,7 @@ export default function SelectingPhase({
   isQuestioner,
   isHost,
   isCpu = false,
+  genreDisclosure = false,
   questionerDisconnected = false,
   knownDeclarations = [],
   allDeclared,
@@ -32,6 +33,7 @@ export default function SelectingPhase({
 }) {
   const [synopsisText, setSynopsisText] = useState('');
   const [realTitle, setRealTitle] = useState('');
+  const [workKind, setWorkKind] = useState(null);
   const [automaticQuestionId, setAutomaticQuestionId] = useState(null);
   const [declared, setDeclared] = useState(null);
   const [submitted, setSubmitted] = useState(false);
@@ -99,6 +101,7 @@ export default function SelectingPhase({
       if (data.roundId !== round?.id) return;
       setSynopsisText(data.synopsis);
       setRealTitle(data.title);
+      setWorkKind(data.kind || null);
       setAutomaticQuestionId(data.questionId ?? null);
     } catch (err) {
       if (activeRef.current) {
@@ -113,12 +116,14 @@ export default function SelectingPhase({
   function handleSubmitSynopsis() {
     if (requestPendingRef.current) return;
     if (!synopsisText.trim()) return showError('round:submit_synopsis', '作品の紹介文を入力してください');
+    if (genreDisclosure && !workKind) return showError('round:submit_synopsis', '作品のジャンルを選択してください');
     if (!realTitle.trim()) return showError('round:submit_synopsis', '本物のタイトルを入力してください');
     requestAction(
       'round:submit_synopsis',
       {
         synopsis: synopsisText.trim(),
         realTitle: realTitle.trim(),
+        ...(genreDisclosure && { workKind }),
         ...(automaticQuestionId && { questionId: automaticQuestionId }),
       },
       () => setSubmitted(true)
@@ -301,9 +306,22 @@ export default function SelectingPhase({
                     {automaticQuestionId ? '別の作品を用意する' : '出題の補助を使う'}
                   </StationeryButton>
                   <Text style={styles.helperText}>
-                    紹介文と正解は出題者だけに表示されます。文章を編集してから出題できます。
+                    公式に流通する作品から探します。紹介文と正解は出題者だけに表示され、文章を編集してから出題できます。
                   </Text>
                   {requestError?.action === 'fetch' ? errorNotice : null}
+
+                  {genreDisclosure ? (
+                    <>
+                      <Text style={styles.fieldLabel}>作品のジャンル（参加者にも表示）</Text>
+                      <View style={[styles.actionRow, { flexWrap: 'wrap' }]}>
+                        {[['novel','小説'],['film','映画'],['manga','漫画'],['game','ゲーム'],['short-story','短編小説'],['literary-work','文学作品']].map(([kind,label]) => (
+                          <StationeryButton key={kind} variant={workKind === kind ? 'yellow' : 'neutral'}
+                            onPress={() => setWorkKind(kind)} disabled={requestBusy}
+                            accessibilityLabel={`出題ジャンルを${label}にする`}>{label}</StationeryButton>
+                        ))}
+                      </View>
+                    </>
+                  ) : null}
 
                   <Text style={styles.fieldLabel}>作品の紹介文</Text>
                   <TextInput

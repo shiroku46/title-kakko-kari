@@ -1,10 +1,10 @@
 const { randomInt, createHash } = require('node:crypto');
+const { hasOfficialDistribution } = require('./distribution-policy');
 const { questionTitleAliases } = require('./title-policy');
 
 // These are source signals, not a claim that every player is unfamiliar with a
 // work. Search wording and a missing Wikipedia article are not such evidence.
 const INDEPENDENT = /インディー|\bindie\b|\bindependent\b|自主(?:制作|製作|出版)|自費出版|同人|個人(?:制作|製作|開発)|少人数(?:制作|開発)|小規模出版/iu;
-const PERSONAL = /自主出版|自費出版|同人|個人(?:制作|製作|開発)|少人数(?:制作|開発)|小規模出版/u;
 const DENIAL = /では(?:ない|ありません)|ではなく|非インディー|not\s+(?:an?\s+)?indie/iu;
 const WIDE_REACH = /国民的|社会現象|大ヒット|ベストセラー|ミリオンセラー|世界的(?:な)?(?:人気|ヒット)|アニメ化|映画化|実写化|テレビドラマ化/u;
 const OWN_WORK = /本(?:作|作品|ゲーム|映画|商品|書|誌|プロジェクト)|この(?:作品|ゲーム|映画|漫画|小説|商品)|原作|シリーズ/u;
@@ -109,18 +109,18 @@ function createSelectionPolicy(seedQuestions = []) {
   }
   function preferred(questions) {
     const small = eligible(questions);
-    const personal = small.filter(q => verifiedSignals(q).some(s =>
-      s.type === 'posted-work' || typeof s.excerpt === 'string' && PERSONAL.test(s.excerpt)));
-    return personal.length ? personal : small;
+    const minor = small.filter(q => tier(q) === 0);
+    return minor.length ? minor : small;
   }
+  function isEligible(question) { return hasOfficialDistribution(question) && tier(question) < 2; }
   function eligible(questions) {
-    // Unknown fame is not proof of obscurity. Never fill a short small-work
-    // inventory with unknown works, mainstream hits or the famous seed bank.
-    return questions.filter(q => tier(q) === 0);
+    // Commercial circulation is required independently of popularity. Small
+    // official works lead; known wide-reach works and the seed bank stay excluded.
+    return questions.filter(isEligible);
   }
   function select(questions) {
     const pool = preferred(questions);
-    if (!pool.length) throw new Error('小規模制作の未使用問題をまだ用意できません。収集を再試行するか、手動で出題してください。');
+    if (!pool.length) throw new Error('公式流通を確認できる未使用問題をまだ用意できません。収集を再試行するか、手動で出題してください。');
     // Balance genres first, then domains within the chosen genre. The number
     // of film domains or publisher records must not dominate another medium.
     const genres = new Map();
@@ -134,7 +134,7 @@ function createSelectionPolicy(seedQuestions = []) {
     const works = [...domains.values()][randomInt(domains.size)];
     return works[randomInt(works.length)];
   }
-  return { tier, eligible, preferred, select };
+  return { tier, isEligible, eligible, preferred, select };
 }
 
 module.exports = { createSelectionPolicy, visibilityEvidence, evidenceTier };

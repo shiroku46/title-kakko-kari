@@ -30,6 +30,11 @@ function isRoundController(round, player) {
   return round.questioner_id === null ? player.is_host : round.questioner_id === player.id;
 }
 
+function publicGenre(room, round) {
+  const kind = room.settings.genreDisclosure && getKind(round.workKind);
+  return kind ? { workKind: round.workKind, workKindLabel: kind.label } : {};
+}
+
 async function loadCpuSynopsis(io, room, round) {
   cancelCpuFetch(round);
   const controller = new AbortController();
@@ -39,6 +44,7 @@ async function loadCpuSynopsis(io, room, round) {
   round.real_title = null;
   round.sourceQuestion = null;
   round.contentType = null;
+  round.workKind = null;
   round.fetchError = null;
   round.previewConfirmed = false;
   round.declarations.clear();
@@ -68,10 +74,11 @@ async function loadCpuSynopsis(io, room, round) {
   round.synopsis = work.synopsis;
   round.real_title = work.realTitle;
   round.sourceQuestion = work;
+  round.workKind = work.kind;
   round.contentType = work.contentType || (getKind(work.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
   room.usedQuestionIds.push(work.id);
   if (host) io.to(host.socket_id).emit('round:synopsis_fetched', {
-    roundId: round.id, synopsis: work.synopsis, contentType: round.contentType,
+    roundId: round.id, synopsis: work.synopsis, contentType: round.contentType, ...publicGenre(room, round),
   });
 }
 
@@ -81,7 +88,7 @@ function startRound(io, room, mode, event, playerOrder) {
   const round = {
     id: randomUUID(), room_id: room.id, round_number: room.current_round,
     questioner_id: questioner?.id ?? null, status: 'selecting',
-    synopsis: null, contentType: null, real_title: null, answers: [], votes: [],
+    synopsis: null, contentType: null, workKind: null, real_title: null, answers: [], votes: [],
     declarations: new Map(), fetchVersion: 0, fetchError: null, mvpAnswerId: null, sourceQuestion: null,
     previewConfirmed: false, manualCpu: false,
   };
@@ -89,7 +96,7 @@ function startRound(io, room, mode, event, playerOrder) {
   io.to(room.code).emit(event, {
     totalRounds: room.total_rounds, currentRound: room.current_round,
     questioner: questioner ? { id: questioner.id, nickname: questioner.nickname } : null,
-    round: publicRound(round), mode, ...(playerOrder && { playerOrder }),
+    round: publicRound(round, room), mode, settings: room.settings, ...(playerOrder && { playerOrder }),
   });
   if (mode === 'cpu') void loadCpuSynopsis(io, room, round);
 }
@@ -103,7 +110,7 @@ function startSubmitting(io, room, round) {
   // CPU synopsis was private to the host until confirmation. Every answerer
   // needs it now; reuse the existing public synopsis event.
   io.to(room.code).emit('round:synopsis_presented', {
-    roundId: round.id, synopsis: round.synopsis, contentType: round.contentType,
+    roundId: round.id, synopsis: round.synopsis, contentType: round.contentType, ...publicGenre(room, round),
   });
   io.to(room.code).emit('round:submitting_started', { roundId: round.id });
 }
@@ -156,7 +163,7 @@ function registerGameHandlers(io, socket) {
       state.question = work;
       room.usedQuestionIds.push(work.id);
       callback({ ok: true, roundId: round.id, questionId: work.id, title: work.realTitle,
-        synopsis: work.synopsis, contentType: work.contentType || 'synopsis' });
+        synopsis: work.synopsis, kind: work.kind, contentType: work.contentType || 'synopsis' });
     } catch (error) {
       callback({ ok: false, error: error.message });
     } finally {
@@ -169,6 +176,7 @@ function registerGameHandlers(io, socket) {
     if (room.status !== 'waiting') throw new Error('すでにゲームが開始しています');
     const mode = payload?.mode ?? 'player';
     if (!['player', 'cpu'].includes(mode)) throw new Error('出題形式が不正です');
+    if (payload?.genreDisclosure !== undefined && typeof payload.genreDisclosure !== 'boolean') throw new Error('ジャンル指定の設定が不正です');
     const requestedRounds = payload?.totalRounds ?? 5;
     if (mode === 'cpu' && !Number.isInteger(requestedRounds)) throw new Error('ラウンド数が不正です');
     const connectedPlayers = room.players.filter((p) => p.is_connected);
@@ -179,6 +187,7 @@ function registerGameHandlers(io, socket) {
     if (connectedPlayers.length > 6) throw new Error('最大6人です');
     const ordered = mode === 'player' ? shuffle(connectedPlayers) : [];
     ordered.forEach((p, i) => { p.turn_order = i + 1; });
+    room.settings.genreDisclosure = payload?.genreDisclosure ?? room.settings.genreDisclosure;
     room.status = 'playing';
     room.current_round = 1;
     room.total_rounds = mode === 'cpu' ? Math.min(Math.max(requestedRounds, 1), 20) : ordered.length;
@@ -197,7 +206,7 @@ function registerGameHandlers(io, socket) {
     if (payload?.roomId !== room.id || payload?.roundId !== round.id) throw new Error('現在の部屋とラウンドを指定してください');
     if (!round.synopsis && !round.fetchError) return { roundId: round.id, synopsis: null, loading: true };
     if (!round.synopsis) throw new Error(round.fetchError);
-    return { roundId: round.id, synopsis: round.synopsis, contentType: round.contentType };
+    return { roundId: round.id, synopsis: round.synopsis, contentType: round.contentType, ...publicGenre(room, round) };
   });
 
   on('round:confirm_synopsis', (_, room, player) => {
@@ -210,7 +219,7 @@ function registerGameHandlers(io, socket) {
     round.previewConfirmed = true;
     round.declarations.clear();
     io.to(room.code).emit('round:synopsis_presented', {
-      roundId: round.id, synopsis: round.synopsis, contentType: round.contentType,
+      roundId: round.id, synopsis: round.synopsis, contentType: round.contentType, ...publicGenre(room, round),
     });
     io.to(room.code).emit('round:declaration_started', { roundId: round.id });
   });
@@ -239,11 +248,12 @@ function registerGameHandlers(io, socket) {
     round.real_title = null;
     round.sourceQuestion = null;
     round.contentType = null;
+    round.workKind = null;
     round.fetchError = null;
     round.declarations.clear();
     io.to(room.code).emit('game:round_started', {
       totalRounds: room.total_rounds, currentRound: room.current_round,
-      questioner: { id: player.id, nickname: player.nickname }, round: publicRound(round), mode: 'player',
+      questioner: { id: player.id, nickname: player.nickname }, round: publicRound(round, room), mode: 'player', settings: room.settings,
     });
   });
 
@@ -258,13 +268,18 @@ function registerGameHandlers(io, socket) {
       const original = helperStates.get(round)?.question;
       if (original?.id === payload.questionId && original.realTitle === title && original.synopsis === synopsis) sourceQuestion = original;
     }
+    const workKind = payload?.workKind ?? sourceQuestion?.kind ?? null;
+    if (sourceQuestion && workKind !== sourceQuestion.kind) sourceQuestion = null;
+    if (room.settings.genreDisclosure && !getKind(workKind)) throw new Error('作品のジャンルを選択してください');
+    if (workKind !== null && !getKind(workKind)) throw new Error('作品のジャンルが不正です');
     invalidateHelper(round);
+    round.workKind = workKind;
     round.synopsis = synopsis;
     round.real_title = title;
     round.sourceQuestion = sourceQuestion;
     round.contentType = sourceQuestion?.contentType || (getKind(sourceQuestion?.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
     round.declarations.clear();
-    io.to(room.code).emit('round:synopsis_presented', { roundId: round.id, synopsis, contentType: round.contentType });
+    io.to(room.code).emit('round:synopsis_presented', { roundId: round.id, synopsis, contentType: round.contentType, ...publicGenre(room, round) });
   });
 
   for (const kind of ['known', 'unknown']) {
@@ -290,6 +305,7 @@ function registerGameHandlers(io, socket) {
     round.real_title = null;
     round.sourceQuestion = null;
     round.contentType = null;
+    round.workKind = null;
     round.declarations.clear();
     io.to(room.code).emit('round:reselect_started', { roundId: round.id,
       mode: round.questioner_id === null ? 'cpu' : 'player', message: '別の作品を選んでいます...' });
@@ -430,8 +446,8 @@ function revealRound(io, room, round) {
   io.to(room.code).emit('round:revealed', {
     roundId: round.id, realTitle: round.real_title,
     contentType: round.contentType || 'synopsis',
-    workKind: round.sourceQuestion?.kind || null,
-    workKindLabel: getKind(round.sourceQuestion?.kind)?.label || null,
+    workKind: round.workKind || round.sourceQuestion?.kind || null,
+    workKindLabel: getKind(round.workKind || round.sourceQuestion?.kind)?.label || null,
     sources: round.sourceQuestion?.sources || [],
     answers: round.answers.map((a) => {
       const author = room.players.find((p) => p.id === a.player_id);

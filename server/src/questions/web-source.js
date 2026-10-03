@@ -5,8 +5,9 @@ const { getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
 const { MIN_LENGTH, MAX_LENGTH, EXCLUDED_SECTION } = require('./quality');
 const { requirePlayableTitle, questionTitleAliases } = require('./title-policy');
+const { distributionFromPage } = require('./distribution-policy');
 const { postedWork } = require('./posted-work');
-const { creatorWork } = require('./creator-work');
+const { creatorWork, container } = require('./creator-work');
 
 function decode(value) {
   return String(value || '').replace(/&#(x[\da-f]+|\d+);/giu, (_m, number) => {
@@ -60,7 +61,7 @@ function workPageTitleIsEligible(title, method, introduction = '') {
 }
 function canonicalTitle(value) {
   return text(text(value).replace(STORE_PREFIX, '').replace(/【[^】]*(?:限定特典|電子限定|デジタル版限定|無料お試し|期間限定無料)[^】]*】/gu, '')
-    .replace(/^[『「](.+)[』」]$/u, '$1'));
+    .replace(/^[『「](.+)[』」]$/u, '$1').replace(/\s*[(（][^()（）\n]{1,80}(?:文庫|新書|コミックス)[)）]$/u,''));
 }
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const key = (value) => text(value).replace(/[\s\p{P}]/gu, '').toLowerCase();
@@ -90,7 +91,7 @@ function structuredWorks(html) {
   return works;
 }
 
-function introductionMarkup(html, { includeWorkRatings = false } = {}) {
+function introductionMarkup(html, { includeWorkRatings = false, includePublicationMetadata = false } = {}) {
   const source = html.replace(/<!--[\s\S]*?-->/gu, '').replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/giu, '');
   const stack = [];
   const output = [];
@@ -109,8 +110,9 @@ function introductionMarkup(html, { includeWorkRatings = false } = {}) {
     } else {
       const a = attributes(token[0]);
       const classes = `${a.id || ''} ${a.class || ''}`;
-      const scopeClasses = includeWorkRatings ? classes.replace(/(?:^|[-_\s])(?:reviews?|ratings?)(?=$|[-_\s])/giu, '') : classes;
-      const excluded = /^(?:nav|footer|aside|form|button|table|ul|ol|blockquote)$/u.test(name) ||
+      const publicationClasses = includePublicationMetadata ? classes.replace(/(?:metadata|specifications?|bibliograph\w*)/giu, '') : classes;
+      const scopeClasses = includeWorkRatings ? publicationClasses.replace(/(?:^|[-_\s])(?:reviews?|ratings?)(?=$|[-_\s])/giu, '') : publicationClasses;
+      const excluded = /^(?:nav|footer|aside|form|button|blockquote)$/u.test(name) || !includePublicationMetadata && /^(?:table|ul|ol)$/u.test(name) ||
         /\shidden(?:\s|=|>)/iu.test(token[0]) || a['aria-hidden'] === 'true' || /^(?:navigation|complementary|contentinfo)$/u.test(a.role || '') ||
         /(?:^|[-_\s])(?:reviews?|ratings?|badges?|recommend(?:ations)?|related|ranking|cart|purchase|price|profile|breadcrumb|navigation|toc|copyright|social|share|advert(?:isement)?|banner|metadata|specifications?|bibliograph\w*|staff|cast|credits|lyrics)(?:$|[-_\s])|author[-_]?(?:bio|profile)|track[-_]list/iu.test(scopeClasses);
       const empty = /^(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/u.test(name) || token[0].endsWith('/>');
@@ -286,8 +288,11 @@ function extractWebWork(html, url, hintKind) {
     throw new Error('ページの作品名を照合できません');
   }
   // Navigation and unrelated links cannot supply a medium for a person/page.
-  const primary = creator?.markup || html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/iu)?.[1]
-    || html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/iu)?.[1] || html;
+  const article = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/iu)?.[1];
+  const retailWork = new URL(url).hostname==='books.rakuten.co.jp' && /^\/rb\/\d+\/$/u.test(new URL(url).pathname)
+    ? container(html,a=>a.id==='productInfo',{attributes}) + container(html,a=>a.id==='productDetailedDescription',{attributes}) : '';
+  const primary = creator?.markup || retailWork || html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/iu)?.[1]
+    || (article && key(text(article)).includes(key(realTitle)) ? article : html);
   const workMetadata = introductionMarkup(primary, { includeWorkRatings: true });
   // Read labels attached to this identified work. A search term, unrelated
   // article heading, store identity or low review count is not production proof.
@@ -298,7 +303,7 @@ function extractWebWork(html, url, hintKind) {
   const explicitKind = /映画|劇場版/u.test(titleContext) ? 'film' : /TVアニメ|テレビアニメ/u.test(titleContext) ? 'anime' :
     /漫画|マンガ|コミック/u.test(titleContext) ? 'manga' : /(?:ゲーム|RPG|ADV|アドベンチャー)/iu.test(titleContext) ? 'game' : null;
   const context = [genre, text(meta['og:type']), titleContext, text(introductionMarkup(primary)).slice(0,8000)].join(' ');
-  let kind = TYPE_KIND[structured?.workType] || (structured?.workType === 'Product' ? 'literary-work' : null);
+  let kind = (!structured && meta['og:type']==='books.book' ? 'literary-work' : null) || TYPE_KIND[structured?.workType] || (structured?.workType === 'Product' ? 'literary-work' : null);
   const bookKinds = ['novel','short-story','literary-work','manga','poem','nonfiction'];
   const compatibleHint = !structured || (['Book','Product'].includes(structured.workType) && bookKinds.includes(hintKind)) ||
     (structured.workType === 'Movie' && ['film','anime'].includes(hintKind)) ||
@@ -309,6 +314,14 @@ function extractWebWork(html, url, hintKind) {
   if (!kind || !getKind(kind)) throw new Error('資料から作品の種類を確認できません');
   // A generic series heading must not hide the sequel number in typed data.
   if (structured) requirePlayableTitle(canonicalTitle(structured.name), kind);
+  // Retail headings may omit a volume/edition present in the product metadata.
+  if (meta['og:type'] === 'books.book' || retailWork) {
+    const productTitle = canonicalTitle(titleFromPage);
+    requirePlayableTitle(productTitle, 'film');
+    if (/\s*(?:第\s*)?[0-9一二三四五六七八九十百千]+\s*(?:巻|話|集)\s*[)）\]]?$/u.test(productTitle)) {
+      throw new Error('巻数付きの商品は出題対象外です');
+    }
+  }
   realTitle = requirePlayableTitle(realTitle, kind);
   let aliases = questionTitleAliases(realTitle, [sourceTitle, ...[structured?.alternateName].flat()].filter((a) => typeof a === 'string' && text(a)).map(text), kind);
   // A plain heading alone is not enough: require an explicit introduction section
@@ -353,6 +366,8 @@ function extractWebWork(html, url, hintKind) {
     evidence: { sourceId: `web-${hash(url)}`, section: chosen.section,
       work: { version: 2, title: realTitle, kind, pageTitle, method: posted ? 'posted-work' : creator ? 'creator-work' : structured ? 'typed-work' : 'page-title' },
       sourceTextSha256: hash(chosen.content), excerpts: summary.excerpts,
+      distribution: distributionFromPage({title:realTitle,kind,url,structured,meta,pageTitle,author,
+        markup:introductionMarkup(new URL(url).hostname==='books.rakuten.co.jp' ? container(html,a=>a.id==='productDetailedDescription',{attributes}) : primary,{includePublicationMetadata:true})},{text,attributes}),
       visibility: visibilityEvidence({ title: realTitle, aliases, kind, sourceUrl: url,
         // The page identity has already been checked. Description metadata is
         // a reach signal only; it is never enough to generate a question text.

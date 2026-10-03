@@ -278,13 +278,13 @@ test('series headings cannot turn typed sequel data into a base-work question', 
 
 test('long-tail searches lead the new plan for films, games, comics and commercial small presses',async()=>{
   const {QUERY_VERSION}=require('../server/src/questions/web-search');
-  for(const [kind,keyword] of [['film','自主制作'],['game','個人制作'],['manga','同人'],['novel','自主出版']]){
+  for(const [kind,keyword] of [['film','単館公開'],['game','インディー'],['manga','単行本'],['novel','小出版社']]){
     let query;const result=await discoverWebCandidates({kinds:[kind],limit:1,maxRequests:1,fetchImpl:async(url)=>{
       query=new URL(url).searchParams.get('q');return page(results(['https://independent.example.org/work']));}});
     assert.ok(query.includes(keyword));assert.ok(!/site:|話題|ランキング|新刊/u.test(query));assert.equal(result.state.queryVersion,QUERY_VERSION);
   }
   assert.ok(searchQuery('novel','小規模').includes('小出版社'));
-  assert.ok(searchQuery('game','小規模').includes('個人開発'));
+  assert.ok(searchQuery('game','小規模').includes('パブリッシャー'));
 });
 
 test('old broad search state begins a new query while preserving pending URLs, visits and cooldowns',async()=>{
@@ -292,7 +292,7 @@ test('old broad search state begins a new query while preserving pending URLs, v
   let calls=0;
   const result=await discoverWebCandidates({kinds:['film'],limit:1,maxRequests:1,state:{cursor:31,page:2,pending:[old],
     visited:[old.url],cooldowns:{bing:Date.now()+100000},completedCycle:true,revisitAt:'2099-01-01T00:00:00Z'},
-    fetchImpl:async(url)=>{calls++;assert.ok(new URL(url).searchParams.get('q').includes('自主制作'));assert.equal(new URL(url).searchParams.get('s'),null);return page(results(['https://new.example.org/work']));}});
+    fetchImpl:async(url)=>{calls++;assert.ok(new URL(url).searchParams.get('q').includes('単館公開'));assert.equal(new URL(url).searchParams.get('s'),null);return page(results(['https://new.example.org/work']));}});
   assert.equal(calls,1);assert.equal(result.candidates[0].url,'https://new.example.org/work');
   assert.equal(result.state.pending[0].url,old.url);assert.ok(result.state.visited.includes(old.url));assert.ok(result.state.cooldowns.bing>Date.now());
   const next=await discoverWebCandidates({kinds:['film'],state:result.state,limit:1,maxRequests:1,fetchImpl:async()=>{throw Error('must use backlog');}});
@@ -500,4 +500,13 @@ test('bracketed creator-store synopsis labels separate the plot from preceding p
   const description=`オリジナル漫画です。\n【収録内容】\n全66ページの仕様です。\n【あらすじ】\n${story}\n【仕様】\n販売形式の説明です。`;
   const q=await generateWebQuestion({url:creatorComicUrl,kind:'manga'},{fetchImpl:async()=>page(creatorComic({description}),creatorComicUrl)});
   assert.equal(q.synopsis,story);assert.equal(questionIsValid(q),true);
+});
+
+
+test('retail product title cannot hide volume numbers behind a series heading', () => {
+  const retail = title => `<title>${title}</title><meta property="og:type" content="books.book"><h1>港の灯り</h1><h2>内容紹介</h2>${story}`;
+  assert.throws(() => extractWebWork(retail('港の灯り 136 (ジャンプコミックス)'),base,'manga'));
+  assert.throws(() => extractWebWork(retail('港の灯り 第136巻'),base,'manga'));
+  assert.equal(extractWebWork(retail('港の灯り リマスター版'),base,'novel').realTitle,'港の灯り');
+  assert.equal(extractWebWork(retail('港の灯り (講談社文庫)'),base,'novel').realTitle,'港の灯り');
 });

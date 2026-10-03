@@ -45,6 +45,20 @@ function registerRoomHandlers(io, socket) {
     });
   }
 
+  socket.on('room:update_settings', (payload, callback) => {
+    try {
+      const { room, player } = getMember(socket);
+      if (!player.is_host) throw new Error('ルールの変更はホストのみ操作できます');
+      if (room.status !== 'waiting') throw new Error('ゲーム開始後はルールを変更できません');
+      if (typeof payload?.genreDisclosure !== 'boolean') throw new Error('ジャンル指定の設定が不正です');
+      room.settings = { ...room.settings, genreDisclosure: payload.genreDisclosure };
+      io.to(room.code).emit('room:settings_updated', { settings: room.settings });
+      if (typeof callback === 'function') callback({ ok: true, settings: room.settings });
+    } catch (error) {
+      if (typeof callback === 'function') callback({ ok: false, error: error.message });
+    }
+  });
+
   socket.on('room:get_state', (_, callback) => {
     try {
       const { room } = getMember(socket);

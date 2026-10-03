@@ -29,7 +29,8 @@ function storedQuestion(text, changes = {}) {
     generationMethod: 'extractive-v1', evidence: { sourceId: 'wikipedia-ja-1-100', section: 'あらすじ',
       sourceTextSha256: createHash('sha256').update(text).digest('hex'), excerpts: sourceSentences(text) }, ...changes };
   q.evidence.visibility = require('../server/src/questions/selection-policy').visibilityEvidence({
-    title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['自主出版']});
+    title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['小規模出版']});
+  q.evidence.distribution = require('../server/src/questions/distribution-policy').distributionEvidence({title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,publisher:'検証出版社',date:'2026-01-01',identifier:'9784065373262',developer:'検証開発会社',price:1000});
   return q;
 }
 

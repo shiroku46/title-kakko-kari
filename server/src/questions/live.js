@@ -102,7 +102,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
                 }
                 throw error;
               }
-              if (mediaKind(q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || selection.tier(q) !== 0) throw new Error('作品条件を満たしません');
+              if (mediaKind(q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || !selection.isEligible(q)) throw new Error('作品条件を満たしません');
               return q;
             }));
           } catch { /* Try the next source batch when every work is invalid. */ }
