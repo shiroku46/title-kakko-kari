@@ -252,3 +252,53 @@ test('NDL direct introductions apply the same title policy before fallback and p
   assert.ok(q.aliases.includes('港の約束(新装版)'));assert.equal(q.sources[0].provider,'ndl');
   assert.equal(questionIsValid(q),true);
 });
+
+test('title-bearing sentences are omitted and complete later source sentences fill the introduction', async () => {
+  const { summarizeWithoutTitles } = require('../server/src/questions/generator');
+  const named = '「港の約束」は、家族の再会を描く小説である。';
+  const source = named + sentences[0] + '港の約束という作品では旅人が登場する。' + sentences.slice(1).join('');
+  const summary = summarizeWithoutTitles(source, ['港の約束']);
+  assert.ok(summary.synopsis.length >= 120 && summary.synopsis.length <= 280);
+  assert.ok(!/港の約束|■■■/u.test(summary.synopsis));
+  assert.ok(summary.excerpts.every(sentence => sentences.includes(sentence)));
+  assert.equal(summary.synopsis, summary.excerpts.join(''));
+  const { generateWebQuestion } = require('../server/src/questions/web-source');
+  const web = await generateWebQuestion({url:'https://publisher.example.org/book/1',kind:'novel'},
+    {fetchImpl:async()=>new Response(page(`<h2>あらすじ</h2>${source}`),{headers:{'content-type':'text/html'}})});
+  assert.equal(questionIsValid(web), true);
+  assert.ok(!/港の約束|■■■/u.test(web.synopsis));
+  assert.equal(web.evidence.sourceTextSha256, createHash('sha256').update(source).digest('hex'));
+});
+
+test('legacy masks are replaced by sentence omission without changing records or source hashes', () => {
+  const { redactTitle } = require('../server/src/questions/generator');
+  const source = '「港の約束」は海辺の村の少年を描く小説である。' + story;
+  const saved = storedQuestion(source);
+  saved.synopsis = redactTitle(source, [saved.realTitle]);
+  const before = JSON.stringify(saved);
+  assert.equal(questionIsValid(saved), false);
+  const prepared = prepareQuestion(saved);
+  assert.ok(prepared && questionIsValid(prepared));
+  assert.ok(!/港の約束|■■■/u.test(prepared.synopsis));
+  assert.equal(prepared.evidence.sourceTextSha256, saved.evidence.sourceTextSha256);
+  assert.equal(JSON.stringify(saved), before);
+  assert.equal(prepareQuestion({...saved, synopsis:saved.synopsis+'改変。'}), null);
+  const shortSource = '港の約束をめぐり少年と旅人が島を訪ねる物語。'.repeat(8) + sentences[0];
+  const short = storedQuestion(shortSource);
+  short.synopsis = redactTitle(shortSource, [short.realTitle]);
+  assert.equal(prepareQuestion(short), null);
+});
+
+test('verified translated and movie base aliases are removed as whole sentences', () => {
+  const { summarizeWithoutTitles } = require('../server/src/questions/generator');
+  const { questionTitleAliases } = require('../server/src/questions/title-policy');
+  for (const [title, name] of [['STORY GAME〈ストーリー・ゲーム〉','ストーリー・ゲーム'],
+    ['ストリートファイター/ザ・ ムービー','ストリートファイター']]) {
+    const aliases = questionTitleAliases(title,[], 'film');
+    assert.ok(aliases.includes(name));
+    const summary = summarizeWithoutTitles(`「${name}」は家族の約束と旅の秘密を描いた作品である。`+story,aliases);
+    assert.ok(!summary.synopsis.includes(name));
+    assert.ok(!summary.synopsis.includes('■■■'));
+    assert.ok(summary.excerpts.every(sentence=>sentences.includes(sentence)));
+  }
+});

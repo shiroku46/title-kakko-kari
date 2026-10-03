@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -14,10 +14,10 @@ import {
   RoundHeader,
   PopBackdrop,
 } from '../ui';
-import { getCurrentUrl } from '../../hooks/useSocket';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../../hooks/useResponsiveLayout';
 
 export default function SelectingPhase({
+  round,
   currentRound,
   totalRounds,
   questioner,
@@ -38,6 +38,11 @@ export default function SelectingPhase({
   const [requestError, setRequestError] = useState(null);
   const [skipConfirming, setSkipConfirming] = useState(false);
   const requestPendingRef = useRef(false);
+  const activeRef = useRef(true);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
   const fetching = pendingAction === 'fetch';
   const requestBusy = Boolean(pendingAction);
   const { isPC, contentPadding } = useResponsiveLayout();
@@ -70,33 +75,37 @@ export default function SelectingPhase({
 
   async function handleAutoFetch() {
     if (requestPendingRef.current) return;
+    if (!socket?.connected) {
+      showError('fetch', 'サーバーに接続していません。接続を確認して、もう一度お試しください。');
+      return;
+    }
     requestPendingRef.current = true;
     setPendingAction('fetch');
     setRequestError(null);
-    const controller = new AbortController();
     // An empty bank may discover and verify new source material on demand.
-    const timeout = setTimeout(() => controller.abort(), 70000);
     try {
-      const baseUrl = getCurrentUrl() || 'https://title-kakko-kari.onrender.com';
-      const res = await fetch(`${baseUrl}/api/random-work`, { signal: controller.signal });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showError('fetch', data.error ?? '問題が見つかりませんでした。再試行してください。');
+      const data = await new Promise((resolve, reject) => {
+        socket.timeout(70000).emit('round:prepare_question', { roomId: round?.room_id, roundId: round?.id }, (error, response) => {
+          if (error) reject(error);
+          else resolve(response);
+        });
+      });
+      if (!activeRef.current) return;
+      if (!data?.ok) {
+        showError('fetch', data?.error ?? '問題が見つかりませんでした。再試行してください。');
         return;
       }
+      if (data.roundId !== round?.id) return;
       setSynopsisText(data.synopsis);
       setRealTitle(data.title);
       setAutomaticQuestionId(data.questionId ?? null);
     } catch (err) {
-      if (err.name === 'AbortError') {
-        showError('fetch', '取得に時間がかかりすぎました。もう一度お試しください。');
-      } else {
+      if (activeRef.current) {
         showError('fetch', '問題を取得できませんでした。接続を確認して、もう一度お試しください。');
       }
     } finally {
-      clearTimeout(timeout);
       requestPendingRef.current = false;
-      setPendingAction(null);
+      if (activeRef.current) setPendingAction(null);
     }
   }
 
@@ -230,8 +239,8 @@ export default function SelectingPhase({
                   <View style={styles.guideSteps}>
                     {[
                       ['1', '作品を決める'],
-                      ['2', '作品の紹介文を入力'],
-                      ['3', '本物のタイトルを秘密に登録'],
+                      ['2', '紹介文を入力・編集'],
+                      ['3', '正解のタイトルを確認'],
                     ].map(([num, label]) => (
                       <View key={num} style={styles.guideStep}>
                         <View style={styles.guideStepNum}>
@@ -263,13 +272,13 @@ export default function SelectingPhase({
                     onPress={handleAutoFetch}
                     loading={fetching}
                     disabled={requestBusy}
-                    accessibilityLabel="出典付きの問題を自動取得"
+                    accessibilityLabel={automaticQuestionId ? '別の作品を用意する' : '出題の補助を使う'}
                     style={styles.autoFetchButton}
                   >
-                    出典付きの問題を自動取得
+                    {automaticQuestionId ? '別の作品を用意する' : '出題の補助を使う'}
                   </StationeryButton>
                   <Text style={styles.helperText}>
-                    出典は答え合わせで表示されます。編集した場合は手入力の問題として扱います。
+                    紹介文と正解は出題者だけに表示されます。文章を編集してから出題できます。
                   </Text>
                   {requestError?.action === 'fetch' ? errorNotice : null}
 
@@ -290,7 +299,7 @@ export default function SelectingPhase({
                     accessibilityLabel="作品の紹介文入力欄"
                   />
 
-                  <Text style={styles.fieldLabel}>本物のタイトル</Text>
+                  <Text style={styles.fieldLabel}>正解のタイトル（出題者だけに表示）</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="結果発表まで参加者には見えません"

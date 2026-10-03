@@ -1,9 +1,9 @@
 const { createHash } = require('node:crypto');
-const { redactTitle, summarizeExtractively } = require('./generator');
+const { summarizeWithoutTitles } = require('./generator');
 const { getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
 const { MIN_LENGTH, MAX_LENGTH, EXCLUDED_SECTION } = require('./quality');
-const { requirePlayableTitle } = require('./title-policy');
+const { requirePlayableTitle, questionTitleAliases } = require('./title-policy');
 
 function decode(value) {
   return String(value || '').replace(/&#(x[\da-f]+|\d+);/giu, (_m, number) => {
@@ -241,6 +241,7 @@ function extractWebWork(html, url, hintKind) {
   // A generic series heading must not hide the sequel number in typed data.
   if (structured) requirePlayableTitle(canonicalTitle(structured.name), kind);
   realTitle = requirePlayableTitle(realTitle, kind);
+  const aliases = questionTitleAliases(realTitle, [sourceTitle, ...[structured?.alternateName].flat()].filter((a) => typeof a === 'string' && text(a)).map(text), kind);
   // A plain heading alone is not enough: require an explicit introduction section
   // or typed work data. Search snippets and generic SEO descriptions never qualify.
   const sections = introductionSections(html);
@@ -252,13 +253,11 @@ function extractWebWork(html, url, hintKind) {
   let chosen;
   for (const section of sections) {
     if (/歌詞|lyric|目次|収録曲/iu.test(section.content.slice(0,60))) continue;
-    try { summary = summarizeExtractively(section.content); chosen = section; break; } catch { /* Try the next explicit introduction. */ }
+    try { summary = summarizeWithoutTitles(section.content, aliases); chosen = section; break; } catch { /* Try the next explicit introduction. */ }
   }
   if (!summary) throw new Error('完全な文による十分な作品紹介がありません');
-  const translatedTitle = realTitle.match(/[A-Za-z].*[(（]([\p{Script=Katakana}ー・\s]+)[)）]$/u);
-  const aliases = [...new Set([translatedTitle ? realTitle.replace(/[(（][^()（）]+[)）]$/u, '').trim() : null, translatedTitle?.[1], sourceTitle !== realTitle ? sourceTitle : null, structured?.alternateName].flat().filter((a) => typeof a === 'string' && text(a)).map(text))];
-  const synopsis = redactTitle(summary.synopsis, [realTitle, ...aliases]);
-  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH || synopsis.replace(/■■■/gu, '').length < MIN_LENGTH) throw new Error('題名を伏せた紹介文の長さが不十分です');
+  const synopsis = summary.synopsis;
+  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH) throw new Error('題名を含まない紹介文の長さが不十分です');
   const author = named(structured?.author || structured?.creator || structured?.director) || meta['book:author'] || '';
   const isbn = String(structured?.isbn || meta['books:isbn'] || meta['book:isbn'] || '').replace(/[^\dX]/giu,'');
   const workIdentity = isbn.length === 13 || isbn.length === 10 ? `isbn:${isbn}` :

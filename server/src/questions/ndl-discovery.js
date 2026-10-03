@@ -1,10 +1,10 @@
 const { MIN_LENGTH, MAX_LENGTH, MAX_SENTENCES, introductionSentenceIsUsable } = require('./quality');
 const { createHash } = require('node:crypto');
 const { NDL_API, tags, decodeXml, personName, approvedNDLUrl, readNDLResponse } = require('./ndl');
-const { generateQuestion, stripDisambiguation, sourceSentences, summarizeExtractively,
-  redactTitle, containsTitle, descriptionSentences, extractPlotSection } = require('./generator');
+const { generateQuestion, stripDisambiguation, sourceSentences,
+  containsTitle, descriptionSentences, extractPlotSection, summarizeWithoutTitles } = require('./generator');
 const { getKind } = require('./kinds');
-const { requirePlayableTitle } = require('./title-policy');
+const { requirePlayableTitle, questionTitleAliases } = require('./title-policy');
 
 const WIKI_API = 'https://ja.wikipedia.org/w/api.php';
 const STATE_VERSION = 1;
@@ -227,8 +227,9 @@ function explicitIntroduction(entry) {
 
 async function generateFromIntroduction(entry, introduction, { localAI, now }) {
   const realTitle = requirePlayableTitle(entry.title, entry.kind);
+  const aliases = questionTitleAliases(realTitle, [entry.title, entry.ndl.originalTitle, ...(entry.aliases || [])], entry.kind);
   let generated = localAI ? await localAI({ sourceId: `ndl-${entry.ndl.recordId}`, text: introduction.text,
-    minLength: MIN_LENGTH, maxLength: MAX_LENGTH }) : summarizeExtractively(introduction.text);
+    minLength: MIN_LENGTH, maxLength: MAX_LENGTH }) : summarizeWithoutTitles(introduction.text, aliases);
   if (localAI) {
     const source = sourceSentences(introduction.text);
     if (!generated || typeof generated.synopsis !== 'string' || !Array.isArray(generated.excerpts)) throw new Error('AIの資料抽出が不正です');
@@ -240,12 +241,12 @@ async function generateFromIntroduction(entry, introduction, { localAI, now }) {
     }
     generated = { synopsis: excerpts.join(''), excerpts };
   }
-  const aliases = [...new Set([realTitle, entry.title, entry.ndl.originalTitle, ...(entry.aliases || [])])];
-  const synopsis = redactTitle(generated.synopsis, aliases);
-  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH || synopsis.replace(/■■■/gu, '').length < MIN_LENGTH ||
+  generated = summarizeWithoutTitles(generated.synopsis, aliases);
+  const synopsis = generated.synopsis;
+  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH ||
       sourceSentences(generated.synopsis).length > MAX_SENTENCES ||
       !sourceSentences(generated.synopsis).every(introductionSentenceIsUsable) || containsTitle(synopsis, aliases)) {
-    throw new Error('題名を伏せた作品紹介の検査に合格しませんでした');
+    throw new Error('題名を含まない作品紹介の検査に合格しませんでした');
   }
   const source = bibliographySource(entry, now().toISOString());
   return { id: entry.id, realTitle, aliases, kind: entry.kind,

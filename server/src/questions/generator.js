@@ -1,7 +1,7 @@
 const { createHash } = require('node:crypto');
 const { getKind } = require('./kinds');
 const { MIN_LENGTH, MAX_LENGTH, TARGET_LENGTH, MAX_SENTENCES, introductionSentenceIsUsable } = require('./quality');
-const { requirePlayableTitle } = require('./title-policy');
+const { requirePlayableTitle, questionTitleAliases } = require('./title-policy');
 
 const WIKIPEDIA_API = 'https://ja.wikipedia.org/w/api.php';
 const LICENSE = 'CC BY-SA 4.0';
@@ -314,7 +314,7 @@ function extractDescription(extract, aliases, kind = null) {
     const excerpts = descriptionSentences(candidate.text, aliases, kind);
     if (excerpts.join('').length < MIN_LENGTH) continue;
     try {
-      const summary = summarizeExtractively(excerpts.join(''));
+      const summary = summarizeWithoutTitles(excerpts.join(''), aliases);
       return { ...candidate, ...summary, allowedSentences: excerpts, contentType: 'description' };
     } catch {
       // Another section may contain sufficient complete descriptive sentences.
@@ -327,7 +327,7 @@ function extractWorkContent(page, kind, aliases) {
   if (getKind(kind).contentMode === 'story') {
     try {
       const plot = extractPlotSection(page.extract);
-      const summary = summarizeExtractively(plot.text);
+      const summary = summarizeWithoutTitles(plot.text, aliases);
       return { ...plot, ...summary, allowedSentences: sourceSentences(plot.text), contentType: 'synopsis' };
     } catch {
       // An overview is labelled as a description; no plot is invented for it.
@@ -383,6 +383,12 @@ function summarizeExtractively(text, { minLength = MIN_LENGTH, maxLength = MAX_L
   }
   if (length < minLength) throw new Error('文を途中で切らずに出題できるあらすじがありません');
   return { synopsis: selected.join(''), excerpts: selected };
+}
+
+function summarizeWithoutTitles(text, aliases) {
+  const sentences = sourceSentences(text).filter((sentence) =>
+    !sentence.includes('■■■') && !containsTitle(sentence, aliases));
+  return summarizeExtractively(sentences.join(''));
 }
 
 function validateWikipediaUrl(value, title) {
@@ -449,7 +455,7 @@ async function generateQuestion(entry, { fetchImpl = global.fetch, localAI = nul
     throw new Error('紹介元の著作者とWikipediaの作品定義が一致しません');
   }
   const realTitle = requirePlayableTitle(entry.realTitle || stripDisambiguation(page.title), entry.kind);
-  const aliases = [...new Set([...retrievedTitleAliases(entry, page), realTitle])];
+  const aliases = questionTitleAliases(realTitle, retrievedTitleAliases(entry, page), entry.kind);
   const plot = extractWorkContent(page, entry.kind, aliases);
   const sourceId = `wikipedia-ja-${page.pageid}-${page.revisionId}`;
   let generated;
@@ -476,13 +482,13 @@ async function generateQuestion(entry, { fetchImpl = global.fetch, localAI = nul
   } else {
     generated = { synopsis: plot.synopsis, excerpts: plot.excerpts };
   }
-  const synopsis = redactTitle(generated.synopsis, aliases);
-  const usefulLength = synopsis.replace(/■■■/gu, '').length;
-  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH || usefulLength < MIN_LENGTH ||
+  generated = summarizeWithoutTitles(generated.synopsis, aliases);
+  const synopsis = generated.synopsis;
+  if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH ||
       sourceSentences(generated.synopsis).length > MAX_SENTENCES ||
       !sourceSentences(generated.synopsis).every(introductionSentenceIsUsable) ||
       containsTitle(synopsis, aliases) || /https?:\/\/|\[\[|\]\]/iu.test(synopsis)) {
-    throw new Error('題名を伏せた出題文の検査に合格しませんでした');
+    throw new Error('題名を含まない出題文の検査に合格しませんでした');
   }
   const retrievedAt = now().toISOString();
   const revisionUrl = new URL(page.sourceUrl);
@@ -523,6 +529,7 @@ async function generateBank(catalog, options = {}) {
 
 module.exports = {
   generateQuestion, generateBank, retrieveArticle, extractPlotSection, summarizeExtractively,
+  summarizeWithoutTitles,
   redactTitle, containsTitle, titleAliases, retrievedTitleAliases, matchesWorkType,
   validateWikipediaUrl, stripDisambiguation, sourceSentences, assertStandalonePlot, workDefinition,
   authoredWorkMatches, descriptionSections, descriptionSentences, extractDescription, extractWorkContent,

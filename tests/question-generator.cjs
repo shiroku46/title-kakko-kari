@@ -13,8 +13,9 @@ test('bundled real-source bank is usable by the gameplay loader', () => {
   assert.ok(bank.questions.length >= 20, 'Bundled bank must support a 20-round CPU game');
   assert.equal(new Set(bank.questions.map((q) => q.id)).size, bank.questions.length);
   assert.equal(new Set(bank.questions.map((q) => q.realTitle)).size, bank.questions.length);
-  for (const stored of bank.questions) {
-    const question = prepareQuestion(stored);
+  const usable = bank.questions.map(prepareQuestion).filter(Boolean);
+  assert.ok(usable.length >= 20, 'Title-free fallback must still support 20 CPU rounds');
+  for (const question of usable) {
     assert.ok(question && questionIsValid(question), `Gameplay rejects generated question ${question.id}`);
     const sourceTitle = decodeURIComponent(new URL(question.sources[0].url).pathname.slice('/wiki/'.length))
       .replace(/_/gu, ' ').normalize('NFKC');
@@ -140,10 +141,10 @@ test('discovers and masks verified redirect aliases without a manual title list'
   assert.equal(question.aliases.includes('Category:関係のない題名'), false);
   assert.equal(question.synopsis.includes('短題'), false);
   assert.equal(containsTitle(question.synopsis, question.aliases), false);
-  assert.match(question.synopsis, /■■■と■■■は/u);
+  assert.equal(question.synopsis, plot);
   assert.equal(question.realTitle, '確認作品');
   assert.equal(new URL(question.sources[0].url).searchParams.get('oldid'), '456');
-  assert.equal(question.evidence.excerpts.join(''), source.normalize('NFKC'));
+  assert.equal(question.evidence.excerpts.join(''), plot);
 });
 
 test('masks readings and original names from the verified lead subject without harvesting other annotations', async () => {
@@ -400,7 +401,7 @@ test('rejects failed upstream requests and a title-only synopsis', async () => {
   await assert.rejects(generateQuestion(entry, { fetchImpl: async () => new Response('', { status: 503 }) }), /取得できません/);
   await assert.rejects(generateQuestion(entry, { fetchImpl: sourceFetch(article({
     extract: `『確認作品』は日本の小説。\n== あらすじ ==\n${'確認作品'.repeat(40)}。`,
-  })) }), /検査に合格/);
+  })) }), /検査に合格|あらすじ|紹介文/);
 });
 
 test('local AI retains deterministic source metadata and must supply exact source evidence', async () => {

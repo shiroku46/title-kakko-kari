@@ -39,4 +39,20 @@ function requirePlayableTitle(value, kind) {
   return title;
 }
 
-module.exports = { playableTitle, requirePlayableTitle };
+function questionTitleAliases(realTitle, aliases = [], kind) {
+  const result = new Set();
+  for (const value of [realTitle, ...aliases]) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    const title = value.normalize('NFKC').replace(/\s+/gu, ' ').trim();
+    result.add(title);
+    const base = playableTitle(title, kind);
+    if (base) result.add(base);
+    const translation = title.match(/^(.*[A-Za-z].*)[〈《(]([\p{Script=Katakana}ー・\s]+)[〉》)]$/u);
+    if (translation) { result.add(translation[1].trim()); result.add(translation[2].trim()); }
+    const movieBase = title.replace(/\s*(?:[/:：]\s*|\s+)(?:ザ[・\s-]*ムービー|the\s+movie)$/iu, '').trim();
+    if (movieBase && movieBase !== title) result.add(movieBase);
+  }
+  return [...result];
+}
+
+module.exports = { playableTitle, requirePlayableTitle, questionTitleAliases };
