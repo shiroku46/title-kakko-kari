@@ -159,3 +159,96 @@ test('Latin names in quoted works do not reject an otherwise Japanese introducti
   assert.equal(introductionSentenceIsUsable('STEINS;GATEは「CHAOS;HEAD NOAH」に続く科学アドベンチャーシリーズの第2弾です。'),true);
   assert.equal(introductionSentenceIsUsable('A young traveller follows a secret letter and finds his family in the village!'),false);
 });
+
+// Rules are exercised with complete sourced questions, not only string matching.
+test('numbered sequel titles are excluded without discarding numeric names or phrases', () => {
+  const { playableTitle } = require('../server/src/questions/title-policy');
+  for (const title of ['小説 ヒトラー II 戦前篇', '三体Ⅱ 黒暗森林', 'ファイナルファンタジーVII',
+    '港の約束2', '港の約束 2: 帰還', '港の約束 (2)', '港の約束 二', '港の約束 第三部',
+    '港の約束 PART II', '港の約束 前編', '港の約束 後篇', '続・港の約束', '港の約束II(オリジナル版)']) {
+    const q = storedQuestion(story, { realTitle: title });
+    assert.equal(playableTitle(title, 'novel'), null, title);
+    assert.equal(questionIsValid(q), false, title);
+    assert.equal(prepareQuestion(q), null, title);
+    assert.throws(() => extractWebWork(`<title>${title} | 小説</title><h1>${title}</h1><h2>あらすじ</h2>${story}`,
+      'https://publisher.example.org/work/1', 'novel'), /出題対象外/, title);
+  }
+  for (const title of ['1984', '三体', '七人の侍', '秒速5センチメートル', '2001年宇宙の旅', '海の100年', 'I, ROBOT', '吸血鬼ハンターD']) {
+    assert.equal(playableTitle(title, 'film'), title);
+    assert.ok(questionIsValid(storedQuestion(story, { realTitle: title })));
+  }
+});
+
+test('saved edition and volume titles become base answers, remask both names and preserve original evidence', () => {
+  const { redactTitle } = require('../server/src/questions/generator');
+  for (const [title, baseTitle, kind] of [
+    ['ストレイト・ストーリー 4Kリマスター版', 'ストレイト・ストーリー', 'film'],
+    ['STEINS;GATE(オリジナル版)', 'STEINS;GATE', 'game'],
+    ['Journey HD Remaster', 'Journey', 'game'],
+    ['港の約束【新装版】', '港の約束', 'novel'],
+    ['港の約束 (1)', '港の約束', 'manga'],
+    ['港の約束 12巻', '港の約束', 'manga'],
+    ['港の約束(分冊版)第1話', '港の約束', 'manga'],
+  ]) {
+    const sourceText = `${title}は、海を渡る少年が失われた家族の手紙を探す物語である。${story}${baseTitle}の舞台には静かな港町と遠い島が登場する。`;
+    const q = storedQuestion(sourceText, { realTitle: title, kind });
+    q.synopsis = redactTitle(sourceText, [title]);
+    q.sources[0].url = 'https://ja.wikipedia.org/wiki/' + encodeURIComponent(title) + '?oldid=100';
+    const before = JSON.stringify(q);
+    const prepared = prepareQuestion(q);
+    assert.ok(prepared && questionIsValid(prepared), title);
+    assert.equal(prepared.realTitle, baseTitle);
+    assert.ok(prepared.aliases.includes(title));
+    assert.ok(!prepared.synopsis.includes(baseTitle));
+    assert.equal(prepared.evidence.sourceTextSha256, q.evidence.sourceTextSha256);
+    assert.deepEqual(prepared.sources, q.sources);
+    assert.equal(JSON.stringify(q), before);
+    assert.equal(prepareQuestion(prepared), prepared, 'preparation is idempotent');
+  }
+});
+
+test('saved Web evidence must still identify the original work after edition normalization', async () => {
+  const { generateWebQuestion } = require('../server/src/questions/web-source');
+  const title = '港の約束 4Kリマスター版';
+  const q = await generateWebQuestion({url:'https://film.example.org/',kind:'film'}, {
+    fetchImpl:async()=>new Response(`<title>映画『${title}』公式サイト</title><h2>STORY</h2>${story}`,{headers:{'content-type':'text/html'}}),
+  });
+  assert.equal(q.realTitle,'港の約束');
+  assert.equal(questionIsValid(q),true);
+  const legacy = { ...q, realTitle:title, aliases:[], evidence:{ ...q.evidence, work:{ ...q.evidence.work,title } } };
+  assert.ok(questionIsValid(prepareQuestion(legacy)));
+  for (const wrongTitle of ['別の作品', '港の約束 II']) {
+    const bad = {...legacy,evidence:{...legacy.evidence,work:{...legacy.evidence.work,title:wrongTitle}}};
+    assert.equal(prepareQuestion(bad),null);
+  }
+});
+
+test('selection skips numbered saved works and presents editions with their base title without deleting records', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(),'title-policy-'));
+  t.after(()=>rmSync(directory,{recursive:true,force:true}));
+  const bankPath = join(directory,'bank.json');
+  const sequel = storedQuestion(story,{id:'sequel',realTitle:'港の約束 II'});
+  const edition = storedQuestion(story,{id:'edition',realTitle:'港の約束(オリジナル版)',kind:'game'});
+  writeFileSync(bankPath,JSON.stringify({schemaVersion:1,questions:[sequel,edition]}));
+  const service = createQuestionService({bankPath,enabled:false});
+  t.after(()=>service.stop());
+  const q = await service.selectQuestion();
+  assert.equal(q.id,'edition');assert.equal(q.realTitle,'港の約束');
+  assert.deepEqual(JSON.parse(readFileSync(bankPath,'utf8')).questions.map(q=>q.realTitle),['港の約束 II','港の約束(オリジナル版)']);
+});
+
+test('NDL direct introductions apply the same title policy before fallback and preserve bibliography', async () => {
+  const { NDL_SEARCHES, parseSearchPage, generateNDLQuestion } = require('../server/src/questions/ndl-discovery');
+  const candidate = title => parseSearchPage(`<rss><channel><openSearch:totalResults>1</openSearch:totalResults>`+
+    `<item><dc:title>${title}</dc:title><link>https://ndlsearch.ndl.go.jp/books/R100000002-I000000077</link>`+
+    `<dc:creator>山田太郎</dc:creator><category>図書</category><dc:subject xsi:type="dcndl:NDC10">726.1</dc:subject>`+
+    `<dcndl:genre>漫画</dcndl:genre><dc:description>あらすじ: ${story}</dc:description></item></channel></rss>`,
+    NDL_SEARCHES[0]).candidates[0];
+  let calls=0;
+  const fetchImpl=async()=>{calls++;throw new Error('must not fetch');};
+  await assert.rejects(generateNDLQuestion(candidate('港の約束 II'),{fetchImpl}),/出題対象外/);
+  const q=await generateNDLQuestion(candidate('港の約束(新装版)'),{fetchImpl});
+  assert.equal(calls,0);assert.equal(q.realTitle,'港の約束');
+  assert.ok(q.aliases.includes('港の約束(新装版)'));assert.equal(q.sources[0].provider,'ndl');
+  assert.equal(questionIsValid(q),true);
+});

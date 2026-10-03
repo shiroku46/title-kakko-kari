@@ -1,6 +1,7 @@
 const { createHash } = require('node:crypto');
 const { getKind } = require('./kinds');
 const { MIN_LENGTH, MAX_LENGTH, TARGET_LENGTH, MAX_SENTENCES, introductionSentenceIsUsable } = require('./quality');
+const { requirePlayableTitle } = require('./title-policy');
 
 const WIKIPEDIA_API = 'https://ja.wikipedia.org/w/api.php';
 const LICENSE = 'CC BY-SA 4.0';
@@ -442,11 +443,13 @@ async function retrieveArticle(entry, fetchImpl) {
 async function generateQuestion(entry, { fetchImpl = global.fetch, localAI = null,
   expectedAuthors = null, now = () => new Date() } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('取得関数がありません');
+  requirePlayableTitle(entry.title, entry.kind);
   const page = await retrieveArticle(entry, fetchImpl);
   if (expectedAuthors !== null && !authoredWorkMatches(page, expectedAuthors)) {
     throw new Error('紹介元の著作者とWikipediaの作品定義が一致しません');
   }
-  const aliases = retrievedTitleAliases(entry, page);
+  const realTitle = requirePlayableTitle(entry.realTitle || stripDisambiguation(page.title), entry.kind);
+  const aliases = [...new Set([...retrievedTitleAliases(entry, page), realTitle])];
   const plot = extractWorkContent(page, entry.kind, aliases);
   const sourceId = `wikipedia-ja-${page.pageid}-${page.revisionId}`;
   let generated;
@@ -486,7 +489,7 @@ async function generateQuestion(entry, { fetchImpl = global.fetch, localAI = nul
   revisionUrl.searchParams.set('oldid', String(page.revisionId));
   return {
     id: entry.id,
-    realTitle: normalize(entry.realTitle || stripDisambiguation(page.title)),
+    realTitle,
     aliases, kind: entry.kind, synopsis, contentType: plot.contentType,
     sources: [{
       label: `Wikipedia「${page.title}」${plot.section}`,

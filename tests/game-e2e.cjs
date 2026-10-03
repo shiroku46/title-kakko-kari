@@ -13,7 +13,7 @@ const { io: connect } = require('../client/node_modules/socket.io-client');
 const fixtureDirectory = mkdtempSync(join(tmpdir(), 'title-question-bank-e2e-'));
 const fixturePath = join(fixtureDirectory, 'bank.json');
 const fixtureQuestions = Array.from({ length: 6 }, (_, i) => {
-  const realTitle = `正解の物語${i + 1}`;
+  const realTitle = `正解の物語${i + 1}のお話`;
   const synopsis = `■■■のあらすじ識別${i + 1}。` +
     'ある青年は見知らぬ街で暮らし始める。失われた手紙を探すうちに、住民たちの秘密を知る。青年は友人と力を合わせ、故郷への道を探して旅に出る。'.repeat(3);
   const sourceText = synopsis.replace('■■■', realTitle);
@@ -72,7 +72,7 @@ const openResourceQuestion = {
 const genreQuestions = [
   ['manga', 'synopsis'], ['anime', 'synopsis'], ['song', 'description'], ['artwork', 'description'],
 ].map(([kind, contentType], index) => {
-  const realTitle = `ジャンル検証作品${index + 1}`;
+  const realTitle = `ジャンル検証作品${index + 1}のお話`;
   const text = `${realTitle}について、` + '作品の内容と表現には作者の工夫が込められている。制作の背景や特徴を資料で確かめながら、作品に込められた思いとその表現を紹介する。'.repeat(3);
   return {
     ...fixtureQuestions[0], id: `test-genre-${kind}`, realTitle, aliases: [], kind, contentType,

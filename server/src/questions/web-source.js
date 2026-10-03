@@ -3,6 +3,7 @@ const { redactTitle, summarizeExtractively } = require('./generator');
 const { getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
 const { MIN_LENGTH, MAX_LENGTH, EXCLUDED_SECTION } = require('./quality');
+const { requirePlayableTitle } = require('./title-policy');
 
 function decode(value) {
   return String(value || '').replace(/&#(x[\da-f]+|\d+);/giu, (_m, number) => {
@@ -237,6 +238,9 @@ function extractWebWork(html, url, hintKind) {
   if (compatibleHint && (!explicitKind || explicitKind === hintKind) && hintKind && GENRE[hintKind]?.test(genre || context)) kind = hintKind;
   if (!kind) kind = Object.keys(GENRE).find((k) => GENRE[k].test(genre || context));
   if (!kind || !getKind(kind)) throw new Error('資料から作品の種類を確認できません');
+  // A generic series heading must not hide the sequel number in typed data.
+  if (structured) requirePlayableTitle(canonicalTitle(structured.name), kind);
+  realTitle = requirePlayableTitle(realTitle, kind);
   // A plain heading alone is not enough: require an explicit introduction section
   // or typed work data. Search snippets and generic SEO descriptions never qualify.
   const sections = introductionSections(html);
@@ -251,10 +255,8 @@ function extractWebWork(html, url, hintKind) {
     try { summary = summarizeExtractively(section.content); chosen = section; break; } catch { /* Try the next explicit introduction. */ }
   }
   if (!summary) throw new Error('完全な文による十分な作品紹介がありません');
-  const editionBase = kind === 'manga' ? realTitle.replace(/(?:\s+[0-9]+巻?|[(（][0-9]+[)）]|\s*(?:[(（](?:分冊版|単話版)[)）])?第[0-9]+話)$/u, '').trim() : realTitle;
-  const baseTitle = editionBase.replace(/(?:\s+[0-9]+巻|\s*[(（](?:オリジナル版|通常版|限定版|リマスター版)[)）]|\s+4Kリマスター版)$/iu, '').trim();
   const translatedTitle = realTitle.match(/[A-Za-z].*[(（]([\p{Script=Katakana}ー・\s]+)[)）]$/u);
-  const aliases = [...new Set([translatedTitle ? realTitle.replace(/[(（][^()（）]+[)）]$/u, '').trim() : null, translatedTitle?.[1], sourceTitle !== realTitle ? sourceTitle : null, baseTitle !== realTitle ? baseTitle : null, structured?.alternateName].flat().filter((a) => typeof a === 'string' && text(a)).map(text))];
+  const aliases = [...new Set([translatedTitle ? realTitle.replace(/[(（][^()（）]+[)）]$/u, '').trim() : null, translatedTitle?.[1], sourceTitle !== realTitle ? sourceTitle : null, structured?.alternateName].flat().filter((a) => typeof a === 'string' && text(a)).map(text))];
   const synopsis = redactTitle(summary.synopsis, [realTitle, ...aliases]);
   if (synopsis.length < MIN_LENGTH || synopsis.length > MAX_LENGTH || synopsis.replace(/■■■/gu, '').length < MIN_LENGTH) throw new Error('題名を伏せた紹介文の長さが不十分です');
   const author = named(structured?.author || structured?.creator || structured?.director) || meta['book:author'] || '';
