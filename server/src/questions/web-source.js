@@ -1,6 +1,6 @@
 const { createHash } = require('node:crypto');
 const { visibilityEvidence } = require('./selection-policy');
-const { summarizeWithoutTitles } = require('./generator');
+const { summarizeWithoutTitles, sourceSentences } = require('./generator');
 const { getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
 const { MIN_LENGTH, MAX_LENGTH, EXCLUDED_SECTION } = require('./quality');
@@ -159,7 +159,7 @@ function introductionSections(html) {
   for (const marker of visible.matchAll(/(?:^|\n)[ \t]*(?:<\s*作品について\s*>[ \t]*)?(?:あらすじ|ストーリー|Synopsis|Story)[ \t]*[。：:]?[ \t]*(?:\n|$)/giu)) {
     const start = marker.index + marker[0].length;
     const rest = visible.slice(start, start+10000);
-    const end = rest.search(/(?:^|\n)[ \t]*(?:出演者|キャスト|スタッフ|監督|受賞歴|制作経緯|資金の使い道|リターン|著者紹介|プロフィール)(?:\s|[:：]|$)/u);
+    const end = rest.search(/(?:^|\n)[ \t]*(?:出演者|キャスト|スタッフ|監督|受賞歴|制作経緯|資金の使い道|リターン|著者紹介|プロフィール|レビュー|感想|AI生成コンテンツの開示|操作方法)(?:\s|[:：]|$)/u);
     const content = rest.slice(0, end < 0 ? rest.length : end).trim();
     if (content) sections.push({ section: 'あらすじ', content });
   }
@@ -294,7 +294,7 @@ function extractWebWork(html, url, hintKind) {
   // A generic series heading must not hide the sequel number in typed data.
   if (structured) requirePlayableTitle(canonicalTitle(structured.name), kind);
   realTitle = requirePlayableTitle(realTitle, kind);
-  const aliases = questionTitleAliases(realTitle, [sourceTitle, ...[structured?.alternateName].flat()].filter((a) => typeof a === 'string' && text(a)).map(text), kind);
+  let aliases = questionTitleAliases(realTitle, [sourceTitle, ...[structured?.alternateName].flat()].filter((a) => typeof a === 'string' && text(a)).map(text), kind);
   // A plain heading alone is not enough: require an explicit introduction section
   // or typed work data. Search snippets and generic SEO descriptions never qualify.
   const sections = introductionSections(html);
@@ -303,6 +303,22 @@ function extractWebWork(html, url, hintKind) {
   if (structured?.description) sections.push({ section: '作品紹介（構造化データ）', content: text(structured.description) });
   if (!structured && WRITING_TOOL.test(sections.map(s => s.content).join(' '))) throw new Error('執筆ツールは創作作品として採用しません');
   if (!sections.length) throw new Error('作品の紹介文が見つかりません');
+  // A localized store name can differ completely from its heading. Read only
+  // the named subject of the opening work definition in an explicit intro,
+  // never character dialogue, a comparison, or a later reference to a work.
+  const definitionKinds = { game: /ゲーム|アドベンチャー|RPG|パズル/iu,
+    film: /映画|アニメーション/iu, anime: /アニメ|映像作品/iu,
+    novel: /小説|物語|ノベル/u, manga: /漫画|マンガ|コミック/u };
+  const localizedNames = sections.flatMap(section => {
+    const first = sourceSentences(section.content)[0] || '';
+    const subject = first.match(/^[『「]([^』」\n]{2,150})[』」]\s*(?:と)?は[、,]?\s*(.+)$/u);
+    if (!subject || !definitionKinds[kind]?.test(subject[2]) ||
+        !/(?:です|である|作品|ゲーム)[。！？!?]$/u.test(subject[2]) ||
+        /(?:と(?:同じ|似た)|の(?:続編|影響)|に(?:登場|影響)|比較|原作)/u.test(subject[2])) return [];
+    return [requirePlayableTitle(subject[1], kind)];
+  });
+  aliases = questionTitleAliases(realTitle, [...aliases, ...localizedNames], kind);
+
   let summary;
   let chosen;
   const plots = sections.filter(s => /(?:あらすじ|ストーリー|物語|story|synopsis)/iu.test(s.section));
