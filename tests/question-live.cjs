@@ -150,3 +150,12 @@ test('a caller cancelling an obsolete round promptly frees the live search slot'
   const controller = new AbortController(), pending = source.selectQuestion([], {signal:controller.signal});
   controller.abort(); await assert.rejects(pending); assert.equal(source.getStatus().activeRequests,0);
 });
+
+test('a used work cannot return through a different URL during reselection', async t => {
+  let round = 0;
+  const source = createLiveQuestionSource({ discoverImpl:async()=>({candidates:++round===1?[work(1)]:[work(2),work(3)]}),
+    fetchImpl:async url=>response(html(url===work(3).url?3:1)) });
+  t.after(()=>source.stop());
+  const first=await source.selectQuestion(), next=await source.selectQuestion([first.id]);
+  assert.equal(next.id,work(3).id); assert.notEqual(first.realTitle,next.realTitle);
+});

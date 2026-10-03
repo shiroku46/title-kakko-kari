@@ -8,7 +8,8 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
   generateImpl = generateWebQuestion, deadlineMilliseconds = 60000, maxRequests = 64,
   now = Date.now, initialKind = 0 } = {}) {
   const selection = createSelectionPolicy();
-  const active = new Set(), cooldowns = new Map();
+  const active = new Set(), cooldowns = new Map(), delivered = new Map();
+  const titleKey = q => `${q.kind}:${q.realTitle.normalize('NFKC').replace(/[\s\p{P}]/gu,'').toLowerCase()}`;
   let sequence = initialKind, stopped = false, completed = 0, succeeded = 0;
   let lastStartedAt = null, lastCompletedAt = null, lastSuccessfulAt = null, failure = null;
 
@@ -19,6 +20,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     const cancel = () => controller.abort();
     if (signal?.aborted) cancel(); else signal?.addEventListener('abort', cancel, { once: true });
     const excluded = new Set(excludedIds), attempted = new Set();
+    const excludedTitles = new Set(excludedIds.map(id => delivered.get(id)).filter(Boolean));
     const startKind = sequence++ % LIVE_KINDS.length;
     const page = Math.floor(sequence / LIVE_KINDS.length) % 20;
     lastStartedAt = new Date(now()).toISOString();
@@ -43,7 +45,8 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
         const raw = response.headers.get('retry-after');
         const delay = /^\d+$/u.test(raw || '') ? Number(raw) * 1000 : Date.parse(raw) - now();
         const wait = Number.isFinite(delay) && delay > 0 ? delay : 60000;
-        cooldowns.set(host, now() + Math.min(wait, 86400000));
+        const until = now() + wait;
+        cooldowns.set(host, Number.isSafeInteger(until) && until <= 8640000000000000 ? until : now()+60000);
       }
       return response;
     };
@@ -82,13 +85,17 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
                   }
                   throw error;
                 }
-                if (!questionIsValid(q) || excluded.has(q.id) || selection.tier(q) !== 0) throw new Error('作品条件を満たしません');
+                if (!questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || selection.tier(q) !== 0) throw new Error('作品条件を満たしません');
                 return q;
               }));
             } catch { /* Try the next source batch when every work is invalid. */ }
             finally { batchController.abort(); }
             controller.signal.throwIfAborted();
             if (chosen) {
+              // Only exclusion metadata is remembered; no synopsis inventory
+              // is ever served. Alternate URLs cannot reintroduce a used title.
+              delivered.set(chosen.id, titleKey(chosen));
+              if (delivered.size > 20000) delivered.delete(delivered.keys().next().value);
               finished = true; succeeded++; lastSuccessfulAt = new Date(now()).toISOString(); failure = null;
               return chosen;
             }
