@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   Platform,
+  Pressable,
 } from 'react-native';
 import { Text } from '../components/ui/GameText';
 import { Alert } from '../utils/alert';
@@ -28,6 +29,7 @@ export default function LobbyScreen({ navigation, route }) {
   const [gameMode, setGameMode] = useState('player');
   const [cpuRounds, setCpuRounds] = useState(5);
   const [starting, setStarting] = useState(false);
+  const [copyStatus, setCopyStatus] = useState('');
   const [isHost, setIsHost] = useState(player.is_host);
   const leavingRef = useRef(false);
   const startRequestRef = useRef(null);
@@ -101,6 +103,34 @@ export default function LobbyScreen({ navigation, route }) {
     });
   }
 
+  async function handleCopyCode() {
+    setCopyStatus('');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(String(room.code));
+      } else {
+        const focused = document.activeElement;
+        const field = document.createElement('textarea');
+        field.value = String(room.code);
+        field.readOnly = true;
+        field.setAttribute('aria-hidden', 'true');
+        field.tabIndex = -1;
+        Object.assign(field.style, { position: 'fixed', opacity: '0', top: '0', left: '0' });
+        document.body.appendChild(field);
+        try {
+          field.select();
+          if (!document.execCommand('copy')) throw new Error('Copy failed');
+        } finally {
+          field.remove();
+          focused?.focus?.();
+        }
+      }
+      if (!leavingRef.current) setCopyStatus('コピーしました！');
+    } catch {
+      if (!leavingRef.current) setCopyStatus('コピーできませんでした。コードを選択してコピーしてください。');
+    }
+  }
+
   const displaySlots = Array.from({ length: 6 }, (_, index) => players[index] ?? null);
 
   return (
@@ -146,20 +176,33 @@ export default function LobbyScreen({ navigation, route }) {
               <View style={styles.codeTop}>
                 <View>
                   <Text style={styles.codeLabel}>ルームコード</Text>
-                  <Text
-                    style={styles.codeText}
-                    accessibilityLabel={`ルームコード ${room.code}`}
+                  <Pressable
+                    onPress={handleCopyCode}
+                    disabled={Platform.OS !== 'web'}
+                    accessibilityRole={Platform.OS === 'web' ? 'button' : undefined}
+                    accessibilityLabel={`ルームコード ${room.code} をコピー`}
+                    style={({ pressed }) => pressed && styles.copyPressed}
                   >
-                    {room.code}
+                    <Text style={styles.codeText} selectable>{room.code}</Text>
+                  </Pressable>
+                </View>
+                <Pressable
+                  onPress={handleCopyCode}
+                  disabled={Platform.OS !== 'web'}
+                  accessibilityRole={Platform.OS === 'web' ? 'button' : undefined}
+                  accessibilityLabel="コードをコピー"
+                  style={({ pressed }) => [styles.shareBadge, pressed && styles.copyPressed]}
+                >
+                  <Text style={styles.shareBadgeIcon}>⧉</Text>
+                  <Text style={styles.shareBadgeText}>
+                    {Platform.OS === 'web' ? 'コードをコピー' : 'このコードを共有'}
                   </Text>
-                </View>
-                <View style={styles.shareBadge}>
-                  <Text style={styles.shareBadgeIcon}>↗</Text>
-                  <Text style={styles.shareBadgeText}>このコードを共有</Text>
-                </View>
+                </Pressable>
               </View>
-              <Text style={styles.codeHint}>
-                一緒に遊ぶ人へ、この6桁のコードを伝えてください。
+              <Text style={styles.codeHint} accessibilityLiveRegion="polite">
+                {copyStatus || (Platform.OS === 'web'
+                  ? 'コードをクリックしてコピーし、一緒に遊ぶ人へ共有できます。'
+                  : '一緒に遊ぶ人へ、この6桁のコードを伝えてください。')}
               </Text>
             </PaperPanel>
 
@@ -369,11 +412,13 @@ const styles = StyleSheet.create({
   codePanel: { padding: 20 },
   codeTop: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 14,
   },
   codeLabel: { color: colors.muted, fontSize: 11, fontWeight: '900' },
+  copyPressed: { opacity: 0.65 },
   codeText: {
     color: colors.navy,
     fontSize: 38,
