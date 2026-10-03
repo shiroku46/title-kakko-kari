@@ -4,8 +4,9 @@ const { questionTitleAliases } = require('./title-policy');
 // These are source signals, not a claim that every player is unfamiliar with a
 // work. Search wording and a missing Wikipedia article are not such evidence.
 const INDEPENDENT = /インディー|\bindie\b|\bindependent\b|自主(?:制作|製作|出版)|自費出版|同人|個人(?:制作|製作|開発)|少人数(?:制作|開発)|小規模出版/iu;
+const PERSONAL = /自主出版|自費出版|同人|個人(?:制作|製作|開発)|少人数(?:制作|開発)|小規模出版/u;
 const DENIAL = /では(?:ない|ありません)|ではなく|非インディー|not\s+(?:an?\s+)?indie/iu;
-const WIDE_REACH = /国民的|社会現象|大ヒット|ベストセラー|ミリオンセラー|世界的(?:な)?(?:人気|ヒット)/u;
+const WIDE_REACH = /国民的|社会現象|大ヒット|ベストセラー|ミリオンセラー|世界的(?:な)?(?:人気|ヒット)|アニメ化|映画化|実写化|テレビドラマ化/u;
 const OWN_WORK = /本(?:作|作品|ゲーム|映画)|この(?:作品|ゲーム|映画|漫画|小説)|原作|シリーズ/u;
 const PRODUCTION = /(?:自主(?:制作|製作|出版)|自費出版|個人開発|少人数開発).{0,50}(?:完成させた|完成した|制作された|製作された|開発した|開発された|制作した|製作した|刊行された|出版した|による(?:映画|ゲーム|小説|漫画))/u;
 const CHARACTER_ACTIVITY = /(?:主人公|登場人物|少年|少女).{0,50}(?:自主(?:制作|製作|出版)|同人|個人開発)/u;
@@ -21,13 +22,13 @@ function ownsStatement(statement, title, aliases, kind) {
 function substantialSales(statement) {
   return [...statement.matchAll(COPIES)].some(match => {
     const units = match[2] === '億' ? 100000000 : match[2] === '万' ? 10000 : 1;
-    return Number(match[1].replaceAll(',', '')) * units >= 1000000;
+    return Number(match[1].replaceAll(',', '')) * units >= 100000;
   });
 }
 
 function classifySignal(signal, title, aliases, kind) {
   if (signal?.type === 'review-count') {
-    return Number.isSafeInteger(signal.count) && signal.count >= 1000 ? 'wide' : null;
+    return Number.isSafeInteger(signal.count) && signal.count >= 200 ? 'wide' : null;
   }
   if (typeof signal?.excerpt !== 'string' || !signal.excerpt || signal.excerpt.length > 1000) return null;
   const excerpt = signal.excerpt.normalize('NFKC');
@@ -63,15 +64,19 @@ function visibilityEvidence({ title, aliases = [], kind, sourceUrl, introduction
     sha256: createHash('sha256').update(JSON.stringify(selected)).digest('hex') };
 }
 
-function evidenceTier(question) {
+function verifiedSignals(question) {
   const evidence = question.evidence?.visibility ?? visibilityEvidence({title:question.realTitle,aliases:question.aliases,
     kind:question.kind,sourceUrl:question.sources?.[0]?.url,introductions:[question.evidence?.excerpts?.join('')]});
   if (!evidence || evidence.version !== 1 || evidence.sourceUrl !== question.sources?.[0]?.url ||
       evidence.workTitle !== question.realTitle || evidence.kind !== question.kind ||
       !Array.isArray(evidence.signals) || !evidence.signals.length || evidence.signals.length > MAX_SIGNALS ||
-      evidence.sha256 !== createHash('sha256').update(JSON.stringify(evidence.signals)).digest('hex')) return 1;
+      evidence.sha256 !== createHash('sha256').update(JSON.stringify(evidence.signals)).digest('hex')) return [];
   const signals = evidence.signals.map(s => classifySignal(s, question.realTitle, question.aliases, question.kind));
-  if (signals.some(s => !s)) return 1;
+  return signals.some(s => !s) ? [] : evidence.signals;
+}
+
+function evidenceTier(question) {
+  const signals = verifiedSignals(question).map(s => classifySignal(s, question.realTitle, question.aliases, question.kind));
   if (signals.includes('wide')) return 2;
   return signals.includes('small') ? 0 : 1;
 }
@@ -86,13 +91,19 @@ function createSelectionPolicy(seedQuestions = []) {
     return evidenceTier(question);
   }
   function preferred(questions) {
-    if (!questions.length) return [];
-    const minimum = questions.reduce((minimum, q) => Math.min(minimum, tier(q)), Infinity);
-    return questions.filter(q => tier(q) === minimum);
+    const small = eligible(questions);
+    const personal = small.filter(q => verifiedSignals(q).some(s =>
+      typeof s.excerpt === 'string' && PERSONAL.test(s.excerpt)));
+    return personal.length ? personal : small;
+  }
+  function eligible(questions) {
+    // Unknown fame is not proof of obscurity. Never fill a short small-work
+    // inventory with unknown works, mainstream hits or the famous seed bank.
+    return questions.filter(q => tier(q) === 0);
   }
   function select(questions) {
     const pool = preferred(questions);
-    if (!pool.length) throw new Error('未使用の問題がありません');
+    if (!pool.length) throw new Error('小規模制作の未使用問題をまだ用意できません。収集を再試行するか、手動で出題してください。');
     // Balance genres first, then domains within the chosen genre. The number
     // of film domains or publisher records must not dominate another medium.
     const genres = new Map();
@@ -106,7 +117,7 @@ function createSelectionPolicy(seedQuestions = []) {
     const works = [...domains.values()][randomInt(domains.size)];
     return works[randomInt(works.length)];
   }
-  return { tier, preferred, select };
+  return { tier, eligible, preferred, select };
 }
 
 module.exports = { createSelectionPolicy, visibilityEvidence, evidenceTier };

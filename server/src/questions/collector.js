@@ -150,13 +150,14 @@ async function collectQuestions({
   questions = [], state = {}, limit = DEFAULT_BATCH_SIZE, maxRequests = DEFAULT_MAX_REQUESTS,
   fetchImpl = createSourceFetch(), localAI = null, now = () => new Date(),
   throttleMilliseconds = 1000, discoverImpl, generateImpl, validateQuestion = () => true,
+  acceptCandidate = () => true,
   providers = discoverImpl ? ['wikipedia'] : DEFAULT_PROVIDERS, signal, webKinds = SEARCH_KINDS,
 } = {}) {
   positiveInteger(limit, '追加件数', 100);
   positiveInteger(maxRequests, '資料取得回数', 300);
   if (!Array.isArray(questions) || !state || typeof state !== 'object' || Array.isArray(state)
       || typeof fetchImpl !== 'function' || (generateImpl && typeof generateImpl !== 'function')
-      || typeof validateQuestion !== 'function' || !Number.isFinite(throttleMilliseconds) || throttleMilliseconds < 0) {
+      || typeof validateQuestion !== 'function' || typeof acceptCandidate !== 'function' || !Number.isFinite(throttleMilliseconds) || throttleMilliseconds < 0) {
     throw new Error('自動収集の設定が不正です');
   }
   if (!Array.isArray(providers) || !providers.length || new Set(providers).size !== providers.length
@@ -191,12 +192,12 @@ async function collectQuestions({
     }
     workingState.providers.web.pending = [];
   }
-  if (previous.webValidationVersion !== 2) {
+  if (previous.webValidationVersion !== 3) {
     const oldWebUrls = new Set(collectorState.processedKeys.filter((key) => key.startsWith('web:')).map((key) => key.slice(4)));
     collectorState.processedKeys = collectorState.processedKeys.filter((key) =>
       !/^(?:web:|id:web-|attempt:web:|isbn:|work:)/u.test(key) && !(key.startsWith('url:') && oldWebUrls.has(key.slice(4))));
   }
-  collectorState.webValidationVersion = 2;
+  collectorState.webValidationVersion = 3;
   const merged = [...questions];
   const known = new Set([...collectorState.processedKeys, ...questions.flatMap(identityKeys)]);
   const processed = new Set(collectorState.processedKeys);
@@ -351,6 +352,7 @@ async function collectQuestions({
           ? require('./ndl-discovery').generateNDLQuestion : generateQuestion);
       const question = await generate(candidate, { fetchImpl: countedFetch, localAI, now });
       if (!question || !validateQuestion(question)) throw new Error('生成した問題の検査に合格しませんでした');
+      if (!acceptCandidate(question)) throw new Error('小規模制作の作品としての根拠を確認できません');
       const generatedKeys = identityKeys(question);
       if (generatedKeys.some((key) => known.has(key))) { remember([...keys, ...generatedKeys]); continue; }
       merged.push(question);
@@ -371,7 +373,7 @@ async function collectQuestions({
         for (const next of error.additionalCandidates) {
           if (!identityKeys(next).some((key) => known.has(key)) &&
             !collectorState.pendingCandidates.some((item) => item.id === next.id)) {
-            collectorState.pendingCandidates.push({ ...next, webDepth: 1 });
+            collectorState.pendingCandidates.push({ ...next, webDepth: (candidate.webDepth || 0) + 1 });
           }
         }
       }

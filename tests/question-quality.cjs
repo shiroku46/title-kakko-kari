@@ -23,11 +23,14 @@ const page = (markup) => `<title>港の約束 | 小説</title><h1>港の約束</
 
 function storedQuestion(text, changes = {}) {
   text = text.normalize('NFKC');
-  return { id: 'quality-test', realTitle: '港の約束', aliases: [], kind: 'novel', synopsis: text,
+  const q = { id: 'quality-test', realTitle: '港の約束', aliases: [], kind: 'novel', synopsis: text,
     sources: [{ label: 'Wikipedia：港の約束', url: 'https://ja.wikipedia.org/wiki/'+encodeURIComponent('港の約束')+'?oldid=100',
       revisionId: 100, retrievedAt: '2026-10-03T00:00:00Z', license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/' }],
     generationMethod: 'extractive-v1', evidence: { sourceId: 'wikipedia-ja-1-100', section: 'あらすじ',
       sourceTextSha256: createHash('sha256').update(text).digest('hex'), excerpts: sourceSentences(text) }, ...changes };
+  q.evidence.visibility = require('../server/src/questions/selection-policy').visibilityEvidence({
+    title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['自主出版']});
+  return q;
 }
 
 test('nested reviews, biographies, purchase controls and headings never enter a Web introduction', () => {
@@ -301,4 +304,16 @@ test('verified translated and movie base aliases are removed as whole sentences'
     assert.ok(!summary.synopsis.includes('■■■'));
     assert.ok(summary.excerpts.every(sentence=>sentences.includes(sentence)));
   }
+});
+
+test('Chinese-only introductions and source endorsements are rejected in new and saved questions',()=>{
+  const chinese='少年在海边寻找失踪的父亲。他与朋友一起穿过陌生的城市,发现家族隐藏多年的秘密。'.repeat(6);
+  assert.throws(()=>extractWebWork(page('<h2>作品紹介</h2>'+chinese),'https://publisher.example.org/book/chinese','novel'));
+  assert.equal(prepareQuestion(storedQuestion(chinese)),null);
+  const quote='好意もその喪失も、地球上でくり返されてきたことで、誰もがみなその一人なのだ。――著名作家(書評より抜粋)'+story;
+  assert.throws(()=>extractWebWork(page('<h2>内容紹介</h2>'+quote),'https://publisher.example.org/book/quote','novel'));
+  assert.equal(prepareQuestion(storedQuestion(quote)),null);
+  const noisy='開発元 個人サークル パブリッシャー 個人サークル リリース日 2026年1月1日。'+story;
+  const q=extractWebWork(page('<h2>作品紹介</h2>'+noisy),'https://publisher.example.org/book/meta','novel');
+  assert.ok(!/開発元|リリース日/u.test(q.synopsis));assert.ok(q.synopsis.length>=120);
 });

@@ -2,8 +2,8 @@ const { KIND_IDS, getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
 const { decode, text, attributes, hash } = require('./web-source');
 const ENGINES = ['duckduckgo', 'bing'];
-const QUERY_VERSION = 2;
-const ANGLES = ['インディー', '小規模', '埋もれた作品', '作品紹介'];
+const QUERY_VERSION = 3;
+const ANGLES = ['個人制作', '小規模', 'インディー', '埋もれた作品'];
 const SEARCH_KINDS = ['novel', 'film', 'game', 'manga', ...KIND_IDS.filter((k) => !['novel','film','game','manga'].includes(k))];
 const REVISIT_MS = 6 * 60 * 60 * 1000;
 
@@ -11,6 +11,13 @@ function searchQuery(kind, angle, now = new Date()) {
   const label = getKind(kind).label.replace(/・/gu, ' ');
   const story = getKind(kind).contentMode === 'story';
   const book = ['novel','short-story','literary-work','manga','nonfiction','poem'].includes(kind);
+  if (angle === '個人制作') {
+    if (kind === 'game') return '個人制作 短編 ゲーム ストーリー';
+    if (kind === 'film') return '自主制作 短編 映画 あらすじ';
+    if (kind === 'manga') return 'オリジナル 同人 漫画 作品紹介 全年齢';
+    if (book) return `自主出版 オリジナル ${label} あらすじ 全年齢`;
+    return `個人制作 ${label} 作品紹介`;
+  }
   if (angle === 'インディー' || angle === '小規模') {
     const small = angle === '小規模';
     if (kind === 'game') return `${small ? '個人開発 短編' : 'インディー'} ゲーム ストーリー 公式 -作り方 -攻略`;
@@ -33,8 +40,9 @@ function searchQuery(kind, angle, now = new Date()) {
 function searchUrl(engine, query, page) {
   const url = new URL(engine === 'duckduckgo' ? 'https://html.duckduckgo.com/html/' : 'https://www.bing.com/search');
   url.searchParams.set('q', query);
-  if (engine === 'duckduckgo') { if (page) url.searchParams.set('s', String(page * 30)); }
-  else { url.searchParams.set('format', 'rss'); url.searchParams.set('first', String(page * 10 + 1)); }
+  if (engine === 'duckduckgo') { url.searchParams.set('kl', 'jp-jp'); if (page) url.searchParams.set('s', String(page * 30)); }
+  else { url.searchParams.set('format', 'rss'); url.searchParams.set('first', String(page * 10 + 1));
+    url.searchParams.set('setlang', 'ja'); url.searchParams.set('cc', 'JP'); url.searchParams.set('mkt', 'ja-JP'); }
   return url.href;
 }
 function resultUrl(value, base) {

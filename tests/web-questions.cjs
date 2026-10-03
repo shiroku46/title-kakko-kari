@@ -255,7 +255,7 @@ test('a campaign headline is a discovery page rather than the answer, and old in
   const c={id:`web-${hash(base)}`,provider:'web',title:'港の約束',url:base,kind:'novel'};
   const result=await collectQuestions({providers:['web'],limit:1,maxRequests:1,throttleMilliseconds:0,validateQuestion:questionIsValid,
     state:{collector:{pendingCandidates:[c],processedKeys:[`web:${base}`,`url:${base}`,`id:${c.id}`]}},fetchImpl:async(url)=>page(book(),url)});
-  assert.equal(result.added.length,1);assert.equal(result.state.collector.webValidationVersion,2);
+  assert.equal(result.added.length,1);assert.equal(result.state.collector.webValidationVersion,3);
 });
 
 test('all work cards inside a main or multiple articles are inspected, rather than only the first article', () => {
@@ -278,7 +278,7 @@ test('series headings cannot turn typed sequel data into a base-work question', 
 
 test('long-tail searches lead the new plan for films, games, comics and commercial small presses',async()=>{
   const {QUERY_VERSION}=require('../server/src/questions/web-search');
-  for(const [kind,keyword] of [['film','自主制作'],['game','インディー'],['manga','同人'],['novel','自主出版']]){
+  for(const [kind,keyword] of [['film','自主制作'],['game','個人制作'],['manga','同人'],['novel','自主出版']]){
     let query;const result=await discoverWebCandidates({kinds:[kind],limit:1,maxRequests:1,fetchImpl:async(url)=>{
       query=new URL(url).searchParams.get('q');return page(results(['https://independent.example.org/work']));}});
     assert.ok(query.includes(keyword));assert.ok(!/site:|話題|ランキング|新刊/u.test(query));assert.equal(result.state.queryVersion,QUERY_VERSION);
@@ -351,4 +351,70 @@ test('writing apps discovered by minor-novel searches and store-owner headings c
     'https://creator.example.org/items/1','novel'), /作品/);
   const {workPageTitleIsEligible}=require('../server/src/questions/web-source');
   assert.equal(workPageTitleIsEligible('ノベルストーン','page-title','小説執筆に役立つテキストエディタです。'),false);
+});
+
+test('storefront names, discount prefixes and release metadata never enter the work answer or introduction',async()=>{
+  const {createSelectionPolicy}=require('../server/src/questions/selection-policy'),policy=createSelectionPolicy();
+  const title='灯台の配達人';
+  const html=`<title>Steamで20% OFF:${title}</title><h1>${title}</h1><main><b>ジャンル:</b><span>ゲーム、インディー</span><br>`+
+    `<a itemprop="aggregateRating"><meta itemprop="reviewCount" content="199"></a>`+
+    `<div class="release_date">リリース日:2026年1月1日</div><h2>早期アクセスのゲーム</h2>`+
+    `<p>今すぐアクセスしてゲームの開発プロセスに参加しよう。</p><h2>このゲームについて</h2><p>${story}</p></main>`;
+  const q=await generateWebQuestion({url:base,kind:'game'},{fetchImpl:async()=>page(html)});
+  assert.equal(q.realTitle,title);assert.ok(questionIsValid(q));assert.equal(policy.tier(q),0);
+  assert.ok(!/Steam|OFF|リリース日|開発プロセス/u.test(q.synopsis));
+  const popular=await generateWebQuestion({url:base,kind:'game'},{fetchImpl:async()=>page(html.replace('content="199"','content="200"'))});
+  assert.equal(policy.tier(popular),2);
+});
+
+test('review articles can lead to a real work storefront without passing on their indie claim',async()=>{
+  const url='https://independent.example.org/reviews/work';
+  const markup='<title>個人制作ゲームのレビュー</title><main><a href="https://store.steampowered.com/app/12345/">Steamで見る</a></main>';
+  await assert.rejects(generateWebQuestion({url,kind:'game'},{fetchImpl:async()=>page(markup,url)}),e=>{
+    assert.equal(e.additionalCandidates.length,1);assert.equal(e.additionalCandidates[0].url,'https://store.steampowered.com/app/12345/');
+    assert.ok(!e.additionalCandidates[0].evidence);return true;});
+});
+
+test('search locale is Japanese and a version-2 cycle begins personal-work discovery without bypassing cooldowns',async()=>{
+  const {searchUrl,QUERY_VERSION}=require('../server/src/questions/web-search');
+  assert.equal(new URL(searchUrl('duckduckgo','個人制作',0)).searchParams.get('kl'),'jp-jp');
+  assert.equal(new URL(searchUrl('bing','個人制作',0)).searchParams.get('mkt'),'ja-JP');
+  let query;
+  const result=await discoverWebCandidates({kinds:['game'],maxRequests:1,limit:1,state:{queryVersion:2,completedCycle:true,revisitAt:'2099-01-01T00:00:00Z'},
+    fetchImpl:async url=>{query=new URL(url).searchParams.get('q');return page(results(['https://individual.example.org/game/1']));}});
+  assert.match(query,/個人制作/);assert.equal(result.state.queryVersion,QUERY_VERSION);
+  const cooled=await discoverWebCandidates({kinds:['game'],state:{queryVersion:2,cooldowns:{duckduckgo:Date.now()+100000,bing:Date.now()+100000}},
+    fetchImpl:async()=>{throw Error('must not bypass cooldown');}});
+  assert.equal(cooled.requests,0);
+});
+
+test('a self-produced quoted work title identifies the film rather than its fundraising headline',async()=>{
+  const title='海辺の手紙',html=`<title>自主制作短編映画『${title}』を完成させたい | 制作者サイト</title>`+
+    `<h1>自主制作短編映画『${title}』 を完成させたい</h1><h2>あらすじ</h2><p>${story.replace('二人は町','二人は&mdash;町')}</p>`;
+  const q=await generateWebQuestion({url:base,kind:'film'},{fetchImpl:async()=>page(html)});
+  assert.equal(q.realTitle,title);assert.ok(questionIsValid(q));assert.ok(!/&mdash;|完成させたい/u.test(q.synopsis));
+  assert.equal(require('../server/src/questions/selection-policy').createSelectionPolicy().tier(q),0);
+});
+
+test('discovery can traverse a list and a review to a work with a two-link depth limit',async()=>{
+  const article='https://indie.example.org/archives/2026/01/123/',store='https://store.steampowered.com/app/123456/';
+  const review='<title>短編ゲームのレビュー</title><main><a href="'+store+'">Steamで見る</a></main>';
+  for(const depth of [0,1])await assert.rejects(generateWebQuestion({url:article,kind:'game',webDepth:depth},{fetchImpl:async()=>page(review,article)}),e=>{
+    assert.equal(e.additionalCandidates[0].url,store);return true;});
+  await assert.rejects(generateWebQuestion({url:article,kind:'game',webDepth:2},{fetchImpl:async()=>page(review,article)}),e=>!e.additionalCandidates);
+});
+
+test('crowdfunding budget guides cannot become films or small-production evidence',()=>{
+  const title='自主制作映画の予算をクラウドファンディングで成功させる戦略と成功例';
+  assert.throws(()=>extractWebWork(`<title>${title}</title><meta property="og:type" content="article"><h1>${title}</h1><h2>作品紹介</h2>${story}`,base,'film'),/解説記事|一般記事/);
+  const ordinary='創作映画の資金集めについて';
+  assert.throws(()=>extractWebWork(`<title>${ordinary}</title><meta property="og:type" content="article"><h1>${ordinary}</h1><h2>作品紹介</h2>${story}`,base,'film'),/一般記事/);
+});
+
+test('sidebars and related widgets cannot supply the selected work production or review metadata',async()=>{
+  const {createSelectionPolicy}=require('../server/src/questions/selection-policy'),policy=createSelectionPolicy();
+  const unrelated='<b>ジャンル:</b><span>個人制作ゲーム</span><br><meta itemprop="reviewCount" content="9999">';
+  const html=book({extra:{'@type':'VideoGame',genre:'ゲーム'},markup:`<aside>${unrelated}</aside><div class="related-products">${unrelated}</div>`});
+  const q=await generateWebQuestion({url:base,kind:'game'},{fetchImpl:async()=>page(html)});
+  assert.equal(policy.tier(q),1);assert.ok(!q.evidence.visibility);
 });

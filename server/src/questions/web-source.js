@@ -10,7 +10,7 @@ function decode(value) {
   return String(value || '').replace(/&#(x[\da-f]+|\d+);/giu, (_m, number) => {
     const code = number[0].toLowerCase() === 'x' ? parseInt(number.slice(1), 16) : Number(number);
     return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
-  }).replace(/&(amp|quot|apos|lt|gt|nbsp);/gu, (_m, name) => ({ amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' }[name]));
+  }).replace(/&(amp|quot|apos|lt|gt|nbsp|mdash|ndash|hellip);/gu, (_m, name) => ({ amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ', mdash: '—', ndash: '–', hellip: '…' }[name]));
 }
 function text(value) {
   return decode(String(value || '').replace(/<!--[\s\S]*?-->/gu, '').replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>/giu, '')
@@ -40,19 +40,22 @@ const GENRE = { novel: /小説|ノベル|novel/iu, 'short-story': /短編|短篇
   game: /ゲーム|game/iu, play: /舞台|戯曲|演劇/iu, drama: /ドラマ|tv series/iu,
   song: /楽曲|歌曲|シングル/iu, album: /アルバム/iu, 'music-work': /音楽|作曲|交響曲/iu,
   poem: /詩集|詩作品/iu, artwork: /絵画|美術|彫刻/iu, nonfiction: /書籍|ノンフィクション|エッセイ|随筆/iu };
-const CONTENT_HEADING = /^(?:あらすじ(?:・(?:概要|内容紹介))?|作品内容|内容紹介|作品紹介|商品説明|書籍紹介|ストーリー|物語|introduction|story|synopsis|description|about)(?:[\s：:].*)?$/iu;
+const CONTENT_HEADING = /^(?:あらすじ(?:・(?:概要|内容紹介))?|作品内容|内容紹介|作品紹介|商品説明|書籍紹介|ストーリー|物語|このゲームについて|introduction|story|synopsis|description|about(?:\s+this\s+game)?)(?:[\s：:].*)?$/iu;
+const STORE_PREFIX = /^(?:Steam(?:で\s*\d+(?:\.\d+)?%\s*OFF)?|\d+(?:\.\d+)?%\s*OFF)\s*[:：]\s*/iu;
 const ARTICLE_TITLE = /ネタバレ|考察|徹底解説|レビュー|感想|死亡説|インタビュー|攻略(?:法|情報|のコツ)|今月の第|特集|紹介された作品|プロフィール|記事一覧|クーポン|今だけ|[0-9]+巻無料|キャンペーン|[0-9]{4}年[0-9]{1,2}月号/iu;
 const NON_WORK_PATH = /\/(?:author|authors|profile|profiles|category|categories|tag|tags|search|ranking|gameguide)(?:\/|$)/iu;
 const GENERIC_HEADING = /^(?:予告編|ニュース|お知らせ|作品紹介|ストーリー|あらすじ|キャスト|スタッフ|トップ|ホーム|NEWS|STORY|TRAILER|INTRODUCTION)$/iu;
 const LIST_TITLE = /おすすめ(?:の)?\d*|ランキング|一覧|まとめ|新刊情報|発売予定|作品検索|検索結果|総合サイト|キャンペーン|クーポン|今だけ|[0-9]+巻無料|編集者が推す|第1巻はスゴイ|best\s*\d+|top\s*\d+/iu;
-const EDITORIAL_TITLE = /作り方|実践ガイド|制作方法|出版方法|(?:制作|出版|開発)(?:の)?(?:費用|手順|方法)|[0-9]+\s*選|(?:映画|ゲーム|漫画|小説)(?:たち|作品たち)|テキストエディタ|小説執筆.{0,12}(?:エディタ|ツール|ソフト|アプリ)/u;
+const EDITORIAL_TITLE = /作り方|実践ガイド|制作方法|出版方法|(?:制作|出版|開発|映画)(?:の)?(?:費用|予算|手順|方法)|クラウドファンディング.{0,30}(?:戦略|成功例)|[0-9]+\s*選|(?:映画|ゲーム|漫画|小説)(?:たち|作品たち)|テキストエディタ|小説執筆.{0,12}(?:エディタ|ツール|ソフト|アプリ)/u;
+const PRODUCTION_TITLE = /^(?:【[^】]*(?:自主|個人|同人)[^】]*】\s*)?(?:(?:自主(?:制作|製作)|個人(?:制作|製作|開発))(?:短編|長編)?(?:映画|ゲーム|小説|漫画)|映画)?\s*[『「]([^』」]+)[』」]/u;
+const PRODUCTION_LABEL = /自主(?:制作|製作|出版)|自費出版|個人(?:制作|製作|開発)|同人/u;
 const WRITING_TOOL = /テキストエディタ|執筆(?:作業|支援|特化|用|デスクトップ)|小説(?:執筆|制作).{0,12}(?:ツール|ソフト|アプリ)|novel[- ]writing.{0,12}(?:software|tool|editor)/iu;
 function workPageTitleIsEligible(title, method, introduction = '') {
   return typeof title === 'string' && !LIST_TITLE.test(title) && !ARTICLE_TITLE.test(title) &&
     (method === 'typed-work' || !EDITORIAL_TITLE.test(title) && !WRITING_TOOL.test(introduction));
 }
 function canonicalTitle(value) {
-  return text(text(value).replace(/【[^】]*(?:限定特典|電子限定|デジタル版限定|無料お試し|期間限定無料)[^】]*】/gu, '')
+  return text(text(value).replace(STORE_PREFIX, '').replace(/【[^】]*(?:限定特典|電子限定|デジタル版限定|無料お試し|期間限定無料)[^】]*】/gu, '')
     .replace(/^[『「](.+)[』」]$/u, '$1'));
 }
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -83,7 +86,7 @@ function structuredWorks(html) {
   return works;
 }
 
-function introductionMarkup(html) {
+function introductionMarkup(html, { includeWorkRatings = false } = {}) {
   const source = html.replace(/<!--[\s\S]*?-->/gu, '').replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/giu, '');
   const stack = [];
   const output = [];
@@ -101,9 +104,11 @@ function introductionMarkup(html) {
       if (!hiddenBefore && !suppressed) output.push(token[0]);
     } else {
       const a = attributes(token[0]);
-      const excluded = /^(?:nav|footer|aside|form|button|table|ul|ol)$/u.test(name) ||
+      const classes = `${a.id || ''} ${a.class || ''}`;
+      const scopeClasses = includeWorkRatings ? classes.replace(/(?:^|[-_\s])(?:reviews?|ratings?)(?=$|[-_\s])/giu, '') : classes;
+      const excluded = /^(?:nav|footer|aside|form|button|table|ul|ol|blockquote)$/u.test(name) ||
         /\shidden(?:\s|=|>)/iu.test(token[0]) || a['aria-hidden'] === 'true' || /^(?:navigation|complementary|contentinfo)$/u.test(a.role || '') ||
-        /(?:^|[-_\s])(?:reviews?|ratings?|badges?|recommend(?:ations)?|related|ranking|cart|purchase|price|profile|breadcrumb|navigation|toc|copyright|social|share|advert(?:isement)?|banner|metadata|specifications?|bibliograph\w*|staff|cast|credits|lyrics)(?:$|[-_\s])|author[-_]?(?:bio|profile)|track[-_]list/iu.test(`${a.id || ''} ${a.class || ''}`);
+        /(?:^|[-_\s])(?:reviews?|ratings?|badges?|recommend(?:ations)?|related|ranking|cart|purchase|price|profile|breadcrumb|navigation|toc|copyright|social|share|advert(?:isement)?|banner|metadata|specifications?|bibliograph\w*|staff|cast|credits|lyrics)(?:$|[-_\s])|author[-_]?(?:bio|profile)|track[-_]list/iu.test(scopeClasses);
       const empty = /^(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/u.test(name) || token[0].endsWith('/>');
       if (!suppressed && !excluded) output.push(token[0]);
       if (!empty) { stack.push({ name, excluded }); if (excluded) suppressed++; }
@@ -185,13 +190,14 @@ function linkedCandidates(html, baseUrl, kind, { onlyStory = false } = {}) {
       /^(?:トップ|ホーム|検索|詳しく|詳細|続きを読む|もっと見る|次|前|購入|カート|ログイン)/u.test(title)) continue;
     try {
       const url = publicUrl(new URL(a.href, baseUrl).href);
-      if (/で(?:見る|探す|購入)/u.test(title) && !/\/(?:books|book|comic|product|item|dp)\//iu.test(url.pathname)) continue;
-      if (onlyStory && !/\/(?:story|synopsis|introduction|about)(?:[/.]|$)/iu.test(url.pathname)) continue;
+      const workLink = /\/(?:app|works|books|book|comic|product|item|dp)\//iu.test(url.pathname);
+      if (/で(?:見る|探す|購入)/u.test(title) && !workLink) continue;
+      if (onlyStory && !workLink && !/\/(?:story|synopsis|introduction|about)(?:[/.]|$)/iu.test(url.pathname)) continue;
       if (url.href === baseUrl || url.pathname === '/' || NON_WORK_PATH.test(url.pathname) ||
         /\.(?:jpg|png|pdf|zip)$/iu.test(url.pathname) || /rss|feed|bookmark/iu.test(url.pathname) ||
         /^(?:.*こちら|.*サービス|.*書影)$/u.test(title)) continue;
-      const score = /story|synopsis|introduction|about|comic|manga|books|product|works|shinkan|\/(?:dp|movie|film|games?)\//iu.test(url.pathname) ? 3
-        : /<img|<h[2-6]/iu.test(match[2]) ? 2 : /book|item/iu.test(url.pathname) ? 1 : 0;
+      const score = /story|synopsis|introduction|about|comic|manga|books|product|works|shinkan|\/(?:dp|app|movie|film|games?|projects?)\//iu.test(url.pathname) ? 3
+        : /<img|<h[2-6]/iu.test(match[2]) ? 2 : /book|item|\/archives\/20[0-9]{2}\//iu.test(url.pathname) ? 1 : 0;
       if (!score) continue;
       for (const param of [...url.searchParams.keys()]) if (/^utm_|^(?:ref|ref_|tag|fbclid|gclid)$/iu.test(param)) url.searchParams.delete(param);
       candidates.set(url.href, { id: `web-${hash(url.href)}`, provider: 'web', title, url: url.href, kind, score });
@@ -216,8 +222,14 @@ function extractWebWork(html, url, hintKind) {
   // Search for independent production also finds tutorials and recommendation
   // articles. A guide is a work only with independently typed work evidence.
   if (!structured && EDITORIAL_TITLE.test(pageTitle)) throw new Error('解説記事・作品一覧は作品として採用しません');
+  if (!structured && /^article$/iu.test(meta['og:type'] || '') &&
+      !(PRODUCTION_LABEL.test(pageTitle) && /[『「][^』」]+[』」]/u.test(pageTitle))) {
+    throw new Error('一般記事は作品として採用しません');
+  }
   const cleanTitle = (value) => {
-    const raw = value.split(/\s*[|｜]\s*/u)[0].trim();
+    const raw = value.split(/\s*[|｜]\s*/u)[0].trim().replace(STORE_PREFIX, '');
+    const productionWork = raw.match(PRODUCTION_TITLE) || (PRODUCTION_LABEL.test(raw) && raw.match(/[『「]([^』」]+)[』」]/u));
+    if (productionWork) return productionWork[1].trim();
     const quoted = raw.match(/^(?:(?:映画|劇場版|TVアニメ|アニメ|ゲーム|想定科学ADV|アドベンチャーゲーム)\s*)?[『「](.+)[』」](?:\s*(?:公式.*|official\s*(?:web\s*site|site).*)?)$/iu);
     return (quoted?.[1] || raw.replace(/\s*(?:[-–—]\s*)?(?:公式サイト|公式ホームページ|オフィシャルサイト).*$/u, '')).trim();
   };
@@ -231,10 +243,15 @@ function extractWebWork(html, url, hintKind) {
     (!key(canonicalTitle(heading)).includes(key(realTitle)) && !key(canonicalTitle(pageTitle)).includes(key(realTitle)))) {
     throw new Error('ページの作品名を照合できません');
   }
-  const genre = named(structured?.genre);
   // Navigation and unrelated links cannot supply a medium for a person/page.
   const primary = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/iu)?.[1]
     || html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/iu)?.[1] || html;
+  const workMetadata = introductionMarkup(primary, { includeWorkRatings: true });
+  // Read labels attached to this identified work. A search term, unrelated
+  // article heading, store identity or low review count is not production proof.
+  const visibleGenres = [...workMetadata.matchAll(/<(b|strong|dt)\b[^>]*>\s*(?:ジャンル|Genre|制作形態|制作規模)\s*[:：]?\s*<\/\1>([\s\S]{0,1500}?)(?=<br\b|<\/(?:dd|div|p)>)/giu)]
+    .map(m => text(m[2]).slice(0,300));
+  const genre = named(structured?.genre);
   const titleContext = pageTitle.replaceAll(realTitle, '');
   const explicitKind = /映画|劇場版/u.test(titleContext) ? 'film' : /TVアニメ|テレビアニメ/u.test(titleContext) ? 'anime' :
     /漫画|マンガ|コミック/u.test(titleContext) ? 'manga' : /(?:ゲーム|RPG|ADV|アドベンチャー)/iu.test(titleContext) ? 'game' : null;
@@ -245,7 +262,7 @@ function extractWebWork(html, url, hintKind) {
     (structured.workType === 'Movie' && ['film','anime'].includes(hintKind)) ||
     (structured.workType === 'TVSeries' && ['drama','anime'].includes(hintKind)) || kind === hintKind;
   if (!structured && explicitKind) kind = explicitKind;
-  if (compatibleHint && (!explicitKind || explicitKind === hintKind) && hintKind && GENRE[hintKind]?.test(genre || context)) kind = hintKind;
+  if (compatibleHint && (!explicitKind || explicitKind === hintKind) && hintKind && GENRE[hintKind]?.test(context)) kind = hintKind;
   if (!kind) kind = Object.keys(GENRE).find((k) => GENRE[k].test(genre || context));
   if (!kind || !getKind(kind)) throw new Error('資料から作品の種類を確認できません');
   // A generic series heading must not hide the sequel number in typed data.
@@ -263,7 +280,7 @@ function extractWebWork(html, url, hintKind) {
   let summary;
   let chosen;
   for (const section of sections) {
-    if (/歌詞|lyric|目次|収録曲/iu.test(section.content.slice(0,60))) continue;
+    if (/歌詞|lyric|目次|収録曲/iu.test(section.content.slice(0,60)) || /書評より(?:抜粋|引用)/u.test(section.content)) continue;
     try { summary = summarizeWithoutTitles(section.content, aliases); chosen = section; break; } catch { /* Try the next explicit introduction. */ }
   }
   if (!summary) throw new Error('完全な文による十分な作品紹介がありません');
@@ -281,8 +298,10 @@ function extractWebWork(html, url, hintKind) {
       visibility: visibilityEvidence({ title: realTitle, aliases, kind, sourceUrl: url,
         // The page identity has already been checked. Description metadata is
         // a reach signal only; it is never enough to generate a question text.
-        introductions: [...sections.map(s => s.content), meta['og:description'], meta.description], genres: [genre],
-        reviewCount: structured?.aggregateRating?.ratingCount ?? structured?.aggregateRating?.reviewCount }) } };
+        introductions: [pageTitle, ...sections.map(s => s.content), meta['og:description'], meta.description], genres: [genre, ...visibleGenres],
+        reviewCount: structured?.aggregateRating?.ratingCount ?? structured?.aggregateRating?.reviewCount ??
+          [...workMetadata.matchAll(/<meta\b[^>]*>/giu)].map(m => attributes(m[0]))
+            .find(a => /^(?:ratingCount|reviewCount)$/u.test(a.itemprop || ''))?.content }) } };
 }
 
 async function generateWebQuestion(candidate, { fetchImpl, now = () => new Date() }) {
@@ -296,7 +315,7 @@ async function generateWebQuestion(candidate, { fetchImpl, now = () => new Date(
   let work;
   try { work = extractWebWork(html, url, candidate.kind); }
   catch (error) {
-    if (!candidate.webDepth && !/再利用|取得できません/u.test(error.message)) error.additionalCandidates = linkedCandidates(html, url, candidate.kind, { onlyStory: new URL(url).pathname !== '/' &&
+    if ((candidate.webDepth || 0) < 2 && !/再利用|取得できません/u.test(error.message)) error.additionalCandidates = linkedCandidates(html, url, candidate.kind, { onlyStory: new URL(url).pathname !== '/' &&
       !LIST_TITLE.test(text(metadata(html)['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1])) &&
       !EDITORIAL_TITLE.test(text(metadata(html)['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1])) });
     throw error;
