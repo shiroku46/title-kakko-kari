@@ -159,3 +159,8 @@ test('a used work cannot return through a different URL during reselection', asy
   const first=await source.selectQuestion(), next=await source.selectQuestion([first.id]);
   assert.equal(next.id,work(3).id); assert.notEqual(first.realTitle,next.realTitle);
 });
+
+test('a self-produced comics event fundraiser is not a manga work even with a quoted project name', async () => {
+  const source = `<title>「続く即売会」自主制作漫画誌展示即売会 開催継続支援プロジェクト</title><h1>続く即売会</h1><div class="description">${story}</div>`;
+  await assert.rejects(generateWebQuestion({url:work(1).url,kind:'manga'},{fetchImpl:async()=>response(source)}), /イベント/u);
+});

@@ -48,11 +48,13 @@ const NON_WORK_PATH = /\/(?:author|authors|profile|profiles|category|categories|
 const GENERIC_HEADING = /^(?:予告編|ニュース|お知らせ|作品紹介|ストーリー|あらすじ|キャスト|スタッフ|トップ|ホーム|NEWS|STORY|TRAILER|INTRODUCTION)$/iu;
 const LIST_TITLE = /おすすめ(?:の)?\d*|ランキング|一覧|まとめ|新刊情報|発売予定|作品検索|検索結果|総合サイト|キャンペーン|クーポン|今だけ|[0-9]+巻無料|編集者が推す|第1巻はスゴイ|best\s*\d+|top\s*\d+/iu;
 const EDITORIAL_TITLE = /作り方|実践ガイド|制作方法|出版方法|(?:制作|出版|開発|映画)(?:の)?(?:費用|予算|手順|方法)|クラウドファンディング.{0,30}(?:戦略|成功例)|[0-9]+\s*選|(?:映画|ゲーム|漫画|小説)(?:たち|作品たち)|テキストエディタ|小説執筆.{0,12}(?:エディタ|ツール|ソフト|アプリ)/u;
+const EVENT_TITLE = /(?:漫画誌|同人誌)(?:展示)?即売会|(?:映画祭|イベント|映画館).{0,20}(?:開催継続|開催支援|運営支援|存続|再建)/u;
 const PRODUCTION_TITLE = /^(?:【[^】]*(?:自主|個人|同人)[^】]*】\s*)?(?:(?:自主(?:制作|製作)|個人(?:制作|製作|開発))(?:短編|長編)?(?:映画|ゲーム|小説|漫画)|映画)?\s*[『「]([^』」]+)[』」]/u;
 const PRODUCTION_LABEL = /自主(?:制作|製作|出版)|自費出版|個人(?:制作|製作|開発)|同人/u;
 const WRITING_TOOL = /テキストエディタ|執筆(?:作業|支援|特化|用|デスクトップ)|小説(?:執筆|制作).{0,12}(?:ツール|ソフト|アプリ)|novel[- ]writing.{0,12}(?:software|tool|editor)/iu;
 function workPageTitleIsEligible(title, method, introduction = '') {
   return typeof title === 'string' && !LIST_TITLE.test(title) && !ARTICLE_TITLE.test(title) &&
+    (method !== 'page-title' || !EVENT_TITLE.test(title)) &&
     (method === 'typed-work' || !EDITORIAL_TITLE.test(title) && !WRITING_TOOL.test(introduction));
 }
 function canonicalTitle(value) {
@@ -242,6 +244,7 @@ function extractWebWork(html, url, hintKind) {
   const works = posted ? [posted] : structuredWorks(html);
   if (works.length > 1) throw new Error('複数作品の一覧はお題に使用しません');
   const structured = works[0];
+  if (!structured && EVENT_TITLE.test(pageTitle)) throw new Error('イベントや施設の運営支援は創作作品として採用しません');
   // Search for independent production also finds tutorials and recommendation
   // articles. A guide is a work only with independently typed work evidence.
   if (!structured && EDITORIAL_TITLE.test(pageTitle)) throw new Error('解説記事・作品一覧は作品として採用しません');
