@@ -356,7 +356,8 @@ function sourceSentences(text) {
     const character = source[index];
     if (Object.hasOwn(closingQuotes, character)) openQuotes.push(closingQuotes[character]);
     else if (character === openQuotes.at(-1)) openQuotes.pop();
-    if (/[。！？]/u.test(character) && !openQuotes.length) {
+    if (/[。!?！？]/u.test(character) && !openQuotes.length) {
+      while (/[。!?！？]/u.test(source[index + 1] || '')) index++;
       sentences.push(source.slice(beginning, index + 1));
       beginning = index + 1;
     }

@@ -149,3 +149,124 @@ test('query-based pages remain separate and author/work fingerprints deduplicate
   const distinct=extractWebWork(book({extra:{author:{name:'別の著者'}}}),base,'novel');
   assert.notEqual(distinct.workIdentity,first.workIdentity);
 });
+
+test('person pages and editorial headlines cannot become work titles, including saved Web records', async () => {
+  for (const [title,url,markup] of [
+    ['米澤崇史','https://media.example.org/author/38/page/1',`<div class="description">${story}</div>`],
+    ['水属性の魔法使いのネタバレ|涼とセーラと結末考察',base,`<h2>あらすじ</h2>${story}`],
+    ['今月の第1巻 漫画特集',base,`<h2>作品紹介</h2>${story}`],
+  ]) assert.throws(() => extractWebWork(`<title>${title} | ゲーム 漫画</title><h1>${title}</h1>${markup}`,url,'game'));
+  const good=await generateWebQuestion({url:base,kind:'novel'},{fetchImpl:async()=>page(book())});
+  assert.equal(questionIsValid(good),true);
+  const {prepareQuestion}=require('../server/src/questions/validation');
+  const old={...good,evidence:{...good.evidence}}; delete old.evidence.work;
+  assert.equal(questionIsValid(old),false); assert.equal(prepareQuestion(old),null);
+  assert.equal(questionIsValid({...good,evidence:{...good.evidence,work:{...good.evidence.work,title:'人物'}}}),false);
+});
+
+test('official quoted movie titles override logo headings and search genre hints; story precedes promotion', () => {
+  const html=`<title>映画『STORY GAME〈ストーリー・ゲーム〉』公式サイト</title>`+
+    `<h1>予告編</h1><h2>INTRODUCTION</h2>${story.replaceAll('青年','製作者')}`+
+    `<h2><img alt="STORY" src="story.png"></h2><p>${story}</p><h2>キャスト</h2>`;
+  const q=extractWebWork(html,'https://film.example.org/','game');
+  assert.equal(q.realTitle,'STORY GAME〈ストーリー・ゲーム〉');
+  assert.equal(q.kind,'film'); assert.equal(q.evidence.section,'STORY');
+  assert.ok(!q.synopsis.includes('製作者')); assert.ok(!q.realTitle.includes('公式サイト'));
+});
+
+test('independent typed movie, game and comic pages generate valid questions with confirmed media', async () => {
+  for(const [kind,type,genre,url] of [
+    ['film','Movie','映画','https://film.example.org/work'],
+    ['game','VideoGame','アドベンチャーゲーム','https://store.example.org/app/1'],
+    ['manga','Book','コミック','https://comics.example.org/title/1'],
+  ]) {
+    const q=await generateWebQuestion({url,kind},{fetchImpl:async()=>page(book({extra:{'@type':type,genre}}),url)});
+    assert.equal(q.kind,kind);assert.equal(questionIsValid(q),true);
+  }
+});
+
+test('listing traversal omits author, category, bookmark and affiliate service links', () => {
+  const markup=['/author/38','/category/game','/tag/game','/bookmark/1','/rss','/comic/1'].map((path)=>
+    `<a href="${path}"><img alt="作品名">作品名</a>`).join('');
+  assert.deepEqual(linkedCandidates(markup,'https://media.example.org/','game').map(c=>new URL(c.url).pathname),['/comic/1']);
+});
+
+test('genre queues cannot let a publisher backlog occupy new film, game and manga searches', async () => {
+  const pending=Array.from({length:6},(_,i)=>({id:`old-${i}`,provider:'web',kind:'novel',title:`旧小説${i}`,url:`https://publisher.example.org/book/${i}`}));
+  const searched=[];
+  const fetchImpl=async(url)=>{
+    if(url.includes('duckduckgo')||url.includes('bing')) {
+      const query=new URL(url).searchParams.get('q'); searched.push(query);
+      const kind=query.includes('映画')?'film':query.includes('ゲーム')?'game':'manga';
+      return page(results([`https://${kind}.example.org/work`]));
+    }
+    const kind=url.includes('film.')?'film':url.includes('game.')?'game':url.includes('manga.')?'manga':'novel';
+    const type=kind==='film'?'Movie':kind==='game'?'VideoGame':'Book';
+    const genre={film:'映画',game:'ゲーム',manga:'漫画',novel:'小説'}[kind];
+    return page(book({title:`港の約束${kind}`,extra:{'@type':type,genre}}),url);
+  };
+  const result=await collectQuestions({providers:['web'],limit:4,maxRequests:7,throttleMilliseconds:0,fetchImpl,
+    validateQuestion:questionIsValid,state:{collector:{pendingCandidates:pending}}});
+  assert.deepEqual(result.added.map(q=>q.kind),['novel','film','game','manga']);
+  assert.equal(searched.length,3); assert.ok(searched.every(q=>!q.includes('site:')));
+  assert.equal(result.state.collector.pendingCandidates.filter(c=>c.kind==='novel').length,5);
+  for(const kind of ['film','game','manga']) assert.ok(result.state.providers.web.byKind[kind]);
+});
+
+test('retail edition promotion is not the answer or synopsis but remains a hidden title alias', async () => {
+  const title='【デジタル版限定特典付き】港の約束 1巻';
+  const q=await generateWebQuestion({url:base,kind:'manga'},{fetchImpl:async()=>page(book({title,
+    description:story+'※こちらの商品には限定特典イラストが収録されています。',extra:{genre:'コミック'}}))});
+  assert.equal(q.realTitle,'港の約束 1巻'); assert.ok(q.aliases.includes(title));
+  assert.ok(!/特典/u.test(q.synopsis)); assert.equal(questionIsValid(q),true);
+});
+
+test('search rate limits are shared by genres, and repeated temporary Web page failures are bounded', async () => {
+  const calls=[];
+  const state={providers:{web:{cooldowns:{duckduckgo:Date.now()+60000,bing:Date.now()+60000}}}};
+  const result=await collectQuestions({state,providers:['web'],limit:1,maxRequests:5,throttleMilliseconds:0,
+    fetchImpl:async(url)=>{calls.push(url); return page('');}});
+  assert.equal(calls.length,0); assert.equal(result.added.length,0);
+  const candidate={id:'temporary',title:'港の約束',url:base,provider:'web',kind:'novel',collectionRetries:2};
+  const failed=await collectQuestions({state:{collector:{pendingCandidates:[candidate]}},providers:['web'],maxRequests:1,
+    limit:1,throttleMilliseconds:0,fetchImpl:async()=>new Response('',{status:503})});
+  assert.equal(failed.state.collector.pendingCandidates.length,0);
+  assert.ok(!failed.state.collector.processedKeys.some(k=>k.includes('temporary')));
+});
+
+test('edition suffixes do not expose the base game title and installation notes are excluded', async () => {
+  const title='港の約束(オリジナル版)';
+  const q=await generateWebQuestion({url:base,kind:'game'},{fetchImpl:async()=>page(book({title,extra:{'@type':'VideoGame',genre:'ゲーム'},
+    description:`${title}では、${story}※こちらのタイトルには追加パックは含まれておりません。`}))});
+  assert.ok(q.aliases.includes('港の約束')); assert.ok(!q.synopsis.includes('港の約束'));
+  assert.ok(!q.synopsis.includes('追加パック')); assert.equal(questionIsValid(q),true);
+  assert.throws(()=>extractWebWork(book({title:'【電子版】月刊コミックアライブ 2026年11月号',extra:{genre:'漫画'}}),base,'manga'));
+});
+
+test('the previous shared Web checkpoint retains unprocessed URLs when genre searches begin', async () => {
+  const c={id:'previous-web',provider:'web',title:'港の約束',url:base,kind:'novel'};
+  const result=await collectQuestions({providers:['web'],limit:1,maxRequests:1,throttleMilliseconds:0,validateQuestion:questionIsValid,
+    state:{providers:{web:{pending:[c],cursor:3}}},fetchImpl:async(url)=>page(book(),url)});
+  assert.equal(result.added.length,1); assert.deepEqual(result.state.providers.web.pending,[]);
+});
+
+test('a campaign headline is a discovery page rather than the answer, and old invalid Web identities can be rechecked', async () => {
+  assert.throws(()=>extractWebWork(book({title:'【コミックス】『港の約束』今だけ2巻無料!!',extra:{genre:'漫画'}}),base,'manga'));
+  const c={id:`web-${hash(base)}`,provider:'web',title:'港の約束',url:base,kind:'novel'};
+  const result=await collectQuestions({providers:['web'],limit:1,maxRequests:1,throttleMilliseconds:0,validateQuestion:questionIsValid,
+    state:{collector:{pendingCandidates:[c],processedKeys:[`web:${base}`,`url:${base}`,`id:${c.id}`]}},fetchImpl:async(url)=>page(book(),url)});
+  assert.equal(result.added.length,1);assert.equal(result.state.collector.webValidationVersion,2);
+});
+
+test('all work cards inside a main or multiple articles are inspected, rather than only the first article', () => {
+  for(const wrapper of ['main','div']){
+    const html=`<${wrapper}><article><a href="/book/1"><img alt="第一作品"></a></article><article><a href="/book/2"><img alt="第二作品"></a></article></${wrapper}>`;
+    assert.equal(linkedCandidates(html,'https://shop.example.org/','manga').length,2);
+  }
+});
+
+test('trial-edition labels inside a retail name are removed without invalidating page evidence', async () => {
+  const title='港の約束【期間限定無料】 1';
+  const q=await generateWebQuestion({url:base,kind:'manga'},{fetchImpl:async()=>page(book({title,extra:{genre:'漫画'}}))});
+  assert.equal(q.realTitle,'港の約束 1');assert.ok(q.aliases.includes('港の約束'));assert.equal(questionIsValid(q),true);
+});

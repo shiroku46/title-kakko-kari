@@ -136,3 +136,26 @@ test('selection and collection apply saved-quality checks without deleting rejec
   assert.ok(questionIsValid(received[0]));
   assert.equal(JSON.parse(readFileSync(bankPath,'utf8')).questions.length,2);
 });
+
+test('ratings and article guidance cannot enter the synopsis as sentence prefixes', () => {
+  for (const sentence of [
+    'IMDb 1位・1994 冤罪の終身刑を受けた銀行員は、刑務所で友人と出会う。',
+    'ここからは、水属性の魔法使いのあらすじをざっくり押さえていきましょう。',
+    'この記事では、作品のあらすじを紹介していきます。',
+  ]) assert.equal(introductionSentenceIsUsable(sentence),false);
+});
+
+test('ASCII and full-width exclamation/question marks keep complete sentences and remove retail promotion separately', () => {
+  const prefix='とよ田みのる最新作は、漫画家漫画！待望の新作をすべての人に届けます！';
+  const source=prefix+story+'※こちらの商品には限定特典イラストが収録されています。';
+  const q=summarizeExtractively(source);
+  assert.ok(!/最新作|待望|特典/u.test(q.synopsis));
+  assert.ok(q.excerpts.every(s=>sentences.includes(s)));
+  assert.deepEqual(sourceSentences('彼は船に乗る!島に家族はいるのか!?少年は港を目指した。'),
+    ['彼は船に乗る!','島に家族はいるのか!?','少年は港を目指した。']);
+});
+
+test('Latin names in quoted works do not reject an otherwise Japanese introduction', () => {
+  assert.equal(introductionSentenceIsUsable('STEINS;GATEは「CHAOS;HEAD NOAH」に続く科学アドベンチャーシリーズの第2弾です。'),true);
+  assert.equal(introductionSentenceIsUsable('A young traveller follows a secret letter and finds his family in the village!'),false);
+});

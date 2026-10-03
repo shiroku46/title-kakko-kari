@@ -2,6 +2,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const timers = require('node:timers/promises');
 const { generateQuestion, stripDisambiguation } = require('./generator');
+const { SEARCH_KINDS } = require('./web-search');
 
 const execute = promisify(execFile);
 const DEFAULT_BATCH_SIZE = 8;
@@ -149,7 +150,7 @@ async function collectQuestions({
   questions = [], state = {}, limit = DEFAULT_BATCH_SIZE, maxRequests = DEFAULT_MAX_REQUESTS,
   fetchImpl = createSourceFetch(), localAI = null, now = () => new Date(),
   throttleMilliseconds = 1000, discoverImpl, generateImpl, validateQuestion = () => true,
-  providers = discoverImpl ? ['wikipedia'] : DEFAULT_PROVIDERS, signal,
+  providers = discoverImpl ? ['wikipedia'] : DEFAULT_PROVIDERS, signal, webKinds = SEARCH_KINDS,
 } = {}) {
   positiveInteger(limit, '追加件数', 100);
   positiveInteger(maxRequests, '資料取得回数', 300);
@@ -162,6 +163,7 @@ async function collectQuestions({
       || providers.some((provider) => !DEFAULT_PROVIDERS.includes(provider))) {
     throw new Error('自動収集の資料サイトを確認してください');
   }
+  if (!Array.isArray(webKinds) || !webKinds.length || webKinds.some((kind) => !SEARCH_KINDS.includes(kind)) || new Set(webKinds).size !== webKinds.length) throw new Error('Web収集ジャンルが不正です');
   let workingState = structuredClone(state);
   const previous = workingState.collector || {};
   const previousPacing = previous.requestPacing?.[WIKIPEDIA_HOST];
@@ -176,7 +178,25 @@ async function collectQuestions({
     rejected: Array.isArray(previous.rejected) ? previous.rejected.slice(-100) : [],
     nextProvider: providers.includes(previous.nextProvider) ? previous.nextProvider : providers[0],
     requestPacing,
+    nextWebKind: webKinds.includes(previous.nextWebKind) ? previous.nextWebKind : webKinds[0],
+    lastWebDomain: previous.lastWebDomain || null,
+    webAttemptsSinceDiscovery: { ...previous.webAttemptsSinceDiscovery },
   };
+  // Retain URLs from the previous shared Web checkpoint during the migration
+  // to per-genre searches; the old backlog must not disappear or dominate.
+  const legacyWebPending = workingState.providers?.web?.pending;
+  if (Array.isArray(legacyWebPending) && legacyWebPending.length) {
+    for (const candidate of legacyWebPending) {
+      if (!collectorState.pendingCandidates.some((item) => item.id === candidate.id)) collectorState.pendingCandidates.push(candidate);
+    }
+    workingState.providers.web.pending = [];
+  }
+  if (previous.webValidationVersion !== 2) {
+    const oldWebUrls = new Set(collectorState.processedKeys.filter((key) => key.startsWith('web:')).map((key) => key.slice(4)));
+    collectorState.processedKeys = collectorState.processedKeys.filter((key) =>
+      !/^(?:web:|id:web-|attempt:web:|isbn:|work:)/u.test(key) && !(key.startsWith('url:') && oldWebUrls.has(key.slice(4))));
+  }
+  collectorState.webValidationVersion = 2;
   const merged = [...questions];
   const known = new Set([...collectorState.processedKeys, ...questions.flatMap(identityKeys)]);
   const processed = new Set(collectorState.processedKeys);
@@ -187,6 +207,7 @@ async function collectQuestions({
   let requests = 0;
   let exhausted = false;
   const exhaustedProviders = new Set();
+  const exhaustedWebKinds = new Set();
   let lastRequestAt = 0;
   const countedFetch = async (url, options) => {
     signal?.throwIfAborted();
@@ -246,8 +267,25 @@ async function collectQuestions({
     const advanceProvider = () => {
       collectorState.nextProvider = providers[(providers.indexOf(provider) + 1) % providers.length];
     };
-    const pendingIndex = collectorState.pendingCandidates.findIndex((item) =>
-      (item?.provider || 'wikipedia') === provider && !attempted.has(attemptIdentity(item)));
+    const webByGenre = provider === 'web' && !discoverImpl;
+    const webKind = collectorState.nextWebKind;
+    const webState = workingState.providers?.web || {};
+    const genreState = webState.byKind?.[webKind] || {};
+    const domainOf = (item) => { try { return new URL(item.url).hostname; } catch { return null; } };
+    const advanceWebKind = () => {
+      collectorState.nextWebKind = webKinds[(webKinds.indexOf(webKind) + 1) % webKinds.length];
+    };
+    const eligible = (item) => (item?.provider || 'wikipedia') === provider && !attempted.has(attemptIdentity(item));
+    let pendingIndex = collectorState.pendingCandidates.findIndex((item) => eligible(item) && (!webByGenre || item.kind === webKind));
+    if (webByGenre && pendingIndex >= 0 && collectorState.webAttemptsSinceDiscovery[webKind] >= 6 && maxRequests - requests > 1) pendingIndex = -1;
+    if (webByGenre && pendingIndex >= 0) {
+      const diverse = collectorState.pendingCandidates.findIndex((item) => eligible(item) && item.kind === webKind &&
+        domainOf(item) !== collectorState.lastWebDomain);
+      if (diverse >= 0) pendingIndex = diverse;
+    }
+    // With one request left, inspect a queued page rather than discovering a
+    // candidate that cannot be checked. Normal turns reserve a fresh genre.
+    if (webByGenre && pendingIndex < 0 && maxRequests - requests === 1) pendingIndex = collectorState.pendingCandidates.findIndex(eligible);
     if (pendingIndex < 0) {
       // Reserve a request for checking a plot when the remaining budget allows it.
       const discoveryBudget = Math.min(Math.max(1, Math.ceil((limit - added.length) / 2)), Math.max(1, maxRequests - requests - 1));
@@ -258,8 +296,10 @@ async function collectQuestions({
           ? require('./aozora').discoverAozoraCandidates : provider === 'ndl'
             ? require('./ndl-discovery').discoverNDLCandidates : require('./discovery').discoverCandidates);
         result = await discover({
-          state: workingState.providers?.[provider] || {}, limit: Math.min(100, Math.max(1, Math.ceil((limit - added.length) / providers.length))),
-          maxRequests: discoveryBudget, fetchImpl: countedFetch, throttleMilliseconds: 0, provider,
+          state: webByGenre ? { ...genreState, cooldowns: { ...genreState.cooldowns, ...webState.cooldowns } } : workingState.providers?.[provider] || {},
+          limit: webByGenre ? 4 : Math.min(100, Math.max(1, Math.ceil((limit - added.length) / providers.length))),
+          maxRequests: webByGenre ? 1 : discoveryBudget, fetchImpl: countedFetch, throttleMilliseconds: 0, provider,
+          ...(webByGenre && { kinds: [webKind] }),
         });
       } catch (error) {
         reject(null, error);
@@ -271,21 +311,28 @@ async function collectQuestions({
       if (!result || !Array.isArray(result.candidates) || !result.state) {
         throw new Error('作品の自動探索結果が不正です');
       }
-      workingState.providers = { ...workingState.providers, [provider]: result.state };
-      collectorState.pendingCandidates.push(...result.candidates.map((candidate) => ({ ...candidate, provider })));
+      workingState.providers = { ...workingState.providers, [provider]: webByGenre
+        ? { ...workingState.providers?.web, cooldowns: result.state.cooldowns, byKind: { ...workingState.providers?.web?.byKind, [webKind]: result.state } } : result.state };
+      const newlyDiscovered = result.candidates.map((candidate) => ({ ...candidate, provider }));
+      if (webByGenre) { collectorState.pendingCandidates.unshift(...newlyDiscovered); collectorState.webAttemptsSinceDiscovery[webKind] = 0; }
+      else collectorState.pendingCandidates.push(...newlyDiscovered);
       // Discovery and one candidate generation form a provider's turn. Keep the
       // turn until that first candidate is handled, so an existing backlog in a
       // faster provider cannot fill the batch before newly discovered sources.
-      if (!result.candidates.length) advanceProvider();
+      if (!result.candidates.length) { advanceProvider(); if (webByGenre) advanceWebKind(); }
       discovered += result.candidates.length;
-      if (result.exhausted) exhaustedProviders.add(provider);
+      if (result.exhausted && !webByGenre) exhaustedProviders.add(provider);
       exhausted = exhaustedProviders.size === providers.length;
       for (const error of result.errors || []) reject(null, typeof error === 'string' ? new Error(error) : new Error(error.message || error.error || '作品を探索できませんでした'));
-      if (!result.candidates.length && (result.errors?.length || !result.requests)) exhaustedProviders.add(provider);
+      if (!result.candidates.length && (result.errors?.length || !result.requests || result.exhausted)) {
+        if (webByGenre) { exhaustedWebKinds.add(webKind); if (exhaustedWebKinds.size === webKinds.length) exhaustedProviders.add(provider); }
+        else exhaustedProviders.add(provider);
+      }
       continue;
     }
     const [candidate] = collectorState.pendingCandidates.splice(pendingIndex, 1);
     advanceProvider();
+    if (webByGenre) { collectorState.webAttemptsSinceDiscovery[webKind] = (collectorState.webAttemptsSinceDiscovery[webKind] || 0) + 1; advanceWebKind(); try { collectorState.lastWebDomain = new URL(candidate.url).hostname; } catch { /* Rejected below. */ } }
     if (!candidate || typeof candidate.id !== 'string' || typeof candidate.title !== 'string') {
       reject(candidate, new Error('探索した作品の形式が不正です'));
       continue;
@@ -327,7 +374,10 @@ async function collectQuestions({
       }
       const retries = (candidate.collectionRetries || 0) + 1;
       if (isRetryable(error)) {
-        collectorState.pendingCandidates.push({ ...candidate, collectionRetries: retries });
+        // Bound repeated Web failures without permanently excluding a site that
+        // can be rediscovered in the next search cycle. Other providers retain
+        // their existing retry/checkpoint contract.
+        if (candidate.provider !== 'web' || retries <= 2) collectorState.pendingCandidates.push({ ...candidate, collectionRetries: retries });
       } else remember([attemptKey]);
     }
   }
