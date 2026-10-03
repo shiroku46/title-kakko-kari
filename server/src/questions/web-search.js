@@ -38,6 +38,11 @@ function searchQuery(kind, angle, now = new Date()) {
   return `${kind === 'game' ? 'インディー' : book ? '同人' : '自主制作'} ${label} ${story ? 'ストーリー' : '作品紹介'}`;
 }
 function searchUrl(engine, query, page) {
+  if (engine === 'yahoo') {
+    const url = new URL('https://search.yahoo.co.jp/search');
+    url.searchParams.set('p', query); url.searchParams.set('b', String(page * 10 + 1));
+    return url.href;
+  }
   const url = new URL(engine === 'duckduckgo' ? 'https://html.duckduckgo.com/html/' : 'https://www.bing.com/search');
   url.searchParams.set('q', query);
   if (engine === 'duckduckgo') { url.searchParams.set('kl', 'jp-jp'); if (page) url.searchParams.set('s', String(page * 30)); }
@@ -51,6 +56,7 @@ function resultUrl(value, base) {
     url = new URL(url.searchParams.get('uddg'));
   }
   if (/^(?:[^.]+\.)?(?:duckduckgo.com|bing.com|google.com)$/u.test(url.hostname)) throw new Error('検索ページです');
+  if (/^(?:search|support)\.yahoo(?:\.co)?\.jp$|^www\.yahoo\.co\.jp$/u.test(url.hostname)) throw new Error('検索ページです');
   const result = publicUrl(url.href);
   for (const param of [...result.searchParams.keys()]) {
     if (/^utm_|^(?:ref|ref_|tag|fbclid|gclid)$/iu.test(param)) result.searchParams.delete(param);
@@ -68,7 +74,9 @@ function parseResults(html, engine, kind) {
   } else {
     for (const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/giu)) {
       const a = attributes(match[1]);
-      if (a.class?.split(/\s/u).includes('result__a')) raw.push({ title: text(match[2]), link: a.href });
+      if (a.class?.split(/\s/u).includes('result__a') || engine === 'yahoo' && a.ping?.startsWith('/xts/')) {
+        raw.push({ title: text(match[2]), link: a.href });
+      }
     }
   }
   const seen = new Set();

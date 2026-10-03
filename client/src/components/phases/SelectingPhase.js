@@ -93,7 +93,7 @@ export default function SelectingPhase({
       });
       if (!activeRef.current) return;
       if (!data?.ok) {
-        showError('fetch', data?.error ?? '問題が見つかりませんでした。再試行してください。');
+        showError('fetch', data?.error ?? '紹介文を取得できませんでした。もう一度検索してください。');
         return;
       }
       if (data.roundId !== round?.id) return;

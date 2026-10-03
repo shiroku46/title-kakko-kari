@@ -22,6 +22,9 @@ function playableTitle(value, kind) {
     if (title === previous) break;
   }
   if (!title) return null;
+  // Circled/full-width chapter numbers normalize to an ordinary leading digit.
+  if (/^(?:[0-9]{1,3}|[IVXLCDM]{2,8})[\s:：.・–—-]+/u.test(title)) return null;
+  if (/[\s:：–—-](?:序章|終章|最終章)$/u.test(title)) return null;
   // A numeric work name/year is not a sequel number. Numbers inside a phrase,
   // such as 秒速5センチメートル, are also retained. Suffix/segment numbers are
   // deliberately conservative: no inference that a numbered sequel is part 1.

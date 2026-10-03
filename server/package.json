@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test ../tests/game-e2e.cjs ../tests/question-generator.cjs ../tests/question-discovery.cjs ../tests/question-collector.cjs ../tests/question-service.cjs ../tests/question-store.cjs ../tests/open-question-sources.cjs ../tests/web-questions.cjs ../tests/question-quality.cjs",
+    "test": "node --test ../tests/game-e2e.cjs ../tests/question-generator.cjs ../tests/question-discovery.cjs ../tests/question-collector.cjs ../tests/question-service.cjs ../tests/question-live.cjs ../tests/question-store.cjs ../tests/open-question-sources.cjs ../tests/web-questions.cjs ../tests/question-quality.cjs",
     "generate:questions": "node scripts/generate-questions.cjs"
   },
   "dependencies": {

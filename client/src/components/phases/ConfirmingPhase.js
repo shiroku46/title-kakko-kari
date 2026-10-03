@@ -96,7 +96,7 @@ export default function ConfirmingPhase({
                   accessibilityLiveRegion="polite"
                   style={[styles.loadingText, displayError && styles.errorText]}
                 >
-                  {displayError || '出典付きの作品から問題を選んでいます。'}
+                  {displayError || 'ネットで作品を検索し、元のページから紹介文を取得しています。'}
                 </Text>
                 {displayError && (
                   <StationeryButton
@@ -107,7 +107,7 @@ export default function ConfirmingPhase({
                     accessibilityLabel="作品の紹介文を再取得"
                     style={styles.loadingButton}
                   >
-                    もう一度取得する
+                    もう一度検索する
                   </StationeryButton>
                 )}
                 <StationeryButton variant="neutral"
