@@ -358,7 +358,7 @@ test('observed unlabelled film review cannot pad a short plot, even with a schem
 
 test('reading time, early-access notices, controls and AI disclosure are not introduction prose', () => {
   for (const noise of [
-    '読了時間:約2分。', '早期アクセス。',
+    '読了時間:約2分。', '早期アクセス。', 'VRでも、VRなしのPCでも遊べます。',
     '矢印キーまたはWASDで移動します。',
     '間違えても、Zで一手戻し、Rでフロアをリセットしてすぐに再挑戦できます。',
     '開発者は、ゲームでのAI生成コンテンツの使用について次のように説明しています。',
