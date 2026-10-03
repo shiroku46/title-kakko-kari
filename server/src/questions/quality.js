@@ -19,6 +19,7 @@ const CREATOR_REPORT = /進捗をご報告|作品制作.{0,70}進めておりま
 
 function introductionSentenceIsUsable(sentence) {
   if (typeof sentence !== 'string' || !/[。!?！？][」』”"]?$/u.test(sentence.trim())) return false;
+  if (/三題噺|投稿作|(?:約)?[\d,]+文字|^この度は|^さあ働け|支援を募(?:る|り)/u.test(sentence)) return false;
   if (NON_CONTENT.test(sentence) || EDITORIAL.test(sentence) || METADATA.test(sentence) || PERSON_PROFILE.test(sentence) || PROMOTION.test(sentence) || PRODUCTION_PROCESS.test(sentence) || CREATOR_REPORT.test(sentence) || OLD_KANA.test(sentence) || CLASSICAL_ENDING.test(sentence)) return false;
   // Primary dialogue/lyrics are not a work introduction. A synopsis may still
   // contain a short quotation within a sentence explaining the story.

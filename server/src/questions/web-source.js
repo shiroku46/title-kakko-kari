@@ -5,6 +5,7 @@ const { getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
 const { MIN_LENGTH, MAX_LENGTH, EXCLUDED_SECTION } = require('./quality');
 const { requirePlayableTitle, questionTitleAliases } = require('./title-policy');
+const { postedWork } = require('./posted-work');
 
 function decode(value) {
   return String(value || '').replace(/&#(x[\da-f]+|\d+);/giu, (_m, number) => {
@@ -47,11 +48,13 @@ const NON_WORK_PATH = /\/(?:author|authors|profile|profiles|category|categories|
 const GENERIC_HEADING = /^(?:予告編|ニュース|お知らせ|作品紹介|ストーリー|あらすじ|キャスト|スタッフ|トップ|ホーム|NEWS|STORY|TRAILER|INTRODUCTION)$/iu;
 const LIST_TITLE = /おすすめ(?:の)?\d*|ランキング|一覧|まとめ|新刊情報|発売予定|作品検索|検索結果|総合サイト|キャンペーン|クーポン|今だけ|[0-9]+巻無料|編集者が推す|第1巻はスゴイ|best\s*\d+|top\s*\d+/iu;
 const EDITORIAL_TITLE = /作り方|実践ガイド|制作方法|出版方法|(?:制作|出版|開発|映画)(?:の)?(?:費用|予算|手順|方法)|クラウドファンディング.{0,30}(?:戦略|成功例)|[0-9]+\s*選|(?:映画|ゲーム|漫画|小説)(?:たち|作品たち)|テキストエディタ|小説執筆.{0,12}(?:エディタ|ツール|ソフト|アプリ)/u;
+const EVENT_TITLE = /(?:漫画誌|同人誌)(?:展示)?即売会|(?:映画祭|イベント|映画館).{0,20}(?:開催継続|開催支援|運営支援|存続|再建)/u;
 const PRODUCTION_TITLE = /^(?:【[^】]*(?:自主|個人|同人)[^】]*】\s*)?(?:(?:自主(?:制作|製作)|個人(?:制作|製作|開発))(?:短編|長編)?(?:映画|ゲーム|小説|漫画)|映画)?\s*[『「]([^』」]+)[』」]/u;
 const PRODUCTION_LABEL = /自主(?:制作|製作|出版)|自費出版|個人(?:制作|製作|開発)|同人/u;
 const WRITING_TOOL = /テキストエディタ|執筆(?:作業|支援|特化|用|デスクトップ)|小説(?:執筆|制作).{0,12}(?:ツール|ソフト|アプリ)|novel[- ]writing.{0,12}(?:software|tool|editor)/iu;
 function workPageTitleIsEligible(title, method, introduction = '') {
   return typeof title === 'string' && !LIST_TITLE.test(title) && !ARTICLE_TITLE.test(title) &&
+    (method !== 'page-title' || !EVENT_TITLE.test(title)) &&
     (method === 'typed-work' || !EDITORIAL_TITLE.test(title) && !WRITING_TOOL.test(introduction));
 }
 function canonicalTitle(value) {
@@ -138,11 +141,29 @@ function sectionContent(markup) {
 function introductionSections(html) {
   const cleaned = introductionMarkup(html);
   const headings = [...cleaned.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/giu)].slice(0,250);
-  const sections = [];
-  const ancestors = [];
   const excludedRanges = headings.filter((h) => EXCLUDED_SECTION.test(headingText(h[2]))).map((h) => ({
     start: h.index, end: headings.find((next) => next.index > h.index && Number(next[1]) <= Number(h[1]))?.index ?? cleaned.length,
   }));
+  const sections = [];
+  // Some work pages use a bold paragraph label rather than a heading tag.
+  // Bound that plot at the following credits/creator section; never substitute
+  // a long crowdfunding anecdote when the actual synopsis is too short.
+  let cursor = 0;
+  const visiblePieces = [];
+  for (const range of excludedRanges) {
+    if (range.start > cursor) visiblePieces.push(cleaned.slice(cursor, range.start));
+    cursor = Math.max(cursor, range.end);
+  }
+  visiblePieces.push(cleaned.slice(cursor));
+  const visible = text(visiblePieces.join('\n').replace(/<\/h[1-6]>/giu, '\n'));
+  for (const marker of visible.matchAll(/(?:^|\n)[ \t]*(?:<\s*作品について\s*>[ \t]*)?(?:あらすじ|ストーリー|Synopsis|Story)[ \t]*[。：:]?[ \t]*(?:\n|$)/giu)) {
+    const start = marker.index + marker[0].length;
+    const rest = visible.slice(start, start+10000);
+    const end = rest.search(/(?:^|\n)[ \t]*(?:出演者|キャスト|スタッフ|監督|受賞歴|制作経緯|資金の使い道|リターン|著者紹介|プロフィール)(?:\s|[:：]|$)/u);
+    const content = rest.slice(0, end < 0 ? rest.length : end).trim();
+    if (content) sections.push({ section: 'あらすじ', content });
+  }
+  const ancestors = [];
   for (let i = 0; i < headings.length; i++) {
     const heading = headingText(headings[i][2]);
     const depth = Number(headings[i][1]);
@@ -207,6 +228,9 @@ function linkedCandidates(html, baseUrl, kind, { onlyStory = false } = {}) {
 }
 
 function extractWebWork(html, url, hintKind) {
+  if (new URL(url).hostname === 'store.steampowered.com' && /class="[^"]*\bgame_area_dlc_bubble\b/iu.test(html)) {
+    throw new Error('本編を必要とする追加コンテンツは独立した作品として採用しません');
+  }
   const meta = metadata(html);
   if (/nosnippet|noarchive|noai|none|max-snippet\s*:\s*0/iu.test(meta.robots || '') ||
     /captcha|verify you are human|アクセスが集中|ログインが必要|robot check/iu.test(text(html).slice(0,1000))) {
@@ -216,9 +240,11 @@ function extractWebWork(html, url, hintKind) {
   const pageTitle = text(meta['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1]);
   if (NON_WORK_PATH.test(new URL(url).pathname) || /^(?:profile|article)$/iu.test(meta['og:type'] || '') && /プロフィール|ライター|著者一覧/u.test(pageTitle) ||
       LIST_TITLE.test(pageTitle) || ARTICLE_TITLE.test(pageTitle)) throw new Error('記事・一覧・人物ページは作品として採用しません');
-  const works = structuredWorks(html);
+  const posted = postedWork(html, url, { text, metadata });
+  const works = posted ? [posted] : structuredWorks(html);
   if (works.length > 1) throw new Error('複数作品の一覧はお題に使用しません');
   const structured = works[0];
+  if (!structured && EVENT_TITLE.test(pageTitle)) throw new Error('イベントや施設の運営支援は創作作品として採用しません');
   // Search for independent production also finds tutorials and recommendation
   // articles. A guide is a work only with independently typed work evidence.
   if (!structured && EDITORIAL_TITLE.test(pageTitle)) throw new Error('解説記事・作品一覧は作品として採用しません');
@@ -279,7 +305,8 @@ function extractWebWork(html, url, hintKind) {
   if (!sections.length) throw new Error('作品の紹介文が見つかりません');
   let summary;
   let chosen;
-  for (const section of sections) {
+  const plots = sections.filter(s => /(?:あらすじ|ストーリー|物語|story|synopsis)/iu.test(s.section));
+  for (const section of plots.length ? plots : sections) {
     if (/歌詞|lyric|目次|収録曲/iu.test(section.content.slice(0,60)) || /書評より(?:抜粋|引用)/u.test(section.content)) continue;
     try { summary = summarizeWithoutTitles(section.content, aliases); chosen = section; break; } catch { /* Try the next explicit introduction. */ }
   }
@@ -293,12 +320,13 @@ function extractWebWork(html, url, hintKind) {
   return { realTitle, aliases, kind, synopsis, workIdentity, author,
     contentType: getKind(kind).contentMode === 'description' ? 'description' : 'synopsis',
     evidence: { sourceId: `web-${hash(url)}`, section: chosen.section,
-      work: { version: 2, title: realTitle, kind, pageTitle, method: structured ? 'typed-work' : 'page-title' },
+      work: { version: 2, title: realTitle, kind, pageTitle, method: posted ? 'posted-work' : structured ? 'typed-work' : 'page-title' },
       sourceTextSha256: hash(chosen.content), excerpts: summary.excerpts,
       visibility: visibilityEvidence({ title: realTitle, aliases, kind, sourceUrl: url,
         // The page identity has already been checked. Description metadata is
         // a reach signal only; it is never enough to generate a question text.
         introductions: [pageTitle, ...sections.map(s => s.content), meta['og:description'], meta.description], genres: [genre, ...visibleGenres],
+        posted: posted?.reach,
         reviewCount: structured?.aggregateRating?.ratingCount ?? structured?.aggregateRating?.reviewCount ??
           [...workMetadata.matchAll(/<meta\b[^>]*>/giu)].map(m => attributes(m[0]))
             .find(a => /^(?:ratingCount|reviewCount)$/u.test(a.itemprop || ''))?.content }) } };

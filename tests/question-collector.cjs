@@ -456,7 +456,7 @@ test('the service deadline aborts a Wiki pacing wait and saves already collected
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const bankPath = join(directory, 'bank.json');
   const statePath = join(directory, 'state.json');
-  const service = createQuestionService({ bankPath, statePath, validateQuestion: () => true,
+  const service = createQuestionService({ bankPath, statePath, live: false, validateQuestion: () => true,
     collectionTimeoutMilliseconds: 75,
     collectionOptions: { providers: ['wikipedia'], limit: 2, maxRequests: 3,
       discoverImpl: discoveryOf([candidate(100), candidate(101)]), generateImpl: async (...args) => {

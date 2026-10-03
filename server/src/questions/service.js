@@ -11,13 +11,14 @@ const STATUS_FAILURE_MESSAGES = Object.freeze({
 
 function createQuestionService({
   bankPath, statePath, seedPath,
-  enabled = true, collectImpl, fetchImpl,
+  enabled = true, live = true, liveOptions = {}, collectImpl, fetchImpl,
   collectionTimeoutMilliseconds = 60000,
   collectionOptions = { providers: ['web'] }, minimumAvailable = 8,
   cooldownMilliseconds = 300000, intervalMilliseconds = 3600000,
   now = Date.now, validateQuestion = questionIsValid,
   prepareSavedQuestion = validateQuestion === questionIsValid ? prepareQuestion : (question) => question,
 } = {}) {
+  if (enabled && live) return require('./live').createLiveQuestionSource({ ...liveOptions, ...(fetchImpl && { fetchImpl }) });
   const paths = bankPath ? { bankPath, statePath: statePath || `${bankPath}.discovery.json`, seedPath } : defaultPaths();
   const selection = createSelectionPolicy(paths.seedPath ? readBankSync({ bankPath: paths.seedPath }).questions : []);
   let pending = null;

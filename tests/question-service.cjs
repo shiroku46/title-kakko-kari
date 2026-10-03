@@ -40,7 +40,7 @@ function fixture(t, questions = []) {
   writeFileSync(seedPath, JSON.stringify({ schemaVersion: 1, generatedAt: '2026-10-01T00:00:00Z', questions: [] }));
   const service = (options = {}) => {
     const instance = createQuestionService({
-      bankPath, statePath, seedPath, enabled: true, minimumAvailable: 1,
+      bankPath, statePath, seedPath, enabled: true, live: false, minimumAvailable: 1,
       ...options,
     });
     t.after(() => instance.stop());

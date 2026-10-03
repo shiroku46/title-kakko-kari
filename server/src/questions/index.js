@@ -31,10 +31,10 @@ function findQuestion(questionId) {
 }
 
 // Preserve deterministic fixture behavior when automatic collection is disabled.
-function selectQuestionAsync(excludedIds = []) {
+function selectQuestionAsync(excludedIds = [], options) {
   return process.env.QUESTION_COLLECTION_ENABLED === 'false'
     ? Promise.resolve().then(() => selectQuestion(excludedIds))
-    : service.selectQuestion(excludedIds);
+    : service.selectQuestion(excludedIds, options);
 }
 
 module.exports = {

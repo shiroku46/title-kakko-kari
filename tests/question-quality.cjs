@@ -154,7 +154,7 @@ test('selection and collection apply saved-quality checks without deleting rejec
   old.sources[0].url = 'https://ja.wikipedia.org/wiki/'+encodeURIComponent('古い作品')+'?oldid=100';
   writeFileSync(bankPath,JSON.stringify({ schemaVersion:1,questions:[good,old] }));
   let received;
-  const service = createQuestionService({ bankPath, minimumAvailable: 1, collectImpl: async ({ questions,state }) => {
+  const service = createQuestionService({ bankPath, live: false, minimumAvailable: 1, collectImpl: async ({ questions,state }) => {
     received = questions;
     return { questions,state,added:[],rejected:[],requests:0 };
   } });

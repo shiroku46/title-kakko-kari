@@ -10,9 +10,14 @@ const {
 
 // WeakMap entries cannot leak through the public round/room serializers.
 const helperStates = new WeakMap();
+const cpuFetchControllers = new WeakMap();
+function cancelCpuFetch(round) {
+  cpuFetchControllers.get(round)?.abort();
+  cpuFetchControllers.delete(round);
+}
 function invalidateHelper(round) {
   const state = helperStates.get(round);
-  if (state) { state.version++; state.loading = false; state.question = null; }
+  if (state) { state.controller?.abort(); state.version++; state.loading = false; state.question = null; }
 }
 
 function discardQuestion(io, room, round) {
@@ -26,6 +31,9 @@ function isRoundController(round, player) {
 }
 
 async function loadCpuSynopsis(io, room, round) {
+  cancelCpuFetch(round);
+  const controller = new AbortController();
+  cpuFetchControllers.set(round, controller);
   const version = ++round.fetchVersion;
   round.synopsis = null;
   round.real_title = null;
@@ -39,9 +47,11 @@ async function loadCpuSynopsis(io, room, round) {
   let work;
   let failure;
   try {
-    work = await selectQuestionAsync(room.usedQuestionIds);
+    work = await selectQuestionAsync(room.usedQuestionIds, { signal: controller.signal });
   } catch (error) {
     failure = error.message;
+  } finally {
+    if (cpuFetchControllers.get(round) === controller) cpuFetchControllers.delete(round);
   }
   // A late selection must not overwrite a confirmed, skipped or abandoned round.
   if (rooms.get(room.code) !== room || getCurrentRound(room) !== round ||
@@ -139,7 +149,8 @@ function registerGameHandlers(io, socket) {
       helperStates.set(round, state);
       version = ++state.version;
       state.loading = true;
-      const work = await selectQuestionAsync([...room.usedQuestionIds]);
+      state.controller = new AbortController();
+      const work = await selectQuestionAsync([...room.usedQuestionIds], { signal: state.controller.signal });
       check();
       if (state.version !== version) throw new Error('取得中に出題内容が変更されました。もう一度お試しください');
       state.question = work;
@@ -220,6 +231,7 @@ function registerGameHandlers(io, socket) {
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null || round.previewConfirmed) throw new Error('CPUの取得待ち画面から操作してください');
     discardQuestion(io, room, round);
+    cancelCpuFetch(round);
     ++round.fetchVersion;
     round.questioner_id = player.id;
     round.manualCpu = true;

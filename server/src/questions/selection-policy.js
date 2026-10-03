@@ -27,6 +27,12 @@ function substantialSales(statement) {
 }
 
 function classifySignal(signal, title, aliases, kind) {
+  if (signal?.type === 'posted-work') {
+    if (signal.platform !== 'kakuyomu' || typeof signal.official !== 'boolean' || typeof signal.published !== 'boolean' ||
+        !['reads','followers','reviewPoints','adaptations'].every(key => Number.isSafeInteger(signal[key]) && signal[key] >= 0)) return null;
+    return signal.official || signal.published || signal.adaptations || signal.reads >= 5000 ||
+      signal.followers >= 50 || signal.reviewPoints >= 100 ? 'wide' : 'small';
+  }
   if (signal?.type === 'review-count') {
     return Number.isSafeInteger(signal.count) && signal.count >= 200 ? 'wide' : null;
   }
@@ -39,8 +45,9 @@ function classifySignal(signal, title, aliases, kind) {
     (ownsStatement(excerpt, title, aliases, kind) || PRODUCTION.test(excerpt)) ? 'small' : null;
 }
 
-function visibilityEvidence({ title, aliases = [], kind, sourceUrl, introductions = [], genres = [], reviewCount }) {
+function visibilityEvidence({ title, aliases = [], kind, sourceUrl, introductions = [], genres = [], reviewCount, posted }) {
   const candidates = [];
+  if (posted) candidates.push(posted);
   for (const genre of [genres].flat()) if (typeof genre === 'string') candidates.push({ type: 'genre', excerpt: genre });
   for (const introduction of introductions) {
     if (typeof introduction !== 'string') continue;
@@ -72,6 +79,8 @@ function verifiedSignals(question) {
       !Array.isArray(evidence.signals) || !evidence.signals.length || evidence.signals.length > MAX_SIGNALS ||
       evidence.sha256 !== createHash('sha256').update(JSON.stringify(evidence.signals)).digest('hex')) return [];
   const signals = evidence.signals.map(s => classifySignal(s, question.realTitle, question.aliases, question.kind));
+  if (evidence.signals.some(s => s.type === 'posted-work') &&
+      (new URL(evidence.sourceUrl).hostname !== 'kakuyomu.jp' || question.evidence.work?.method !== 'posted-work')) return [];
   return signals.some(s => !s) ? [] : evidence.signals;
 }
 
@@ -93,7 +102,7 @@ function createSelectionPolicy(seedQuestions = []) {
   function preferred(questions) {
     const small = eligible(questions);
     const personal = small.filter(q => verifiedSignals(q).some(s =>
-      typeof s.excerpt === 'string' && PERSONAL.test(s.excerpt)));
+      s.type === 'posted-work' || typeof s.excerpt === 'string' && PERSONAL.test(s.excerpt)));
     return personal.length ? personal : small;
   }
   function eligible(questions) {
