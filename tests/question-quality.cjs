@@ -73,14 +73,26 @@ test('promotion, bibliography and author biography sentences are filtered even w
 test('crowdfunding production reports cannot become questions, while their actual story paragraphs remain usable', () => {
   const report = '日芸生を中心として集まり、制作する短編映画です。初めての映画制作という人が多い中、それぞれができることを行い進めています。物語で描くことは「生きることとその決断がどれだけ難しいか」です。映像作品を大学在学中に制作したい!しないと後悔する!と思い、行動に移したのがこのプロジェクトの始まりです。とは言え、映画を制作することはほぼ無かった状態だったので、どう人を集めたら良いのかなど四苦八苦しながら準備を進めていきました。';
   const progress = 'そして何とか、最低限の人数が集まり、2025年1月に撮影が始まりました。今回が初めて!という人も多数いる中、日芸生を中心としながら、学年・学科関係なくひとつの作品を創っていく気持ちは絶やさずに取り組んでまいりました。撮影は残り僅かという状態ではありますが、今回のプロジェクトに支援してくださりますと嬉しいです。よろしくお願いいたします!今回は「自殺」「若者」をテーマに描いていきたいと考えています。大学生を含め、学生が路頭に迷い、様々な壁にぶつかり、自ら命を絶つ人が少しずつ減ってはいるものの、それでも多いことを知りました。';
+  const completion = '加えて、この作品は撮影がほとんど終了していることなどから完成することは確定しておりますことをお知らせ致します。リターンも必ずお届けしますので、ご安心ください。やむを得ない事情によりプロジェクトに遅延等が発生した場合は、メールやアップデート記事にて速やかに進捗をご報告いたします。少人数での作品制作にはなっていますが、より良い作品になるように全力で進めております。今回のファンディングは目標金額に達しなくても実施するためのものです。';
+  assert.throws(() => summarizeExtractively(completion));
+  assert.deepEqual(summarizeExtractively(story + completion).excerpts, summarizeExtractively(story).excerpts);
   assert.throws(() => summarizeExtractively(report + progress));
   assert.equal(prepareQuestion(storedQuestion(report + progress)), null);
+  const mission = '今回が初めて!その苦しみや辛さをあえてダイレクトに描きつつも、生きるという選択を取ることで何か良い方法はないのか?生き続けることがなぜ正しいのか?生きるという決断をとることがどれだけ難しいのか?を作品を通して一人でも多くの人に伝えたい、考えてもらいたいと思い、今回はこれらのテーマで描くことにいたしました。';
+  assert.throws(() => summarizeExtractively(mission));
+  assert.equal(prepareQuestion(storedQuestion(mission)), null);
+  assert.deepEqual(summarizeExtractively(mission + story).excerpts, summarizeExtractively(story).excerpts);
+  const question = '少年が突然いなくなった港町で、旅人は古い手紙を探し始める。少年は何を伝えようとしていたのだろうか?';
+  const selected = require('../server/src/questions/quality').selectIntroductionSentences(sourceSentences(question));
+  assert.equal(selected.join(''), question, 'a story question without a creator report remains intact');
+  const perks = '(×1)※視聴期限なし ▼今作品を通常配信より1週間早く視聴できます(YouTube限定公開機能での視聴) 7全て詰め込み!';
+  assert.deepEqual(summarizeExtractively(story + perks).excerpts, summarizeExtractively(story).excerpts);
   assert.throws(() => summarizeExtractively(report));
   assert.equal(prepareQuestion(storedQuestion(report)), null);
   const summary = summarizeExtractively(report + story);
   assert.ok(summary.excerpts.every((s) => sentences.includes(s)), 'keep only source story prose');
   assert.equal(introductionSentenceIsUsable('個人制作で生まれた作品の主人公は、支援者のいない港町で家族の行方を探し始める。'), true);
-  const source = `<title>自主制作映画「港の約束」</title><h2>作品紹介</h2><p>${report + progress}</p>`;
+  const source = `<title>自主制作映画「港の約束」</title><h2>作品紹介</h2><p>${report + progress + mission}</p>`;
   assert.throws(() => extractWebWork(source, 'https://indie.example.org/project/1', 'film'));
   const work = extractWebWork(source + `<h2>あらすじ</h2><p>${story}</p>`, 'https://indie.example.org/project/1', 'film');
   assert.ok(work.evidence.excerpts.every((s) => sentences.includes(s)));

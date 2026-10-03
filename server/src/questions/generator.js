@@ -1,7 +1,7 @@
 const { createHash } = require('node:crypto');
 const { visibilityEvidence } = require('./selection-policy');
 const { getKind } = require('./kinds');
-const { MIN_LENGTH, MAX_LENGTH, TARGET_LENGTH, MAX_SENTENCES, introductionSentenceIsUsable } = require('./quality');
+const { MIN_LENGTH, MAX_LENGTH, TARGET_LENGTH, MAX_SENTENCES, introductionSentenceIsUsable, selectIntroductionSentences } = require('./quality');
 const { requirePlayableTitle, questionTitleAliases } = require('./title-policy');
 
 const WIKIPEDIA_API = 'https://ja.wikipedia.org/w/api.php';
@@ -370,7 +370,7 @@ function sourceSentences(text) {
 }
 
 function summarizeExtractively(text, { minLength = MIN_LENGTH, maxLength = MAX_LENGTH } = {}) {
-  const sentences = sourceSentences(text).filter(introductionSentenceIsUsable);
+  const sentences = selectIntroductionSentences(sourceSentences(text));
   maxLength = Math.min(maxLength, MAX_LENGTH);
   const selected = [];
   let length = 0;
@@ -387,7 +387,7 @@ function summarizeExtractively(text, { minLength = MIN_LENGTH, maxLength = MAX_L
 }
 
 function summarizeWithoutTitles(text, aliases) {
-  const sentences = sourceSentences(text).filter((sentence) =>
+  const sentences = selectIntroductionSentences(sourceSentences(text)).filter((sentence) =>
     !sentence.includes('■■■') && !containsTitle(sentence, aliases));
   return summarizeExtractively(sentences.join(''));
 }
