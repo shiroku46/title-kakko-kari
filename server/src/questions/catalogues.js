@@ -8,16 +8,15 @@ const LIVE_ENGINES = ['yahoo', 'bing', 'duckduckgo'];
 // Discovery entry points, not a stock of works. Every response is searched for
 // current links, and every chosen work is independently fetched and verified.
 function catalogueUrl(kind, page) {
-  if (kind === 'novel') return `https://kakuyomu.jp/search?q=${encodeURIComponent('短編')}&order=published_at&page=${page+1}`;
-  if (kind === 'film') return `https://motion-gallery.net/categories/Film?page=${page+1}`;
-  if (kind === 'game') return `https://store.steampowered.com/search/?tags=492,21&category1=998&supportedlang=japanese&sort_by=Released_DESC&l=japanese&page=${page+1}`;
-  return `https://booth.pm/ja/browse/${encodeURIComponent('漫画')}?tags%5B%5D=${encodeURIComponent('創作漫画')}&sort=new&page=${page+1}`;
+  if (kind === 'novel' || kind === 'manga') return `https://books.rakuten.co.jp/search?sitem=${encodeURIComponent(kind==='manga'?'漫画 短編集':'小説')}&g=${kind==='manga'?'001001':'001004'}&s=4&e=1&o=${page*30}`;
+  if (kind === 'film') return `https://www.cinematoday.jp/movie/?page=${page+1}`;
+  return `https://store.steampowered.com/search/?tags=492,21&category1=998&supportedlang=japanese&sort_by=Released_DESC&l=japanese&page=${page+1}`;
 }
 
 function catalogueLinks(html, base, kind) {
   const host = new URL(base).hostname;
-  const patterns = { 'kakuyomu.jp': /^\/works\/\d+$/u, 'motion-gallery.net': /^\/projects\/[\w-]+$/u,
-    'store.steampowered.com': /^\/app\/\d+(?:\/[^/]*)?\/?$/u, 'booth.pm': /^\/ja\/items\/\d+$/u };
+  const patterns = { 'books.rakuten.co.jp': /^\/rb\/\d+\/$/u, 'www.cinematoday.jp': /^\/movie\/T\d+$/u,
+    'store.steampowered.com': /^\/app\/\d+(?:\/[^/]*)?\/?$/u };
   const links = new Map();
   for (const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/giu)) {
     const a = attributes(m[1]);
@@ -36,7 +35,7 @@ function catalogueLinks(html, base, kind) {
 
 async function discoverLiveCandidates({ kind, pass = 0, page = 0, fetchImpl, signal }) {
   const engine = LIVE_ENGINES[pass % LIVE_ENGINES.length];
-  const angle = pass < 2 ? '個人制作' : 'インディー';
+  const angle = pass < 2 ? '小規模' : 'インディー';
   const query = searchQuery(kind, angle).replace(/(映画 あらすじ)$/u, '$1 -作り方 -方法 -募集');
   const catalogue = catalogueUrl(kind, page);
   const routes = [

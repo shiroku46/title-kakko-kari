@@ -19,6 +19,8 @@ function normalizeContentType(value) {
 export default function GameScreen({ navigation, route }) {
   const { room, player, gameData } = route.params;
   const socket = getSocket();
+  const genreDisclosure = Boolean(gameData.settings?.genreDisclosure);
+  const [workKindLabel, setWorkKindLabel] = useState(gameData.round?.workKindLabel || null);
   const [isHost, setIsHost] = useState(player.is_host);
   const [synopsisError, setSynopsisError] = useState(null);
 
@@ -104,6 +106,7 @@ export default function GameScreen({ navigation, route }) {
       if (data.mode) setMode(data.mode);
       setPhase(data.mode === 'cpu' ? 'confirming' : 'selecting');
       setSynopsis(null);
+      setWorkKindLabel(null);
       setFetchedSynopsis(null);
       setSynopsisError(null);
       setChoices([]);
@@ -122,6 +125,7 @@ export default function GameScreen({ navigation, route }) {
     'round:synopsis_loading': (data) => {
       if (data.roundId !== round.id) return;
       setFetchedSynopsis(null);
+      setWorkKindLabel(null);
       setContentType('synopsis');
       setSynopsisError(null);
     },
@@ -134,10 +138,12 @@ export default function GameScreen({ navigation, route }) {
       if (data.roundId !== round.id) return;
       setSynopsisError(null);
       setFetchedSynopsis(data.synopsis);
+      setWorkKindLabel(data.workKindLabel || null);
       setContentType(normalizeContentType(data.contentType));
     },
     'round:synopsis_presented': (data) => {
       setSynopsis(data.synopsis);
+      setWorkKindLabel(data.workKindLabel || null);
       setContentType(normalizeContentType(data.contentType));
     },
     'round:known_declared': ({ player: p }) => {
@@ -158,6 +164,7 @@ export default function GameScreen({ navigation, route }) {
     },
     'round:reselect_started': ({ mode: nextMode }) => {
       setSynopsis(null);
+      setWorkKindLabel(null);
       setFetchedSynopsis(null);
       setSynopsisError(null);
       setContentType('synopsis');
@@ -232,6 +239,7 @@ export default function GameScreen({ navigation, route }) {
         return;
       }
       setFetchedSynopsis(response.synopsis);
+      setWorkKindLabel(response.workKindLabel || null);
       setContentType(normalizeContentType(response.contentType));
       setSynopsisError(null);
     });
@@ -275,6 +283,7 @@ export default function GameScreen({ navigation, route }) {
             isQuestioner={amQuestioner}
             isHost={isHost}
             isCpu={mode === 'cpu'}
+            genreDisclosure={genreDisclosure}
             questionerDisconnected={questionerDisconnected}
             playerId={player.id}
             knownDeclarations={knownDeclarations}
@@ -370,6 +379,9 @@ export default function GameScreen({ navigation, route }) {
               <Text style={styles.discardedTitle}>{discardedTitle}</Text>
             </View>
           ) : null}
+          {genreDisclosure && workKindLabel ? (
+            <Text style={styles.genreNotice} accessibilityLiveRegion="polite">ジャンル：{workKindLabel}</Text>
+          ) : null}
           {renderPhase()}
         </>
       )}
@@ -382,6 +394,7 @@ const styles = StyleSheet.create({
   gameControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'web' ? 0 : 54, backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
   roomLabel: { fontSize: 12, color: colors.muted },
   exitButton: { minHeight: 44, paddingVertical: 6 },
+  genreNotice: { color: colors.navy, backgroundColor: colors.cream, paddingHorizontal: 20, paddingVertical: 12, fontSize: 16, fontWeight: '700' },
   departureNotice: { color: colors.navy, backgroundColor: colors.cream, paddingHorizontal: 16, paddingVertical: 10, fontSize: 13, lineHeight: 20 },
   discardedPanel: { backgroundColor: colors.cream, paddingHorizontal: 20, paddingVertical: 12 },
   discardedLabel: { color: colors.muted, fontSize: 12, lineHeight: 18 },

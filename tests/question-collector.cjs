@@ -461,8 +461,10 @@ test('the service deadline aborts a Wiki pacing wait and saves already collected
     collectionOptions: { providers: ['wikipedia'], limit: 2, maxRequests: 3,
       discoverImpl: discoveryOf([candidate(100), candidate(101)]), generateImpl: async (...args) => {
         const q = await generatedWithFetch()(...args);
+        q.realTitle += 'の物語';
         q.evidence.visibility = require('../server/src/questions/selection-policy').visibilityEvidence({
-          title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['個人制作']});
+          title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['小規模出版']});
+        q.evidence.distribution = require('../server/src/questions/distribution-policy').distributionEvidence({title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,publisher:'検証出版社',date:'2026-01-01',identifier:'9784065373262'});
         return q;
       } },
     fetchImpl: async () => Response.json({}) });

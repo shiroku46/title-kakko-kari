@@ -24,8 +24,9 @@ function question(number) {
       sourceId: `wikipedia-ja-${number + 1000}-${number + 100}`, section: 'あらすじ',
       sourceTextSha256: createHash('sha256').update(sourceText).digest('hex'),
       excerpts: sourceText.match(/[^。]+。/gu),
+      distribution: require('../server/src/questions/distribution-policy').distributionEvidence({title:realTitle,kind:'novel',sourceUrl:`https://ja.wikipedia.org/wiki/${encodeURIComponent(realTitle)}?oldid=${number + 100}`,publisher:'検証出版社',date:'2026-01-01',identifier:'9784065373262'}),
       visibility: require('../server/src/questions/selection-policy').visibilityEvidence({title:realTitle,kind:'novel',
-        sourceUrl:`https://ja.wikipedia.org/wiki/${encodeURIComponent(realTitle)}?oldid=${number + 100}`,genres:['自主出版']}),
+        sourceUrl:`https://ja.wikipedia.org/wiki/${encodeURIComponent(realTitle)}?oldid=${number + 100}`,genres:['小規模出版']}),
     },
   };
 }
@@ -93,7 +94,7 @@ test('famous initial seed questions trigger discovery and become a fallback once
   assert.equal((await service.selectQuestion()).id, discovered.id);
   assert.equal(calls, 1);
   for (let i=0; i<10; i++) assert.equal((await service.selectQuestion()).id, discovered.id);
-  await assert.rejects(service.selectQuestion([discovered.id]),/小規模制作/);
+  await assert.rejects(service.selectQuestion([discovered.id]),/公式流通/);
 });
 
 test('when small-work discovery is unavailable famous seeds are not served', async (t) => {
@@ -101,7 +102,7 @@ test('when small-work discovery is unavailable famous seeds are not served', asy
   const files = fixture(t, [initial]);
   writeFileSync(files.seedPath, JSON.stringify({ schemaVersion: 1, questions: [initial] }));
   const service = files.service({ collectImpl: async () => { throw new Error('Search unavailable'); } });
-  await assert.rejects(service.selectQuestion(),/小規模制作/);
+  await assert.rejects(service.selectQuestion(),/公式流通/);
 });
 
 test('explicitly disabled collection performs no network work for empty or exhausted stores', async (t) => {
@@ -423,12 +424,12 @@ function withVisibility(q, input) {
 
 test('source-backed small works outrank unknown and widely promoted works across domains',async(t)=>{
   const unknown=unknownQuestion(40);
-  const small=withVisibility(question(41),{introductions:['本作は自主出版の小説として制作された作品である。']});
+  const small=withVisibility(question(41),{introductions:['本作は小規模出版の小説として制作された作品である。']});
   const wide=withVisibility(question(42),{introductions:['原作シリーズの累計発行部数は1,000万部を超えている。']});
   const files=fixture(t,[unknown,small,wide]);const service=files.service({enabled:false});
   for(let i=0;i<10;i++)assert.equal((await service.selectQuestion()).id,small.id);
-  await assert.rejects(service.selectQuestion([small.id]),/小規模制作/);
-  await assert.rejects(service.selectQuestion([small.id,unknown.id]),/小規模制作/);
+  assert.equal((await service.selectQuestion([small.id])).id,unknown.id);
+  await assert.rejects(service.selectQuestion([small.id,unknown.id]),/公式流通/);
   await assert.rejects(service.selectQuestion([small.id,unknown.id,wide.id]));
   assert.equal(JSON.parse(readFileSync(files.bankPath)).questions.length,3);
 });
@@ -439,7 +440,7 @@ test('a seed re-collected under a different source ID remains excluded and trigg
   writeFileSync(files.seedPath,JSON.stringify({schemaVersion:1,questions:[seed]}));
   let calls=0;const service=files.service({collectImpl:async()=>{calls++;return collected([copy,unknown,question(55)]);}});
   assert.equal((await service.selectQuestion()).id,question(55).id);assert.equal(calls,1);
-  await assert.rejects(service.selectQuestion([question(55).id]),/小規模制作/);
+  assert.equal((await service.selectQuestion([question(55).id])).id,unknown.id);
 });
 
 test('few reviews, minor search wording, missing Wikipedia and a character making indie games do not prove low visibility',()=>{
@@ -464,7 +465,7 @@ test('large sales and structured review counts override indie labels; invalid pr
 
 test('both sync gameplay selection and service use the shared preference policy',async(t)=>{
   const {spawnSync}=require('node:child_process');
-  const small=withVisibility(question(47),{genres:['自主出版']});
+  const small=withVisibility(question(47),{genres:['小規模出版']});
   const unknown=unknownQuestion(48),files=fixture(t,[unknown,small]);
   const api=join(__dirname,'../server/src/questions/index.js');
   const program=`const api=require(${JSON.stringify(api)}); Promise.all([api.selectQuestion(),api.selectQuestionAsync()]).then(q=>console.log(JSON.stringify(q.map(x=>x.id))));`;
@@ -475,7 +476,7 @@ test('both sync gameplay selection and service use the shared preference policy'
 });
 
 test('low small-work stock refills in the background without stalling the preferred choice',async(t)=>{
-  const small=withVisibility(question(49),{genres:['自主出版']});const files=fixture(t,[small,unknownQuestion(50),unknownQuestion(51)]);
+  const small=withVisibility(question(49),{genres:['小規模出版']});const files=fixture(t,[small,unknownQuestion(50),unknownQuestion(51)]);
   let release;const gate=new Promise(r=>{release=r;});let started;const begun=new Promise(r=>{started=r;});
   const service=files.service({minimumAvailable:2,collectImpl:async({questions})=>{started();await gate;return collected(questions);}});
   assert.equal((await service.selectQuestion()).id,small.id);await begun;
@@ -484,7 +485,7 @@ test('low small-work stock refills in the background without stalling the prefer
 });
 
 test('saved source excerpts can supply small-work evidence without changing the stored record',async(t)=>{
-  const old=question(52),text='本作は自主出版の小説として刊行された作品である。'+old.synopsis;
+  const old=question(52),text='本作は小規模出版の小説として刊行された作品である。'+old.synopsis;
   old.synopsis=text;old.evidence={...old.evidence,excerpts:text.match(/[^。]+。/gu),sourceTextSha256:createHash('sha256').update(text).digest('hex')};
   const files=fixture(t,[unknownQuestion(53),old]);const before=readFileSync(files.bankPath,'utf8');
   assert.equal((await files.service({enabled:false}).selectQuestion()).id,old.id);
@@ -499,32 +500,33 @@ test('source production credits identify a small independent film but fictional 
   assert.equal(policy.tier(withVisibility(q,{introductions:['本作の主人公は自主制作で完成させた映画を持って旅に出る。']})),1);
 });
 
-test('personal publication outranks generic indie works and mainstream fallback is never selected', async(t)=>{
+test('minor official works outrank unknown official works and wide works remain excluded', async(t)=>{
   const {createSelectionPolicy}=require('../server/src/questions/selection-policy');
   const personal=withVisibility(question(56),{genres:['個人開発']});
   const indie=withVisibility(question(57),{genres:['インディー']});
   const unknown=unknownQuestion(58),wide=withVisibility(question(59),{genres:['個人開発'],reviewCount:200});
   const policy=createSelectionPolicy([question(60)]);
-  for(let i=0;i<8;i++)assert.equal(policy.select([indie,unknown,wide,personal,question(60)]).id,personal.id);
+  for(let i=0;i<8;i++)assert.ok([personal.id,indie.id].includes(policy.select([indie,unknown,wide,personal,question(60)]).id));
   assert.equal(policy.select([indie,unknown,wide]).id,indie.id);
-  assert.throws(()=>policy.select([unknown,wide,question(60)]),/小規模制作/);
+  assert.equal(policy.select([unknown,wide,question(60)]).id,unknown.id);
   const files=fixture(t,[unknown,wide]);let calls=0;
   const service=files.service({collectImpl:async()=>{calls++;return collected([unknown,wide]);}});
-  await assert.rejects(service.selectQuestion(),/小規模制作/);assert.equal(calls,1);
+  assert.equal((await service.selectQuestion()).id,unknown.id);assert.equal(calls,0);
   assert.equal(JSON.parse(readFileSync(files.bankPath)).questions.length,2);
 });
 
 test('disabled sync and async selection refuse an unknown-only bank without accessing the network',async(t)=>{
   const {spawnSync}=require('node:child_process'),files=fixture(t,[unknownQuestion(61)]);
   const api=join(__dirname,'../server/src/questions/index.js');
+  const unverified=unknownQuestion(61);delete unverified.evidence.distribution;writeFileSync(files.bankPath,JSON.stringify({schemaVersion:1,questions:[unverified]}));
   const program=`const a=require(${JSON.stringify(api)}); try{a.selectQuestion();process.exitCode=1;}catch(e){console.log(e.message);} a.selectQuestionAsync().then(()=>{process.exitCode=1;},e=>console.log(e.message));`;
   const child=spawnSync(process.execPath,['-e',program],{encoding:'utf8',env:{...process.env,QUESTION_COLLECTION_ENABLED:'false',QUESTION_BANK_PATH:files.bankPath}});
-  assert.equal(child.status,0,child.stderr);assert.equal(child.stdout.trim().split('\n').length,2);assert.match(child.stdout,/小規模制作/);
+  assert.equal(child.status,0,child.stderr);assert.equal(child.stdout.trim().split('\n').length,2);assert.match(child.stdout,/公式流通/);
 });
 
 test('modest mainstream reach and adaptations exclude otherwise small-production works',()=>{
   const {createSelectionPolicy}=require('../server/src/questions/selection-policy'),policy=createSelectionPolicy();
-  for(const input of [{genres:['インディー'],reviewCount:200},{genres:['自主出版'],introductions:['本作の累計発行部数は10万部に達した。']},
+  for(const input of [{genres:['インディー'],reviewCount:200},{genres:['小規模出版'],introductions:['本作の累計発行部数は10万部に達した。']},
     {genres:['同人'],introductions:['原作がアニメ化された。']}])assert.equal(policy.eligible([withVisibility(question(62),input)]).length,0);
   assert.equal(policy.eligible([withVisibility(question(63),{genres:['個人開発'],reviewCount:199})]).length,1);
 });

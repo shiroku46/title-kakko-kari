@@ -2,7 +2,7 @@ const { KIND_IDS, getKind } = require('./kinds');
 const { publicUrl } = require('./web-fetch');
 const { decode, text, attributes, hash } = require('./web-source');
 const ENGINES = ['duckduckgo', 'bing'];
-const QUERY_VERSION = 3;
+const QUERY_VERSION = 4;
 const ANGLES = ['個人制作', '小規模', 'インディー', '埋もれた作品'];
 const SEARCH_KINDS = ['novel', 'film', 'game', 'manga', ...KIND_IDS.filter((k) => !['novel','film','game','manga'].includes(k))];
 const REVISIT_MS = 6 * 60 * 60 * 1000;
@@ -12,18 +12,18 @@ function searchQuery(kind, angle, now = new Date()) {
   const story = getKind(kind).contentMode === 'story';
   const book = ['novel','short-story','literary-work','manga','nonfiction','poem'].includes(kind);
   if (angle === '個人制作') {
-    if (kind === 'game') return '個人制作 短編 ゲーム ストーリー';
-    if (kind === 'film') return '自主制作 短編 映画 あらすじ';
-    if (kind === 'manga') return 'オリジナル 同人 漫画 作品紹介 全年齢';
-    if (book) return `自主出版 オリジナル ${label} あらすじ 全年齢`;
+    if (kind === 'game') return 'インディー ゲーム ストーリー パブリッシャー 販売 -フリーゲーム -個人制作';
+    if (kind === 'film') return '単館公開 映画 あらすじ 配給';
+    if (kind === 'manga') return '漫画 短編集 単行本 内容紹介';
+    if (book) return `小出版社 ${label} 内容紹介`;
     return `個人制作 ${label} 作品紹介`;
   }
   if (angle === 'インディー' || angle === '小規模') {
     const small = angle === '小規模';
-    if (kind === 'game') return `${small ? '個人開発 短編' : 'インディー'} ゲーム ストーリー 公式 -作り方 -攻略`;
-    if (kind === 'film') return `${small ? '単館公開' : '自主制作'} 映画 あらすじ -作り方 -方法 -制作ガイド`;
-    if (kind === 'manga') return `${small ? '創作 読み切り' : '同人 オリジナル'} 漫画 あらすじ 全年齢 -描き方 -作り方`;
-    if (book) return `${small ? '小出版社' : '自主出版'} ${label} 内容紹介 -費用 -方法 -作り方`;
+    if (kind === 'game') return `インディー ゲーム ストーリー パブリッシャー 販売 -フリーゲーム -個人制作 -攻略`;
+    if (kind === 'film') return `単館公開 映画 あらすじ 配給 -作り方 -制作ガイド`;
+    if (kind === 'manga') return `漫画 短編集 単行本 内容紹介 -同人誌 -描き方`;
+    if (book) return `小出版社 ${label} 内容紹介 -同人誌 -自費出版`;
     return `${small ? '小規模' : '自主制作'} ${label} ${story ? 'あらすじ' : '作品紹介'}`;
   }
   if (angle === '埋もれた作品') return `隠れた ${label} ${story ? 'あらすじ' : '作品紹介'}`;

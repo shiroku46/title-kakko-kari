@@ -13,7 +13,7 @@ const { playableTitle } = require('../server/src/questions/title-policy');
 
 const story = '港町に暮らす青年は、差出人のわからない手紙を受け取る。古い写真の中には、幼い頃に別れた友人と見知らぬ灯台が写っていた。青年は最後の船に乗り、地図から消えた島へと向かう。誰もいないと思われた島で、彼を待っていたのは名前を失った少女だった。二人は手紙に隠された約束をたどり、町に残された人々の記憶を取り戻そうとする。';
 const work = n => ({ url: `https://indie${n}.example.org/films/letter`, kind: 'film', id: `web-${hash(`https://indie${n}.example.org/films/letter`)}` });
-const html = n => `<title>自主制作映画「港への便り${n}の日」</title><h1>港への便り${n}の日</h1><h2>あらすじ</h2><p>${story}</p>`;
+const html = n => `<title>自主制作映画「港への便り${n}の日」</title><h1>港への便り${n}の日</h1><dl><dt>配給</dt><dd>検証配給会社</dd><dt>公開日</dt><dd>2026-01-01</dd></dl><h2>あらすじ</h2><p>${story}</p>`;
 const response = body => new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8' } });
 const discovery = candidates => async () => ({ candidates: [...candidates] });
 
@@ -92,15 +92,15 @@ test('429 respects Retry-After while another source remains available on subsequ
 test('fresh discovery continues through a blocked engine to links from a live catalogue', async () => {
   const seen = [];
   const result = await discoverLiveCandidates({ kind: 'novel', fetchImpl: async url => {
-    seen.push(url); return url.includes('yahoo') ? new Response('', { status: 429 }) : response('<a title="港の便り" href="/works/123">港の便り</a>');
+    seen.push(url); return url.includes('yahoo') ? new Response('', { status: 429 }) : response('<a title="港の便り" href="/rb/123/">港の便り</a>');
   } });
   assert.equal(seen.length, 2); assert.equal(result.errors, 1);
-  assert.deepEqual(result.candidates.map(c => c.url), ['https://kakuyomu.jp/works/123']);
+  assert.deepEqual(result.candidates.map(c => c.url), ['https://books.rakuten.co.jp/rb/123/']);
 });
 
 test('catalogues yield current exact work links, not episodes, reviews, other hosts or a fixed title stock', () => {
-  const result = catalogueLinks('<a href="/works/123">ある小説</a><a href="/works/123/episodes/1">本文</a><a href="/works/456/reviews">レビュー</a><a href="https://evil.example.org/works/789">別サイト</a>', 'https://kakuyomu.jp/search?q=x', 'novel');
-  assert.equal(result.length, 1); assert.equal(result[0].url, 'https://kakuyomu.jp/works/123');
+  const result = catalogueLinks('<a href="/rb/123/">ある小説</a><a href="/rb/123/episodes/1">本文</a><a href="https://evil.example.org/rb/789/">別サイト</a>', 'https://books.rakuten.co.jp/search?sitem=x', 'novel');
+  assert.equal(result.length, 1); assert.equal(result[0].url, 'https://books.rakuten.co.jp/rb/123/');
 });
 
 function postedHtml(changes = {}, { visible = story, canonical = 'https://kakuyomu.jp/works/123' } = {}) {
@@ -113,7 +113,7 @@ function postedHtml(changes = {}, { visible = story, canonical = 'https://kakuyo
   return `<title>港の便り（投稿する作者） - カクヨム</title><meta property="og:type" content="article"><meta property="og:url" content="${canonical}"><h1>港の便り</h1><div>${visible}</div><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
 }
 
-test('self-published work uses its matched visible introduction and its own verified reach, never related work data', async () => {
+test('posted work uses its matched visible introduction and its own verified reach, never related work data', async () => {
   const candidate = { url: 'https://kakuyomu.jp/works/123', kind: 'novel' };
   const q = await generateWebQuestion(candidate, { fetchImpl: async () => response(postedHtml()) });
   assert.equal(questionIsValid(q), true); assert.equal(q.realTitle, '港の便り'); assert.equal(evidenceTier(q), 0);
@@ -165,7 +165,8 @@ test('a self-produced comics event fundraiser is not a manga work even with a qu
   await assert.rejects(generateWebQuestion({url:work(1).url,kind:'manga'},{fetchImpl:async()=>response(source)}), /イベント/u);
 });
 
-const mediaPage = (kind, title) => `<title>${{novel:'自主出版小説',film:'自主制作映画',game:'個人制作ゲーム',manga:'同人漫画'}[kind]}「${title}」</title><h1>${title}</h1><h2>あらすじ</h2><p>${story}</p>`;
+const publicationMarkup = kind => `<script type="application/ld+json">${JSON.stringify({ '@type':kind==='game'?'VideoGame':kind==='film'?'Movie':'Book',name:'PLACEHOLDER',genre:kind==='manga'?'漫画':kind==='novel'?'小説':kind==='film'?'映画':'ゲーム',publisher:{name:'検証出版社'},datePublished:'2026-01-01',isbn:'9784065373262',developer:{name:'検証開発会社'},offers:{price:1000},description:story})}</script>`;
+const mediaPage = (kind, title) => `<title>${{novel:'小規模出版小説',film:'自主制作映画',game:'インディーゲーム',manga:'漫画'}[kind]}「${title}」</title><h1>${title}</h1>${publicationMarkup(kind).replace('PLACEHOLDER',title)}<h2>あらすじ</h2><p>${story}</p>`;
 
 test('actual delivered media stay balanced across rounds, including reselection, and rooms retain independent histories', async t => {
   let next = 0;
@@ -215,9 +216,41 @@ test('wrong-medium results cannot satisfy a film search, and an unavailable medi
 
 test('film catalogue uses the current category path and comics query targets original creator works', () => {
   const {catalogueUrl}=require('../server/src/questions/catalogues');
-  assert.equal(new URL(catalogueUrl('film',3)).pathname,'/categories/Film');
+  assert.equal(new URL(catalogueUrl('film',3)).pathname,'/movie/');
   assert.equal(new URL(catalogueUrl('film',3)).searchParams.get('page'),'4');
-  assert.equal(new URL(catalogueUrl('manga',0)).searchParams.get('tags[]'),'創作漫画');
-  const cs=catalogueLinks('<a href="/projects/a"><h3>自主制作映画「小さな灯」</h3><span>99人 現在100000円</span></a>','https://motion-gallery.net/categories/Film','film');
-  assert.equal(cs[0].title,'自主制作映画「小さな灯」');
+  assert.equal(new URL(catalogueUrl('manga',0)).hostname,'books.rakuten.co.jp');
+  const cs=catalogueLinks('<a href="/movie/T1234567"><h3>映画「小さな灯」</h3></a>','https://www.cinematoday.jp/movie/','film');
+  assert.equal(cs[0].title,'映画「小さな灯」');
+});
+
+const {hasOfficialDistribution,distributionEvidence,isbnIsValid,releaseDate}=require('../server/src/questions/distribution-policy');
+const commercialBook=(extra={},markup='')=>`<title>港の便り | 小説</title><h1>港の便り</h1><main><script type="application/ld+json">${JSON.stringify({'@type':'Book',name:'港の便り',genre:'小説',publisher:{name:'海辺出版'},author:{name:'書く人'},isbn:'9784065373262',datePublished:'2026-01-01',description:story,...extra})}</script><h2>あらすじ</h2><p>${story}</p>${markup}</main>`;
+test('random selection requires own commercial publication, not a web posting, self publication or another work metadata',async()=>{
+  const url='https://publisher.example.org/book/letter',policy=require('../server/src/questions/selection-policy').createSelectionPolicy();
+  const generate=html=>generateWebQuestion({url,kind:'novel'},{fetchImpl:async()=>response(html)});
+  const official=await generate(commercialBook());assert(hasOfficialDistribution(official));assert(policy.isEligible(official));
+  for(const extra of [{publisher:undefined},{isbn:'9784065373261'},{datePublished:'2099-01-01'},{publisher:{name:'書く人'}},{genre:['小説','自費出版']},{genre:['小説','同人誌']}]){
+    const q=await generate(commercialBook(extra));assert.equal(hasOfficialDistribution(q),false);assert.equal(policy.isEligible(q),false);
+  }
+  const hidden=await generate(commercialBook({publisher:undefined,isbn:undefined,datePublished:undefined},'<aside><dl><dt>出版社</dt><dd>海辺出版</dd><dt>ISBN</dt><dd>9784065373262</dd><dt>発売日</dt><dd>2026-01-01</dd></dl></aside>'));assert.equal(hasOfficialDistribution(hidden),false);
+  for(const changes of [{},{hasPublication:true}]){
+    const q=await generateWebQuestion({url:'https://kakuyomu.jp/works/123',kind:'novel'},{fetchImpl:async()=>response(postedHtml(changes))});assert.equal(policy.isEligible(q),false);
+  }
+  assert.equal(policy.isEligible({...official,realTitle:'別の作品'}),false);assert.equal(policy.isEligible({...official,sources:[{url:'https://other.example.org/book/1'}]}),false);
+  assert.equal(policy.isEligible({...official,evidence:{...official.evidence,distribution:{...official.evidence.distribution,sha256:'0'.repeat(64)}}}),false);
+  assert.equal(isbnIsValid('978-4-06-537326-2'),true);assert.equal(isbnIsValid('9784065373261'),false);assert.equal(releaseDate('2026-02-32'),null);
+});
+test('official movie distribution and paid published games pass, but crowdfunded-only, free, personal and unreleased games fail',async()=>{
+  const generate=(type,kind,extra)=>generateWebQuestion({url:`https://store.example.org/${kind}/1`,kind},{fetchImpl:async()=>response(commercialBook({'@type':type,genre:kind==='game'?'ゲーム':'映画',publisher:{name:'流通会社'},developer:{name:'開発会社'},offers:{price:1000},...extra}))});
+  assert(hasOfficialDistribution(await generate('Movie','film',{})));assert(hasOfficialDistribution(await generate('VideoGame','game',{})));
+  for(const extra of [{offers:{price:0}},{offers:undefined},{publisher:{name:'開発会社'}},{publisher:{name:'Solo Studio'},developer:{name:'Solo Studio'}},{genre:['ゲーム','個人開発']},{genre:['ゲーム','フリーゲーム']},{datePublished:'2099-01-01'}])assert.equal(hasOfficialDistribution(await generate('VideoGame','game',extra)),false);
+  assert.equal(hasOfficialDistribution(await generate('Movie','film',{publisher:undefined})),false);
+  const studio=await generate('VideoGame','game',{publisher:{name:'Sea Studio Ltd.'},developer:{name:'Sea Studio Ltd.'}});assert(hasOfficialDistribution(studio));
+});
+test('old banks cannot serve unverified or personal works; valid official unknown works remain below small official works',async t=>{
+  const directory=mkdtempSync(join(tmpdir(),'title-official-policy-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
+  const url='https://publisher.example.org/book/1',q=await generateWebQuestion({url,kind:'novel'},{fetchImpl:async()=>response(commercialBook())});
+  const unverified={...q,id:'unpublished',evidence:{...q.evidence,distribution:undefined}};const bankPath=join(directory,'bank.json');
+  writeFileSync(bankPath,JSON.stringify({schemaVersion:1,questions:[unverified]}));const source=createQuestionService({bankPath,enabled:false});t.after(()=>source.stop());await assert.rejects(source.selectQuestion(),/公式流通/);
+  writeFileSync(bankPath,JSON.stringify({schemaVersion:1,questions:[unverified,q]}));assert.equal((await source.selectQuestion()).id,q.id);
 });

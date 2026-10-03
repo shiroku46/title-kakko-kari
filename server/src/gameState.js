@@ -8,7 +8,7 @@ function createRoom() {
   let code;
   do { code = String(randomInt(0, 1000000)).padStart(6, '0'); } while (rooms.has(code));
   const room = {
-    id: randomUUID(), code, status: 'waiting', settings: {},
+    id: randomUUID(), code, status: 'waiting', settings: { genreDisclosure: false },
     current_round: 0, total_rounds: 0, players: [], rounds: [], usedQuestionIds: [],
   };
   rooms.set(code, room);
@@ -46,10 +46,11 @@ function publicRoom(room) {
   return view;
 }
 
-function publicRound(round) {
+function publicRound(round, room) {
   const { answers, votes, declarations, fetchVersion, fetchError, mvpAnswerId, sourceQuestion,
-    previewConfirmed, manualCpu, ...view } = round;
-  return { ...view, real_title: null };
+    previewConfirmed, manualCpu, workKind, ...view } = round;
+  const kind = room?.settings.genreDisclosure && round.synopsis ? require('./questions/kinds').getKind(workKind) : null;
+  return { ...view, real_title: null, ...(kind && { workKind, workKindLabel: kind.label }) };
 }
 
 function playerScores(room) {

@@ -29,6 +29,8 @@ export default function LobbyScreen({ navigation, route }) {
   const [gameMode, setGameMode] = useState('player');
   const [cpuRounds, setCpuRounds] = useState(5);
   const [starting, setStarting] = useState(false);
+  const [genreDisclosure, setGenreDisclosure] = useState(Boolean(room.settings?.genreDisclosure));
+  const [settingsPending, setSettingsPending] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
   const [isHost, setIsHost] = useState(player.is_host);
   const leavingRef = useRef(false);
@@ -37,12 +39,14 @@ export default function LobbyScreen({ navigation, route }) {
   const { isPC, contentPadding } = useResponsiveLayout();
 
   useSocketListeners({
+    'room:settings_updated': ({ settings }) => setGenreDisclosure(Boolean(settings.genreDisclosure)),
     'room:player_joined': ({ allPlayers }) => setPlayers(allPlayers),
     'room:player_disconnected': ({ playerId }) => {
       setPlayers((prev) => prev.filter((p) => p.id !== playerId));
       socket.emit('room:get_state', null, (res) => {
         if (!res.ok) return;
         setIsHost(Boolean(res.room.players.find((p) => p.id === player.id)?.is_host));
+        setGenreDisclosure(Boolean(res.room.settings?.genreDisclosure));
         setPlayers(res.room.players.filter((p) => p.is_connected).map((p) => ({
           id: p.id,
           nickname: p.nickname,
@@ -92,7 +96,7 @@ export default function LobbyScreen({ navigation, route }) {
     }, 10000);
     startRequestRef.current = timer;
 
-    socket.emit('game:start', { mode: gameMode, totalRounds: cpuRounds }, (res) => {
+    socket.emit('game:start', { mode: gameMode, totalRounds: cpuRounds, genreDisclosure }, (res) => {
       if (startRequestRef.current !== timer) return;
       clearTimeout(timer);
       startRequestRef.current = null;
@@ -100,6 +104,17 @@ export default function LobbyScreen({ navigation, route }) {
         setStarting(false);
         Alert.alert('エラー', res.error);
       }
+    });
+  }
+
+  function updateGenreRule(value) {
+    if (settingsPending || starting) return;
+    setSettingsPending(true);
+    socket.timeout(10000).emit('room:update_settings', { genreDisclosure: value }, (error, res) => {
+      if (leavingRef.current) return;
+      setSettingsPending(false);
+      if (error || !res?.ok) Alert.alert('ルールを変更できませんでした', error ? '接続を確認して、もう一度お試しください。' : res?.error);
+      else setGenreDisclosure(Boolean(res.settings.genreDisclosure));
     });
   }
 
@@ -271,6 +286,20 @@ export default function LobbyScreen({ navigation, route }) {
                   />
                 </View>
 
+                <Text style={styles.settingsLabel}>ジャンル指定</Text>
+                <View style={styles.roundRow}>
+                  {[false, true].map((value) => (
+                    <StationeryButton key={String(value)} variant={genreDisclosure === value ? 'yellow' : 'neutral'}
+                      onPress={() => updateGenreRule(value)} disabled={settingsPending || starting}
+                      accessibilityLabel={`ジャンル指定${value ? 'あり' : 'なし'}`} style={styles.roundButton}>
+                      {value ? 'あり' : 'なし'}
+                    </StationeryButton>
+                  ))}
+                </View>
+                <Text style={styles.startHint}>
+                  {genreDisclosure ? '小説・映画・漫画・ゲームなど、お題の種類を見てタイトルを考えます。' : '作品の種類を伏せて、紹介文から自由にタイトルを考えます。'}
+                </Text>
+
                 {gameMode === 'cpu' && (
                   <>
                     <Text style={styles.settingsLabel}>ラウンド数</Text>
@@ -296,7 +325,7 @@ export default function LobbyScreen({ navigation, route }) {
                     variant="primary"
                     onPress={handleStart}
                     loading={starting}
-                    disabled={starting || players.length < MIN_PLAYERS}
+                    disabled={starting || settingsPending || players.length < MIN_PLAYERS}
                     accessibilityLabel="ゲームを開始する"
                   >
                     ゲームを開始する →
@@ -315,6 +344,7 @@ export default function LobbyScreen({ navigation, route }) {
                 <Text style={styles.guestKicker}>READY?</Text>
                 <Text style={styles.guestTitle}>あなたは参加済みです</Text>
                 <Text style={styles.guestBody}>
+                  ジャンル指定：{genreDisclosure ? 'あり（お題の種類を表示）' : 'なし（お題の種類を伏せる）'}{'\n'}
                   画面を閉じずに、そのままお待ちください。
                 </Text>
               </PaperPanel>

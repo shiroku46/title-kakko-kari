@@ -97,7 +97,10 @@ const allFixtureQuestions = [...fixtureQuestions, openResourceQuestion, ...genre
 // These socket fixtures represent individually produced works. Their source
 // preference metadata is private and independent of the test's story text.
 for(const q of allFixtureQuestions) q.evidence.visibility = require('../server/src/questions/selection-policy').visibilityEvidence({
-  title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['個人制作'],
+  title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,genres:['小規模出版'],
+});
+for (const q of allFixtureQuestions) q.evidence.distribution = require('../server/src/questions/distribution-policy').distributionEvidence({
+  title:q.realTitle,kind:q.kind,sourceUrl:q.sources[0].url,publisher:'検証出版社',date:'2026-01-01',identifier:'9784065373262',developer:'検証開発会社',price:1000,
 });
 function writeBank(questions = fixtureQuestions) {
   writeFileSync(fixturePath, JSON.stringify({
@@ -223,6 +226,7 @@ function ack(b, event, payload = null) {
       try {
         const { questionId, ...publicResponse } = response || {};
         if (event === 'round:prepare_question' && response?.ok) assertNoSources(publicResponse);
+        else if (event === 'round:get_synopsis' && b.allowGenre) { const {workKind,workKindLabel,...safe}=response;assertNoSources(safe); }
         else assertNoSources(response);
         resolve(response);
       } catch (failure) {
@@ -240,13 +244,16 @@ async function denied(b, event, payload) {
   assert.equal(response.ok, false, event);
   assert.equal(typeof response.error, 'string');
 }
-async function event(b, name) {
+async function event(b, name, allowGenre = false) {
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
     const index = b.events.findIndex((e) => e.name === name);
     if (index !== -1) {
       const data = b.events.splice(index, 1)[0].data;
-      if (name !== 'round:revealed') assertNoSources(data);
+      if (name !== 'round:revealed') {
+        const {workKind,workKindLabel,...safe}=data;
+        assertNoSources(allowGenre ? safe : data);
+      }
       return data;
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -775,7 +782,7 @@ for (const variant of ['exact', 'modified title', 'modified synopsis', 'unknown 
     const questioner = bots.find((b) => b.player.id === started.questioner.id);
     const answerers = bots.filter((b) => b !== questioner);
     const work = await ok(questioner, 'round:prepare_question', { roomId:started.round.room_id, roundId:started.round.id });
-    assert.deepEqual(Object.keys(work).sort(), ['contentType', 'ok', 'questionId', 'roundId', 'synopsis', 'title']);
+    assert.deepEqual(Object.keys(work).sort(), ['contentType', 'kind', 'ok', 'questionId', 'roundId', 'synopsis', 'title']);
     assert.equal(work.ok, true);
     const question = fixtureQuestions.find((q) => q.id === work.questionId);
     assert.ok(question);
@@ -1155,4 +1162,48 @@ test('failed private assistance leaves player input and manual publication avail
   const shown=await event(bots.find(b=>b!==questioner),'round:synopsis_presented');
   assert.equal(shown.synopsis,text);
   assert.ok(!JSON.stringify(shown).includes('手入力の正解'));
+});
+
+test('genre rule is a validated host-only lobby setting, synchronized to guests and fixed after start',async t=>{
+  const {bots}=await roomWith(t,4);assert.equal((await ok(bots[0],'room:get_state')).room.settings.genreDisclosure,false);
+  await denied(bots[1],'room:update_settings',{genreDisclosure:true});await denied(bots[0],'room:update_settings',{genreDisclosure:'yes'});
+  await ok(bots[0],'room:update_settings',{genreDisclosure:true});
+  for(const b of bots)assert.equal((await event(b,'room:settings_updated')).settings.genreDisclosure,true);
+  await denied(bots[0],'game:start',{mode:'player',genreDisclosure:1});await ok(bots[0],'game:start',{mode:'player'});
+  const start=await event(bots[0],'game:started');assert.equal(start.settings.genreDisclosure,true);assert.equal(start.round.workKind,undefined);
+  await denied(bots[0],'room:update_settings',{genreDisclosure:false});
+});
+for(const disclosure of [false,true])test(`manual genre disclosure ${disclosure} follows declaration/title phases and clears on reselection`,async t=>{
+  const {bots}=await roomWith(t,4);await ok(bots[0],'game:start',{mode:'player',genreDisclosure:disclosure});
+  const start=await event(bots[0],'game:started'),q=bots.find(b=>b.player.id===start.questioner.id),others=bots.filter(b=>b!==q);
+  if(disclosure)await denied(q,'round:submit_synopsis',{synopsis:'手動で用意する紹介文です。',realTitle:'非公開の答え'});
+  await denied(q,'round:submit_synopsis',{synopsis:'手動で用意する紹介文です。',realTitle:'非公開の答え',workKind:'INVALID'});
+  await ok(q,'round:submit_synopsis',{synopsis:'手動で用意する紹介文です。',realTitle:'非公開の答え',workKind:'film'});
+  for(const b of bots){const shown=await event(b,'round:synopsis_presented',disclosure);assert.equal(shown.workKind,disclosure?'film':undefined);assert.equal(shown.workKindLabel,disclosure?'映画':undefined);assert(!JSON.stringify(shown).includes('非公開の答え'));}
+  assertNoSources(await ok(others[0],'room:get_state'));
+  await ok(others[0],'round:declare_known');await ok(q,'round:reselect');
+  for(const b of bots)assert.equal((await event(b,'round:reselect_started')).workKind,undefined);
+  await ok(q,'round:submit_synopsis',{synopsis:'変更後の紹介文です。',realTitle:'変更後の答え',workKind:'game'});
+  for(const b of bots){const shown=await event(b,'round:synopsis_presented',disclosure);assert.equal(shown.workKind,disclosure?'game':undefined);}
+  for(const b of others)await ok(b,'round:declare_unknown');await ok(q,'round:start_submitting');
+  for(const b of bots)assert.equal((await event(b,'round:synopsis_presented',disclosure)).workKind,disclosure?'game':undefined);
+});
+for(const disclosure of [false,true])test(`CPU genre disclosure ${disclosure} keeps title and provenance private in preview and declaration`,async t=>{
+  writeBank();const {bots}=await roomWith(t,4);for(const b of bots)b.allowGenre=disclosure;await ok(bots[0],'game:start',{mode:'cpu',totalRounds:1,genreDisclosure:disclosure});
+  const start=await event(bots[0],'game:started'),preview=await event(bots[0],'round:synopsis_fetched',disclosure),work=questionForSynopsis(preview.synopsis);
+  assert.equal(preview.workKind,disclosure?work.kind:undefined);assert.equal(bots[1].events.some(e=>e.name==='round:synopsis_fetched'),false);
+  const recovered=await ok(bots[0],'round:get_synopsis',{roomId:bots[0].player.room_id,roundId:start.round.id});assert.equal(recovered.workKind,disclosure?work.kind:undefined);assert(!JSON.stringify(recovered).includes(work.realTitle));
+  await ok(bots[0],'round:confirm_synopsis');for(const b of bots){const shown=await event(b,'round:synopsis_presented',disclosure);assert.equal(shown.workKind,disclosure?work.kind:undefined);assert(!JSON.stringify(shown).includes(work.realTitle));}
+  assertNoSources(await ok(bots[1],'room:get_state'));
+});
+
+
+test('editing the helper genre keeps the declared medium and drops incompatible automatic attribution',async t=>{
+  writeBank();const {bots,room}=await roomWith(t,4);await ok(bots[0],'game:start',{mode:'player',genreDisclosure:true});
+  const start=await event(bots[0],'game:started'),q=bots.find(b=>b.player.id===start.questioner.id);
+  const helper=await ok(q,'round:prepare_question',{roomId:room.id,roundId:start.round.id});assert.equal(helper.kind,'novel');
+  await ok(q,'round:submit_synopsis',{realTitle:helper.title,synopsis:helper.synopsis,questionId:helper.questionId,workKind:'film'});
+  const shown=await event(q,'round:synopsis_presented',true);assert.equal(shown.workKind,'film');
+  const round=rooms.get(room.code).rounds.at(-1);assert.equal(round.workKind,'film');assert.equal(round.sourceQuestion,null);
+  for(const b of bots){while(b.events.some(e=>e.name==='round:synopsis_presented'))await event(b,'round:synopsis_presented',true);}
 });

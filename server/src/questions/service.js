@@ -73,7 +73,7 @@ function createQuestionService({
           const collection = collector({
             ...collectionOptions, questions, state, ...(fetchImpl && { fetchImpl }),
             signal: activeController.signal, validateQuestion,
-            acceptCandidate: (question) => selection.tier(question) === 0,
+            acceptCandidate: (question) => selection.isEligible(question),
           });
           let onAbort;
           const aborted = new Promise((_, reject) => {
@@ -144,7 +144,7 @@ function createQuestionService({
       choices = selection.eligible(available(excludedIds));
     }
     if (!choices.length) {
-      throw new Error('小規模制作の未使用問題をまだ用意できません。収集を再試行するか、手動で出題してください。');
+      throw new Error('公式流通を確認できる未使用問題をまだ用意できません。収集を再試行するか、手動で出題してください。');
     }
     const chosen = selection.select(choices);
     if (enabled && selection.preferred(choices).length < minimumAvailable) void collectNow();
