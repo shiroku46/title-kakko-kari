@@ -395,3 +395,19 @@ test('rating annotations and parenthetical punctuation cannot pad or fragment a 
   assert.equal(introductionSentenceIsUsable('主人公は残酷な事件の真相を調べるため、友人と古い港へ向かう。'),true);
   assert.throws(()=>summarizeExtractively('少女は港で旅人を見つけた。('+notice+')'));
 });
+
+test('creator-store publication and style disclosures cannot pad a plot, while actual story statements remain', () => {
+  for(const sentence of [
+    '既存作品・実在作家の画風を意図した制作ではありません。',
+    '邦画界の異端児にして寵児・監督の新境地となる新作映画です!',
+    'コミティア157(2026.8.23 東京ビッグサイト)で販売したオリジナル漫画です。',
+    'より長く大切に描き続けるため最新話をBOOTHにて先読み有料配信しています。',
+    'HPでの次回更新時には無料公開予定のエピソードを一足早く特典付きでお楽しみいただけます。',
+    'ご自身の閲覧環境に合わせてお好きな方をお楽しみください。',
+    '単行本化に伴い、BOOTHでの単話販売価格は予告なく改訂する場合がございます。',
+    'ご購入時点での販売になりますので、その後の価格変動による差額の返金・請求はいたしかねます。',
+  ]) assert.equal(introductionSentenceIsUsable(sentence),false,sentence);
+  assert.equal(introductionSentenceIsUsable('ただし、写真の人数は変えられません。'),true);
+  const q=extractWebWork(page(`<div class="description">\n〜あらすじ〜\n${story}\nコミティアで販売したオリジナル漫画です。</div>`), 'https://creator.example.org/book','novel');
+  assert.equal(q.synopsis,story);assert.ok(!q.synopsis.includes('あらすじ'));
+});

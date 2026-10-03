@@ -10,6 +10,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
   const selection = createSelectionPolicy();
   const active = new Set(), cooldowns = new Map(), delivered = new Map();
   const titleKey = q => `${q.kind}:${q.realTitle.normalize('NFKC').replace(/[\s\p{P}]/gu,'').toLowerCase()}`;
+  const mediaKind = kind => ['novel', 'short-story', 'literary-work'].includes(kind) ? 'novel' : kind;
   let sequence = initialKind, stopped = false, completed = 0, succeeded = 0;
   let lastStartedAt = null, lastCompletedAt = null, lastSuccessfulAt = null, failure = null;
 
@@ -20,9 +21,24 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     const cancel = () => controller.abort();
     if (signal?.aborted) cancel(); else signal?.addEventListener('abort', cancel, { once: true });
     const excluded = new Set(excludedIds), attempted = new Set();
-    const excludedTitles = new Set(excludedIds.map(id => delivered.get(id)).filter(Boolean));
+    const history = excludedIds.map(id => delivered.get(id)).filter(Boolean);
+    const excludedTitles = new Set(history.map(q => q.title));
     const startKind = sequence++ % LIVE_KINDS.length;
     const page = Math.floor(sequence / LIVE_KINDS.length) % 20;
+    const counts = Object.fromEntries(LIVE_KINDS.map(kind => [kind, 0]));
+    for (const q of history) if (Object.hasOwn(counts, q.kind)) counts[q.kind]++;
+    const orderedKinds = LIVE_KINDS.map((_, offset) => LIVE_KINDS[(startKind + offset) % LIVE_KINDS.length])
+      .sort((a,b) => counts[a] - counts[b]);
+    const lowest = counts[orderedKinds[0]];
+    const priority = orderedKinds.filter(kind => counts[kind] === lowest);
+    const fallback = orderedKinds.filter(kind => counts[kind] !== lowest);
+    // Retry underrepresented media using another engine/page before a medium
+    // already used by this room. Count delivered works, never failed searches.
+    const searches = [
+      ...[0,1].flatMap(pass => priority.map(kind => ({ kind, pass }))),
+      ...[0,1].flatMap(pass => fallback.map(kind => ({ kind, pass }))),
+      ...orderedKinds.map(kind => ({ kind, pass: 2 })),
+    ];
     lastStartedAt = new Date(now()).toISOString();
     const timeout = setTimeout(() => controller.abort(), deadlineMilliseconds);
     let requests = 0, finished = false;
@@ -54,55 +70,55 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
       // A fresh discovery is mandatory on every call, even when a prior call
       // succeeded. There is no bank lookup, failed-collection cooldown, global
       // exhausted inventory or shared pending question for concurrent rooms.
-      for (let pass = 0; pass < 3 && requests < maxRequests; pass++) {
-        for (let offset = 0; offset < LIVE_KINDS.length && requests < maxRequests; offset++) {
-          const kind = LIVE_KINDS[(startKind + offset) % LIVE_KINDS.length];
-          let candidates;
+      for (const { kind, pass } of searches) {
+        if (requests >= maxRequests) break;
+        let candidates;
+        try {
+          const discovery = await discoverImpl({ kind, pass, page: (page+pass)%20, fetchImpl: fetchPage, signal: controller.signal });
+          candidates = discovery.candidates;
+        } catch { controller.signal.throwIfAborted(); continue; }
+        const queue = candidates.filter(c => (!c.kind || mediaKind(c.kind) === kind) && !excluded.has(c.id) && !attempted.has(c.url));
+        let examined = 0;
+        // Examine several different work pages concurrently within the shared
+        // request/deadline budget. Slow or invalid pages cannot block another.
+        while (queue.length && requests < maxRequests) {
+          const batch = queue.splice(0, 3);
+          examined += batch.length;
+          const batchController = new AbortController();
+          let chosen;
           try {
-            const discovery = await discoverImpl({ kind, pass, page: (page+pass)%20, fetchImpl: fetchPage, signal: controller.signal });
-            candidates = discovery.candidates;
-          } catch { controller.signal.throwIfAborted(); continue; }
-          const queue = candidates.filter(c => !excluded.has(c.id) && !attempted.has(c.url));
-          // Examine several different work pages concurrently within the shared
-          // request/deadline budget. Slow or invalid pages cannot block another.
-          while (queue.length && requests < maxRequests) {
-            const batch = queue.splice(0, 3);
-            const batchController = new AbortController();
-            let chosen;
-            try {
-              chosen = await Promise.any(batch.map(async candidate => {
-                attempted.add(candidate.url);
-                let q;
-                try {
-                  q = await generateImpl(candidate, { fetchImpl: (url, options = {}) => fetchPage(url, {
-                    ...options, signal: AbortSignal.any([batchController.signal, ...(options.signal ? [options.signal] : [])]),
-                  }) });
-                } catch (error) {
-                  if ((candidate.webDepth || 0) < 2 && Array.isArray(error.additionalCandidates)) {
-                    for (const linked of error.additionalCandidates.slice(0, 8)) if (!attempted.has(linked.url) && !excluded.has(linked.id)) {
-                      queue.push({ ...linked, webDepth: (candidate.webDepth || 0) + 1 });
-                    }
+            chosen = await Promise.any(batch.map(async candidate => {
+              attempted.add(candidate.url);
+              let q;
+              try {
+                q = await generateImpl(candidate, { fetchImpl: (url, options = {}) => fetchPage(url, {
+                  ...options, signal: AbortSignal.any([batchController.signal, ...(options.signal ? [options.signal] : [])]),
+                }) });
+              } catch (error) {
+                if ((candidate.webDepth || 0) < 2 && Array.isArray(error.additionalCandidates)) {
+                  for (const linked of error.additionalCandidates.slice(0, 8)) if (!attempted.has(linked.url) && !excluded.has(linked.id)) {
+                    queue.push({ ...linked, webDepth: (candidate.webDepth || 0) + 1 });
                   }
-                  throw error;
                 }
-                if (!questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || selection.tier(q) !== 0) throw new Error('作品条件を満たしません');
-                return q;
-              }));
-            } catch { /* Try the next source batch when every work is invalid. */ }
-            finally { batchController.abort(); }
-            controller.signal.throwIfAborted();
-            if (chosen) {
-              // Only exclusion metadata is remembered; no synopsis inventory
-              // is ever served. Alternate URLs cannot reintroduce a used title.
-              delivered.set(chosen.id, titleKey(chosen));
-              if (delivered.size > 20000) delivered.delete(delivered.keys().next().value);
-              finished = true; succeeded++; lastSuccessfulAt = new Date(now()).toISOString(); failure = null;
-              return chosen;
-            }
-            // Reserve discovery capacity for other media/domains rather than
-            // spending the entire deadline on a single catalogue's first page.
-            if (batch.some(c => c.webDepth > 0) || attempted.size >= 12 * (pass*4 + offset + 1)) break;
+                throw error;
+              }
+              if (mediaKind(q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || selection.tier(q) !== 0) throw new Error('作品条件を満たしません');
+              return q;
+            }));
+          } catch { /* Try the next source batch when every work is invalid. */ }
+          finally { batchController.abort(); }
+          controller.signal.throwIfAborted();
+          if (chosen) {
+            // Only exclusion metadata is remembered; no synopsis inventory
+            // is ever served. Alternate URLs cannot reintroduce a used title.
+            delivered.set(chosen.id, { title: titleKey(chosen), kind: mediaKind(chosen.kind) });
+            if (delivered.size > 20000) delivered.delete(delivered.keys().next().value);
+            finished = true; succeeded++; lastSuccessfulAt = new Date(now()).toISOString(); failure = null;
+            return chosen;
           }
+          // Reserve discovery capacity for other media/domains rather than
+          // spending the entire deadline on a single catalogue's first page.
+          if (batch.some(c => c.webDepth > 0) || examined >= 12) break;
         }
       }
       throw new Error('紹介文を確認できる作品が見つかりませんでした。もう一度ネット検索してください。');

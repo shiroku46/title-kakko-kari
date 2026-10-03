@@ -6,6 +6,7 @@ const { publicUrl } = require('./web-fetch');
 const { MIN_LENGTH, MAX_LENGTH, EXCLUDED_SECTION } = require('./quality');
 const { requirePlayableTitle, questionTitleAliases } = require('./title-policy');
 const { postedWork } = require('./posted-work');
+const { creatorWork } = require('./creator-work');
 
 function decode(value) {
   return String(value || '').replace(/&#(x[\da-f]+|\d+);/giu, (_m, number) => {
@@ -138,7 +139,7 @@ function sectionContent(markup) {
   return text(pieces.join('\n'));
 }
 
-function introductionSections(html) {
+function introductionSections(html, { workTitle } = {}) {
   const cleaned = introductionMarkup(html);
   const headings = [...cleaned.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/giu)].slice(0,250);
   const excludedRanges = headings.filter((h) => EXCLUDED_SECTION.test(headingText(h[2]))).map((h) => ({
@@ -155,26 +156,34 @@ function introductionSections(html) {
     cursor = Math.max(cursor, range.end);
   }
   visiblePieces.push(cleaned.slice(cursor));
-  const visible = text(visiblePieces.join('\n').replace(/<\/h[1-6]>/giu, '\n'));
-  for (const marker of visible.matchAll(/(?:^|\n)[ \t]*(?:<\s*作品について\s*>[ \t]*)?(?:あらすじ|ストーリー|Synopsis|Story)[ \t]*[。：:]?[ \t]*(?:\n|$)/giu)) {
+  // Heading sections are extracted separately below. Keep their boundaries
+  // while reading plain/bold labels, so a flattened duplicate cannot run past
+  // a short plot into later production reports.
+  const boundary = '__INTRODUCTION_HEADING_BOUNDARY__';
+  const visible = text(visiblePieces.join('\n').replace(/<h([1-6])\b[^>]*>[\s\S]*?<\/h\1>/giu, `\n${boundary}\n`));
+  for (const marker of visible.matchAll(/(?:^|\n)[ \t]*(?:<\s*作品について\s*>[ \t]*)?[〜~■◆◇ー―【\[-]*(?:あらすじ|ストーリー|Synopsis|Story)[ \t]*[。：:]?[〜~■◆◇ー―】\]-]*[ \t]*(?:\n|$)/giu)) {
     const start = marker.index + marker[0].length;
     const rest = visible.slice(start, start+10000);
-    const end = rest.search(/(?:^|\n)[ \t]*(?:出演者|キャスト|スタッフ|監督|受賞歴|制作経緯|資金の使い道|リターン|著者紹介|プロフィール|レビュー|感想|AI生成コンテンツの開示|操作方法)(?:\s|[:：]|$)/u);
+    const end = rest.search(/(?:^|\n)[ \t]*(?:__INTRODUCTION_HEADING_BOUNDARY__|[【\[]?(?:出演者|キャスト|スタッフ|監督|受賞歴|制作経緯|制作について|作品情報|商品情報|収録内容|仕様|資金の使い道|リターン|著者紹介|プロフィール|レビュー|感想|AI生成コンテンツの開示|操作方法)[】\]]?)(?:\s|[:：]|$)/u);
     const content = rest.slice(0, end < 0 ? rest.length : end).trim();
     if (content) sections.push({ section: 'あらすじ', content });
   }
   const ancestors = [];
   for (let i = 0; i < headings.length; i++) {
-    const heading = headingText(headings[i][2]);
+    const heading = headingText(headings[i][2]).replace(/^[■◼◾◆◇●・\s\uFE0F\uFE0E]+/gu, '');
+    const namedHeading = workTitle && [
+      `『${workTitle}』について`, `「${workTitle}」について`,
+      `『${workTitle}』STORY`, `「${workTitle}」STORY`,
+    ].some(label => key(label) === key(heading));
     const depth = Number(headings[i][1]);
     while (ancestors.length && ancestors.at(-1).depth >= depth) ancestors.pop();
     const excluded = EXCLUDED_SECTION.test(heading) || ancestors.some((parent) => parent.excluded);
     ancestors.push({ depth, excluded });
-    if (excluded || !CONTENT_HEADING.test(heading)) continue;
+    if (excluded || !CONTENT_HEADING.test(heading) && !namedHeading) continue;
     const start = headings[i].index + headings[i][0].length;
     const next = headings.slice(i + 1).find((h) => Number(h[1]) <= Number(headings[i][1]));
     const content = sectionContent(cleaned.slice(start, Math.min(next?.index ?? cleaned.length, start+40000)));
-    if (content) sections.push({ section: heading, content });
+    if (content) sections.push({ section: namedHeading ? 'あらすじ' : heading, content });
   }
   for (const match of cleaned.matchAll(/<(div|section|p)\b([^>]*)>/giu)) {
     if (sections.length >= 30) break;
@@ -241,10 +250,17 @@ function extractWebWork(html, url, hintKind) {
   if (NON_WORK_PATH.test(new URL(url).pathname) || /^(?:profile|article)$/iu.test(meta['og:type'] || '') && /プロフィール|ライター|著者一覧/u.test(pageTitle) ||
       LIST_TITLE.test(pageTitle) || ARTICLE_TITLE.test(pageTitle)) throw new Error('記事・一覧・人物ページは作品として採用しません');
   const posted = postedWork(html, url, { text, metadata });
-  const works = posted ? [posted] : structuredWorks(html);
+  const creator = creatorWork(html, url, { text, metadata, attributes, introductionMarkup });
+  if (new URL(url).hostname === 'booth.pm' && /^\/ja\/items\/\d+$/u.test(new URL(url).pathname) && !creator) {
+    throw new Error('当該商品のオリジナル漫画・作者情報を確認できません');
+  }
+  if (new URL(url).hostname === 'motion-gallery.net' && /^\/projects\/[\w-]+$/u.test(new URL(url).pathname) && !creator) {
+    throw new Error('当該プロジェクトの単一映画の作品名を確認できません');
+  }
+  const works = posted ? [posted] : creator ? [creator] : structuredWorks(html);
   if (works.length > 1) throw new Error('複数作品の一覧はお題に使用しません');
   const structured = works[0];
-  if (!structured && EVENT_TITLE.test(pageTitle)) throw new Error('イベントや施設の運営支援は創作作品として採用しません');
+  if ((!structured || creator) && EVENT_TITLE.test(pageTitle)) throw new Error('イベントや施設の運営支援は創作作品として採用しません');
   // Search for independent production also finds tutorials and recommendation
   // articles. A guide is a work only with independently typed work evidence.
   if (!structured && EDITORIAL_TITLE.test(pageTitle)) throw new Error('解説記事・作品一覧は作品として採用しません');
@@ -270,7 +286,7 @@ function extractWebWork(html, url, hintKind) {
     throw new Error('ページの作品名を照合できません');
   }
   // Navigation and unrelated links cannot supply a medium for a person/page.
-  const primary = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/iu)?.[1]
+  const primary = creator?.markup || html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/iu)?.[1]
     || html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/iu)?.[1] || html;
   const workMetadata = introductionMarkup(primary, { includeWorkRatings: true });
   // Read labels attached to this identified work. A search term, unrelated
@@ -297,7 +313,7 @@ function extractWebWork(html, url, hintKind) {
   let aliases = questionTitleAliases(realTitle, [sourceTitle, ...[structured?.alternateName].flat()].filter((a) => typeof a === 'string' && text(a)).map(text), kind);
   // A plain heading alone is not enough: require an explicit introduction section
   // or typed work data. Search snippets and generic SEO descriptions never qualify.
-  const sections = introductionSections(html);
+  const sections = introductionSections(creator?.markup || html, { workTitle: realTitle });
   // Prefer the explicitly bounded visible introduction. Retail structured
   // descriptions often concatenate price, reviews and unrelated product data.
   if (structured?.description) sections.push({ section: '作品紹介（構造化データ）', content: text(structured.description) });
@@ -335,13 +351,15 @@ function extractWebWork(html, url, hintKind) {
   return { realTitle, aliases, kind, synopsis, workIdentity, author,
     contentType: getKind(kind).contentMode === 'description' ? 'description' : 'synopsis',
     evidence: { sourceId: `web-${hash(url)}`, section: chosen.section,
-      work: { version: 2, title: realTitle, kind, pageTitle, method: posted ? 'posted-work' : structured ? 'typed-work' : 'page-title' },
+      work: { version: 2, title: realTitle, kind, pageTitle, method: posted ? 'posted-work' : creator ? 'creator-work' : structured ? 'typed-work' : 'page-title' },
       sourceTextSha256: hash(chosen.content), excerpts: summary.excerpts,
       visibility: visibilityEvidence({ title: realTitle, aliases, kind, sourceUrl: url,
         // The page identity has already been checked. Description metadata is
         // a reach signal only; it is never enough to generate a question text.
-        introductions: [pageTitle, ...sections.map(s => s.content), meta['og:description'], meta.description], genres: [genre, ...visibleGenres],
-        posted: posted?.reach,
+        introductions: [pageTitle, ...sections.map(s => s.content), meta['og:description'], meta.description,
+          ...sectionContent(introductionMarkup(primary)).split(/\n/u)
+            .filter(s => s.length <= 1000 && (PRODUCTION_LABEL.test(s) || /インディー/iu.test(s)))], genres: [genre, ...visibleGenres],
+        posted: posted?.reach || creator?.reach,
         reviewCount: structured?.aggregateRating?.ratingCount ?? structured?.aggregateRating?.reviewCount ??
           [...workMetadata.matchAll(/<meta\b[^>]*>/giu)].map(m => attributes(m[0]))
             .find(a => /^(?:ratingCount|reviewCount)$/u.test(a.itemprop || ''))?.content }) } };

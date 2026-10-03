@@ -7,7 +7,7 @@ const INDEPENDENT = /インディー|\bindie\b|\bindependent\b|自主(?:制作|�
 const PERSONAL = /自主出版|自費出版|同人|個人(?:制作|製作|開発)|少人数(?:制作|開発)|小規模出版/u;
 const DENIAL = /では(?:ない|ありません)|ではなく|非インディー|not\s+(?:an?\s+)?indie/iu;
 const WIDE_REACH = /国民的|社会現象|大ヒット|ベストセラー|ミリオンセラー|世界的(?:な)?(?:人気|ヒット)|アニメ化|映画化|実写化|テレビドラマ化/u;
-const OWN_WORK = /本(?:作|作品|ゲーム|映画)|この(?:作品|ゲーム|映画|漫画|小説)|原作|シリーズ/u;
+const OWN_WORK = /本(?:作|作品|ゲーム|映画|商品|書|誌|プロジェクト)|この(?:作品|ゲーム|映画|漫画|小説|商品)|原作|シリーズ/u;
 const PRODUCTION = /(?:自主(?:制作|製作|出版)|自費出版|個人開発|少人数開発).{0,50}(?:完成させた|完成した|制作された|製作された|開発した|開発された|制作した|製作した|刊行された|出版した|による(?:映画|ゲーム|小説|漫画))/u;
 const CHARACTER_ACTIVITY = /(?:主人公|登場人物|少年|少女).{0,50}(?:自主(?:制作|製作|出版)|同人|個人開発)/u;
 const COPIES = /(?:累計|発行部数|販売本数|売上本数|ダウンロード数)[^。!?！？\d]{0,24}([\d,]+(?:\.\d+)?)\s*(万|億)?(?:部|本|ダウンロード|DL|件)/giu;
@@ -27,6 +27,11 @@ function substantialSales(statement) {
 }
 
 function classifySignal(signal, title, aliases, kind) {
+  if (signal?.type === 'creator-work') {
+    return kind === 'manga' && signal.platform === 'booth' && typeof signal.creator === 'string' && signal.creator.length > 0 &&
+      typeof signal.excerpt === 'string' && signal.excerpt.length <= 1000 &&
+      require('./creator-work').ORIGINAL_COMIC.test(signal.excerpt) ? 'small' : null;
+  }
   if (signal?.type === 'posted-work') {
     if (signal.platform !== 'kakuyomu' || typeof signal.official !== 'boolean' || typeof signal.published !== 'boolean' ||
         !['reads','followers','reviewPoints','adaptations'].every(key => Number.isSafeInteger(signal[key]) && signal[key] >= 0)) return null;
@@ -81,6 +86,9 @@ function verifiedSignals(question) {
   const signals = evidence.signals.map(s => classifySignal(s, question.realTitle, question.aliases, question.kind));
   if (evidence.signals.some(s => s.type === 'posted-work') &&
       (new URL(evidence.sourceUrl).hostname !== 'kakuyomu.jp' || question.evidence.work?.method !== 'posted-work')) return [];
+  if (evidence.signals.some(s => s.type === 'creator-work') &&
+      (new URL(evidence.sourceUrl).hostname !== 'booth.pm' || !/^\/ja\/items\/\d+$/u.test(new URL(evidence.sourceUrl).pathname) ||
+       question.evidence.work?.method !== 'creator-work')) return [];
   return signals.some(s => !s) ? [] : evidence.signals;
 }
 
