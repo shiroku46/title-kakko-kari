@@ -379,6 +379,7 @@ for (const count of [4, 5, 6]) {
         const duplicates = await Promise.all([ack(answerers[0], 'round:submit_fake', { title: '偽物0' }), ack(answerers[0], 'round:submit_fake', { title: '重複' })]);
         assert.equal(duplicates.filter((v) => v.ok).length, 1);
         await Promise.all(answerers.slice(1).map((b, i) => ok(b, 'round:submit_fake', { title: `偽物${i + 1}` })));
+        for (const b of answerers) assert.equal((await event(b, 'round:fake_saved')).roundId, data.round.id);
         const presentedChoices = await Promise.all(bots.map((b) => event(b, 'round:choices_presented')));
         const { choices } = presentedChoices[0];
         assert.equal(choices.length, answerers.length + 1);
@@ -400,6 +401,7 @@ for (const count of [4, 5, 6]) {
         const votes = await Promise.all([ack(answerers[0], 'round:submit_vote', { answerId: real.id }), ack(answerers[0], 'round:submit_vote', { answerId: real.id })]);
         assert.equal(votes.filter((v) => v.ok).length, 1);
         await Promise.all(answerers.slice(1).map((b) => ok(b, 'round:submit_vote', { answerId: lure.id })));
+        for (const b of answerers) assert.equal((await event(b, 'round:vote_saved')).roundId, data.round.id);
         const revealed = await event(host, 'round:revealed');
         assert.equal(revealed.realTitle, realTitle);
         if (mode === 'cpu') assert.deepEqual(revealed.sources, selectedQuestion.sources);
@@ -411,6 +413,8 @@ for (const count of [4, 5, 6]) {
         assert.deepEqual(points, { player_id: scorer, correct_pts: 1, deceive_pts: answerers.length - 1, total_pts: answerers.length });
         for (const p of revealed.playerScores) assert.equal(p.score, expected.get(p.id));
         if (questioner) {
+          await denied(host, 'game:next_round');
+          await denied(questioner, 'game:next_round');
           await denied(answerers[0], 'round:submit_mvp', { answerId: lure.id });
           await denied(questioner, 'round:submit_mvp', { answerId: real.id });
           const mvp = await Promise.all([ack(questioner, 'round:submit_mvp', { answerId: lure.id }), ack(questioner, 'round:submit_mvp', { answerId: lure.id })]);
@@ -518,6 +522,8 @@ test('CPU exhaustion switches one round to manual while keeping scores, remainin
   const revealed = await event(host, 'round:revealed');
   assert.equal(revealed.playerScores.find((p) => p.id === host.player.id).score, 7);
   assert.deepEqual(revealed.sources, []);
+  await denied(host, 'game:next_round');
+  await ok(host, 'round:submit_mvp', { answerId: choices.find((c) => c.id !== real.id).id });
   writeBank();
   await ok(host, 'game:next_round');
   const next = await event(host, 'game:round_started');
@@ -986,6 +992,7 @@ for (const phase of ['selecting', 'submitting', 'voting']) {
     const real = choices.find((choice) => choice.title === '最初の本物');
     for (const b of firstAnswerers) await ok(b, 'round:submit_vote', { answerId: real.id });
     await event(bots[0], 'round:revealed');
+    await ok(firstQuestioner, 'round:submit_mvp', { answerId: choices.find((c) => c.id !== real.id).id });
     await ok(bots[0], 'game:next_round');
     const second = await event(bots[0], 'game:round_started');
     const questioner = bots.find((b) => b.player.id === second.questioner.id);
@@ -1362,4 +1369,136 @@ test('computers do not keep a room alive or replace a departed human questioner'
   assert.equal((await event(bots[1], 'game:stopped')).reason, 'not_enough_players');
   assert.equal(rooms.get(room.code).status, 'finished');
   await denied(bots[1], 'game:next_round');
+});
+
+for (const index of [0, 1]) {
+  test(`temporary ${index ? 'polling' : 'websocket'} interruption restores identity, scores and missed choices`, async (t) => {
+    const { bots, room } = await roomWith(t, 4);
+    const subject = bots[index];
+    const observer = bots[1 - index];
+    await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 1 });
+    await event(bots[0], 'round:synopsis_fetched');
+    await confirmCpuAndStart(bots[0], bots);
+    await ok(subject, 'round:submit_fake', { title: '通信を戻す人の案' });
+    const socketId = subject.socket.id;
+    rooms.get(room.code).players[index].score = 7;
+    const serverSocket = io.sockets.sockets.get(socketId);
+    const disconnected = once(serverSocket, 'disconnect', { signal: AbortSignal.timeout(3000) });
+    subject.socket.io.engine.close();
+    await disconnected;
+    assert.equal(rooms.get(room.code).players[index].is_connected, true);
+    assert.equal(observer.events.some((e) => e.name === 'room:player_disconnected'), false);
+    for (const [i, b] of bots.entries()) {
+      if (b !== subject) await ok(b, 'round:submit_fake', { title: `通信中の案${i}` });
+    }
+    const expected = await event(observer, 'round:choices_presented');
+    const reconnected = once(subject.socket, 'connect', { signal: AbortSignal.timeout(3000) });
+    subject.socket.connect();
+    await reconnected;
+    assert.equal(subject.socket.recovered, true);
+    assert.equal(subject.socket.id, socketId);
+    const replayed = await event(subject, 'round:choices_presented');
+    assert.deepEqual(replayed.choices, expected.choices);
+    assert.ok(replayed.ownAnswerId);
+    const state = await ok(subject, 'room:get_state');
+    assert.equal(state.room.players.find((p) => p.id === subject.player.id).score, 7);
+    const real = replayed.choices.find((c) => c.title.startsWith('正解'));
+    for (const b of bots) await ok(b, 'round:submit_vote', { answerId: real.id });
+    await event(subject, 'round:revealed');
+    await ok(bots[0], 'game:next_round');
+    await event(subject, 'game:finished');
+  });
+}
+
+test('a lone lobby host recovers without losing the room or host role', async (t) => {
+  const { bots: [host], room } = await roomWith(t, 1);
+  await event(host, 'room:session_ready');
+  const socketId = host.socket.id;
+  const disconnected = once(io.sockets.sockets.get(socketId), 'disconnect', { signal: AbortSignal.timeout(3000) });
+  host.socket.io.engine.close();
+  await disconnected;
+  assert.equal(rooms.has(room.code), true);
+  const reconnected = once(host.socket, 'connect', { signal: AbortSignal.timeout(3000) });
+  host.socket.connect();
+  await reconnected;
+  assert.equal(host.socket.recovered, true);
+  const state = await ok(host, 'room:get_state');
+  assert.equal(state.room.players.length, 1);
+  assert.equal(state.room.players[0].is_host, true);
+});
+
+test('expired recovery cleans up the room and rejects the old membership', async (t) => {
+  const { bots: [host], room } = await roomWith(t, 1);
+  await event(host, 'room:session_ready');
+  const duration = io.opts.connectionStateRecovery.maxDisconnectionDuration;
+  t.after(() => { io.opts.connectionStateRecovery.maxDisconnectionDuration = duration; });
+  io.opts.connectionStateRecovery.maxDisconnectionDuration = 30;
+  const disconnected = once(io.sockets.sockets.get(host.socket.id), 'disconnect', { signal: AbortSignal.timeout(3000) });
+  host.socket.io.engine.close();
+  await disconnected;
+  for (let i = 0; rooms.has(room.code) && i < 50; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(rooms.has(room.code), false);
+  const currentTime = Date.now();
+  const now = t.mock.method(Date, 'now', () => currentTime + duration + 1000);
+  const reconnected = once(host.socket, 'connect', { signal: AbortSignal.timeout(3000) });
+  host.socket.connect();
+  await reconnected;
+  now.mock.restore();
+  assert.equal(host.socket.recovered, false);
+  await denied(host, 'room:get_state');
+  await denied(host, 'game:start', { mode: 'player' });
+});
+
+test('replayed transport state cannot restore a removed game membership', async (t) => {
+  const { bots: [host], room } = await roomWith(t, 1);
+  await event(host, 'room:session_ready');
+  const socketId = host.socket.id;
+  const disconnected = once(io.sockets.sockets.get(socketId), 'disconnect', { signal: AbortSignal.timeout(3000) });
+  host.socket.io.engine.close();
+  await disconnected;
+  rooms.delete(room.code);
+  const rejected = once(host.socket, 'disconnect', { signal: AbortSignal.timeout(3000) });
+  host.socket.connect();
+  assert.equal((await rejected)[0], 'io server disconnect');
+  assert.equal(host.socket.connected, false);
+  assert.equal(io.sockets.sockets.has(socketId), false);
+});
+
+test('only the questioner receives the real title and submitted titles; host chooses MVP after departure', async (t) => {
+  const { bots, room } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find((b) => b.player.id === started.questioner.id);
+  const answerers = bots.filter((b) => b !== questioner);
+  await ok(questioner, 'round:submit_synopsis', { synopsis: '手紙を探して旅をする紹介文。', realTitle: '出題者だけが知る本物' });
+  const privateView = await event(questioner, 'round:questioner_view');
+  assert.equal(privateView.realTitle, '出題者だけが知る本物');
+  assert.deepEqual(privateView.answers, []);
+  for (const b of answerers) await ok(b, 'round:declare_unknown');
+  await ok(questioner, 'round:start_submitting');
+  await event(questioner, 'round:questioner_view');
+  await ok(answerers[0], 'round:submit_fake', { title: '出題者が見られる回答' });
+  const submission = await event(questioner, 'round:questioner_view');
+  assert.deepEqual(submission.answers.map((a) => a.title), ['出題者が見られる回答']);
+  for (const b of answerers) {
+    assert.equal(b.events.some((e) => e.name === 'round:questioner_view'), false);
+    assert.ok(!JSON.stringify(b.events).includes('出題者だけが知る本物'));
+    assert.ok(!JSON.stringify(await ok(b, 'room:get_state')).includes('出題者だけが知る本物'));
+  }
+  for (const [i, b] of answerers.slice(1).entries()) await ok(b, 'round:submit_fake', { title: `ほかの案${i}` });
+  const { choices } = await event(questioner, 'round:choices_presented');
+  const real = choices.find((c) => c.title === privateView.realTitle);
+  for (const b of answerers) await ok(b, 'round:submit_vote', { answerId: real.id });
+  await event(questioner, 'round:revealed');
+  questioner.socket.disconnect();
+  const departure = await event(answerers[0], 'game:questioner_disconnected');
+  const host = answerers.find((b) => b.player.id === departure.fallbackHostId);
+  const fake = choices.find((c) => c.id !== real.id);
+  await denied(host, 'game:next_round');
+  await denied(answerers.find((b) => b !== host), 'round:submit_mvp', { answerId: fake.id });
+  await denied(host, 'round:submit_mvp', { answerId: real.id });
+  await ok(host, 'round:submit_mvp', { answerId: fake.id });
+  await denied(host, 'round:submit_mvp', { answerId: fake.id });
+  await ok(host, 'game:next_round');
+  assert.equal((await event(host, 'game:round_started')).currentRound, 2);
 });

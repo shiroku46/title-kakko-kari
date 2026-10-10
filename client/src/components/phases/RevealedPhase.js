@@ -50,6 +50,8 @@ export default function RevealedPhase({
   contentType = 'synopsis',
   isQuestioner,
   isHost,
+  hasQuestioner = false,
+  questionerDisconnected = false,
   playerId,
   mvpData,
   socket,
@@ -79,6 +81,8 @@ export default function RevealedPhase({
 
   const myScore = roundScores?.find((score) => score.player_id === playerId);
   const canAdvance = isQuestioner || isHost;
+  const needsMvp = hasQuestioner && !mvpData;
+  const canSelectMvp = isQuestioner || (isHost && hasQuestioner && questionerDisconnected);
 
   async function handleOpenSource(value) {
     const url = getHttpsUrl(value);
@@ -191,7 +195,7 @@ export default function RevealedPhase({
     </PaperPanel>
   );
 
-  const mvpPanel = isQuestioner && !mvpData ? (
+  const mvpPanel = canSelectMvp && !mvpData ? (
     <PaperPanel tone="yellow" style={styles.mvpPanel}>
       <View style={styles.mvpHeadingRow}>
         <View style={styles.mvpIcon}>
@@ -287,12 +291,17 @@ export default function RevealedPhase({
         </View>
       </PaperPanel>
 
+      {needsMvp ? (
+        <Text accessibilityLiveRegion="polite" style={styles.mvpNote}>
+          {questionerDisconnected ? 'ホスト' : '出題者'}がMVPを確定すると次へ進めます。
+        </Text>
+      ) : null}
       {canAdvance ? (
         <StationeryButton
           variant="primary"
           onPress={() => requestAction('game:next_round', null)}
           loading={pendingAction === 'game:next_round'}
-          disabled={Boolean(pendingAction)}
+          disabled={needsMvp || Boolean(pendingAction)}
           accessibilityLabel={currentRound >= totalRounds ? 'ゲームを終了する' : '次のラウンドへ'}
         >
           {currentRound >= totalRounds ? '最終結果を見る →' : '次のラウンドへ →'}

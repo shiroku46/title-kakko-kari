@@ -45,6 +45,10 @@ function isAllowedOrigin(origin) {
 app.use(cors({ origin: corsOrigin }));
 
 const io = new Server(server, {
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000,
+    skipMiddlewares: false,
+  },
   cors: {
     origin: corsOrigin,
     methods: ['GET', 'POST'],

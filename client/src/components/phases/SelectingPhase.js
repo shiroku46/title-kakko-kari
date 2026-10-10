@@ -15,6 +15,7 @@ import {
   PopBackdrop,
 } from '../ui';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../../hooks/useResponsiveLayout';
+import { useSocketListeners } from '../../hooks/useSocket';
 
 export default function SelectingPhase({
   round,
@@ -49,6 +50,15 @@ export default function SelectingPhase({
   const fetching = pendingAction === 'fetch';
   const requestBusy = Boolean(pendingAction);
   const { isPC, contentPadding } = useResponsiveLayout();
+  useSocketListeners({
+    'round:questioner_view': (data) => {
+      if (isQuestioner && data.roundId === round.id) {
+        setRealTitle(data.realTitle);
+        setSubmitted(true);
+        setRequestError(null);
+      }
+    },
+  });
 
   function showError(action, message) {
     setRequestError({ action, message });
@@ -385,6 +395,7 @@ export default function SelectingPhase({
                   </View>
 
                   <View style={styles.synopsisBox}>
+                    <Text testID="questioner-real-title" style={styles.fieldLabel}>本物のタイトル：{realTitle}</Text>
                     <Text style={styles.synopsisText}>{synopsisText}</Text>
                   </View>
 

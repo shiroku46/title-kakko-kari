@@ -34,6 +34,8 @@ export default function GameScreen({ navigation, route }) {
   const [contentType, setContentType] = useState(normalizeContentType(gameData.round?.contentType));
 
   const [synopsis, setSynopsis] = useState(null);
+  const [questionerView, setQuestionerView] = useState(null);
+  const [reconnecting, setReconnecting] = useState(!socket.connected);
   const [fetchedSynopsis, setFetchedSynopsis] = useState(null);
   const [choices, setChoices] = useState([]);
   const [ownAnswerId, setOwnAnswerId] = useState(null);
@@ -67,15 +69,26 @@ export default function GameScreen({ navigation, route }) {
   }
 
   useEffect(() => {
+    const sessionLost = () => {
+      leaveGame();
+      Alert.alert('部屋へ復帰できませんでした', '接続の待機時間を過ぎたか、サーバーが再起動しました。もう一度、部屋を作るか参加してください。');
+    };
     const onDisconnect = () => {
       if (leavingRef.current) return;
-      // A fresh socket has no membership. Leave immediately rather than allow
-      // buffered game actions to run against a different connection.
-      leaveGame();
-      Alert.alert('接続が切れました', 'ホームに戻りました。もう一度、部屋を作るか参加してください。');
+      if (!socket.active) return sessionLost();
+      setReconnecting(true);
+    };
+    const onConnect = () => {
+      if (leavingRef.current) return;
+      if (!socket.recovered) return sessionLost();
+      setReconnecting(false);
     };
     socket.on('disconnect', onDisconnect);
-    return () => socket.off('disconnect', onDisconnect);
+    socket.on('connect', onConnect);
+    return () => {
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect', onConnect);
+    };
   }, [navigation, socket]);
 
   useEffect(() => {
@@ -110,6 +123,7 @@ export default function GameScreen({ navigation, route }) {
       if (data.mode) setMode(data.mode);
       setPhase(data.mode === 'cpu' ? 'confirming' : 'selecting');
       setSynopsis(null);
+      setQuestionerView(null);
       setWorkKindLabel(null);
       setFetchedSynopsis(null);
       setSynopsisError(null);
@@ -150,6 +164,9 @@ export default function GameScreen({ navigation, route }) {
       setWorkKindLabel(data.workKindLabel || null);
       setContentType(normalizeContentType(data.contentType));
     },
+    'round:questioner_view': (data) => {
+      if (data.roundId === round.id) setQuestionerView(data);
+    },
     'round:known_declared': ({ player: p }) => {
       setKnownDeclarations((prev) => [...new Set([...prev, p.nickname])]);
     },
@@ -168,6 +185,7 @@ export default function GameScreen({ navigation, route }) {
     },
     'round:reselect_started': ({ mode: nextMode }) => {
       setSynopsis(null);
+      setQuestionerView(null);
       setWorkKindLabel(null);
       setFetchedSynopsis(null);
       setSynopsisError(null);
@@ -224,7 +242,7 @@ export default function GameScreen({ navigation, route }) {
       const isMe = player.id === fallbackHostId;
       const msg = roundStatus === 'selecting'
         ? `出題者 ${qNickname} が離脱しました。\nホストがラウンドをスキップできます。`
-        : `出題者 ${qNickname} が離脱しました。\n結果確認後、ホストが次のラウンドへ進めます。`;
+        : `出題者 ${qNickname} が離脱しました。\n結果確認後、ホストがMVPを選んで次へ進めます。`;
       setQuestionerDisconnected(true);
       setIsHost(isMe);
       setDepartureNotice(msg + (isMe ? '\nあなたがホストです。' : ''));
@@ -308,6 +326,8 @@ export default function GameScreen({ navigation, route }) {
             isQuestioner={amQuestioner}
             playerId={player.id}
             fakeSubmittedCount={fakeSubmittedCount}
+            realTitle={amQuestioner ? questionerView?.realTitle : null}
+            submittedAnswers={amQuestioner ? questionerView?.answers : []}
             socket={socket}
           />
         );
@@ -324,6 +344,7 @@ export default function GameScreen({ navigation, route }) {
             isQuestioner={amQuestioner}
             playerId={player.id}
             voteProgress={voteProgress}
+            realTitle={amQuestioner ? questionerView?.realTitle : null}
             socket={socket}
           />
         );
@@ -337,6 +358,8 @@ export default function GameScreen({ navigation, route }) {
             contentType={contentType}
             isQuestioner={amQuestioner}
             isHost={isHost}
+            hasQuestioner={Boolean(questioner?.id)}
+            questionerDisconnected={questionerDisconnected}
             playerId={player.id}
             mvpData={mvpData}
             socket={socket}
@@ -360,6 +383,11 @@ export default function GameScreen({ navigation, route }) {
           部屋から出る
         </StationeryButton>
       </View>
+      {reconnecting ? (
+        <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.departureNotice}>
+          接続を戻しています… この画面のままお待ちください。
+        </Text>
+      ) : null}
       {stoppedMessage ? (
         <View style={styles.stoppedPanel}>
           <Text accessibilityRole="alert" style={styles.stoppedTitle}>遊ぶ人がいなくなりました</Text>

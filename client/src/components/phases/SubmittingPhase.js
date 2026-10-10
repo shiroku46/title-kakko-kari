@@ -16,14 +16,18 @@ import {
   PopBackdrop,
 } from '../ui';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../../hooks/useResponsiveLayout';
+import { useSocketListeners } from '../../hooks/useSocket';
 
 export default function SubmittingPhase({
+  round,
   currentRound,
   totalRounds,
   questioner,
   synopsis,
   isQuestioner,
   fakeSubmittedCount,
+  realTitle,
+  submittedAnswers = [],
   socket,
 }) {
   const [fakeTitle, setFakeTitle] = useState('');
@@ -32,6 +36,14 @@ export default function SubmittingPhase({
   const [requestError, setRequestError] = useState(null);
   const pendingRef = useRef(false);
   const { contentPadding } = useResponsiveLayout();
+  useSocketListeners({
+    'round:fake_saved': ({ roundId }) => {
+      if (roundId === round.id) {
+        setSubmitted(true);
+        setRequestError(null);
+      }
+    },
+  });
 
   function handleSubmitFake() {
     if (pendingRef.current || submitted) return;
@@ -72,11 +84,15 @@ export default function SubmittingPhase({
 
           {isQuestioner ? (
             <View style={styles.questionerLayout}>
+              <PaperPanel tone="cream">
+                <Text testID="questioner-real-title" style={styles.tipTitle}>本物のタイトル：{realTitle}</Text>
+                <Text style={styles.tipText}>{synopsis}</Text>
+              </PaperPanel>
               <PaperPanel tone="navy" variant="elevated" style={styles.progressPanel}>
                 <Text style={styles.kicker}>SUBMISSION STATUS</Text>
                 <Text style={styles.progressTitle}>タイトル案を受付中</Text>
                 <Text style={styles.progressNote}>
-                  内容は結果発表まで見えません。全員の提出が揃うと、自動的に投票へ進みます。
+                  集まったタイトル案は出題者だけに表示されます。全員の提出が揃うと、自動的に投票へ進みます。
                 </Text>
 
                 <View style={styles.counterWrap}>
@@ -92,6 +108,13 @@ export default function SubmittingPhase({
                     </View>
                   </View>
                 </View>
+              </PaperPanel>
+
+              <PaperPanel tone="white">
+                <Text style={styles.tipTitle}>集まったタイトル案</Text>
+                {submittedAnswers.length ? submittedAnswers.map((answer, index) => (
+                  <Text key={answer.id} testID="questioner-answer" style={styles.tipText}>{index + 1}. {answer.title}</Text>
+                )) : <Text style={styles.tipText}>まだ提出されていません。</Text>}
               </PaperPanel>
 
               <PaperPanel tone="yellow" style={styles.tipPanel}>

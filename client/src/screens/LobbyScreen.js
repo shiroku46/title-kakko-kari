@@ -36,6 +36,7 @@ export default function LobbyScreen({ navigation, route }) {
   const leavingRef = useRef(false);
   const startRequestRef = useRef(null);
   const socket = getSocket();
+  const [reconnecting, setReconnecting] = useState(!socket.connected);
   const { isPC, contentPadding } = useResponsiveLayout();
 
   useSocketListeners({
@@ -69,16 +70,27 @@ export default function LobbyScreen({ navigation, route }) {
   });
 
   useEffect(() => {
-    const onDisconnect = () => {
-      if (leavingRef.current) return;
+    const sessionLost = () => {
       leavingRef.current = true;
       disconnectSocket();
       navigation.replace('Home');
-      Alert.alert('切断', 'サーバーとの接続が切れました');
+      Alert.alert('部屋へ復帰できませんでした', '接続の待機時間を過ぎたか、サーバーが再起動しました。もう一度、部屋を作るか参加してください。');
+    };
+    const onDisconnect = () => {
+      if (leavingRef.current) return;
+      if (!socket.active) return sessionLost();
+      setReconnecting(true);
+    };
+    const onConnect = () => {
+      if (leavingRef.current) return;
+      if (socket.recovered) return setReconnecting(false);
+      sessionLost();
     };
     socket.on('disconnect', onDisconnect);
+    socket.on('connect', onConnect);
     return () => {
       socket.off('disconnect', onDisconnect);
+      socket.off('connect', onConnect);
       clearTimeout(startRequestRef.current);
       startRequestRef.current = null;
     };
@@ -86,6 +98,7 @@ export default function LobbyScreen({ navigation, route }) {
 
   function handleStart() {
     if (startRequestRef.current || leavingRef.current) return;
+    if (!socket.connected) return Alert.alert('接続を戻しています', 'つながるまで、この画面のままお待ちください。');
     if (players.length < MIN_PLAYERS) {
       return Alert.alert('まだ開始できません', `あと${MIN_PLAYERS - players.length}人の参加が必要です`);
     }
@@ -175,6 +188,11 @@ export default function LobbyScreen({ navigation, route }) {
           { paddingHorizontal: contentPadding, maxWidth: CONTENT_MAX_WIDTH },
         ]}
       >
+        {reconnecting ? (
+          <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.codeHint}>
+            接続を戻しています… この画面のままお待ちください。
+          </Text>
+        ) : null}
         <View style={styles.topBar}>
           <GameLogo compact />
           <StationeryButton

@@ -15,12 +15,15 @@ import {
   PopBackdrop,
 } from '../ui';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../../hooks/useResponsiveLayout';
+import { useSocketListeners } from '../../hooks/useSocket';
 
 export default function VotingPhase({
+  round,
   currentRound,
   totalRounds,
   questioner,
   synopsis,
+  realTitle,
   choices,
   ownAnswerId,
   isQuestioner,
@@ -32,6 +35,14 @@ export default function VotingPhase({
   const [submitting, setSubmitting] = useState(false);
   const [voteError, setVoteError] = useState(null);
   const { isPC, contentPadding } = useResponsiveLayout();
+  useSocketListeners({
+    'round:vote_saved': ({ roundId }) => {
+      if (roundId === round.id) {
+        setVoted(true);
+        setVoteError(null);
+      }
+    },
+  });
 
   function handleVote() {
     if (!selectedId || selectedId === ownAnswerId || voted || submitting) return;
@@ -79,6 +90,9 @@ export default function VotingPhase({
                   <Text style={styles.synopsisTitle}>この作品の紹介文</Text>
                 </View>
               </View>
+              {isQuestioner ? (
+                <Text testID="questioner-real-title" style={styles.synopsisTitle}>本物のタイトル：{realTitle}</Text>
+              ) : null}
               <Text style={styles.synopsisText}>{synopsis}</Text>
             </PaperPanel>
 
@@ -157,6 +171,10 @@ export default function VotingPhase({
                 <Text style={styles.questionerBody}>
                   出題者は投票しません。全員の投票が終わると、自動的に結果が発表されます。
                 </Text>
+                <Text style={styles.questionerTitle}>みんなのタイトル案</Text>
+                {choices.map((choice, index) => (
+                  <Text key={choice.id} testID="questioner-answer" style={styles.questionerBody}>{index + 1}. {choice.title}</Text>
+                ))}
               </PaperPanel>
             )}
           </View>

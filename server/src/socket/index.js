@@ -1,12 +1,31 @@
-const { rooms, getCurrentRound } = require('../gameState');
+const { rooms, getCurrentRound, getMember } = require('../gameState');
 const { registerRoomHandlers } = require('./roomHandlers');
 const { registerGameHandlers, checkRoundProgress } = require('./gameHandlers');
 
 function registerSocketHandlers(io) {
+  const pendingDisconnects = new Map();
   io.on('connection', (socket) => {
+    clearTimeout(pendingDisconnects.get(socket.id));
+    pendingDisconnects.delete(socket.id);
+    if (socket.recovered) {
+      try { getMember(socket); }
+      catch (_) { socket.disconnect(true); return; }
+    }
     registerRoomHandlers(io, socket);
     registerGameHandlers(io, socket);
-    socket.on('disconnect', () => handleDisconnect(io, socket));
+    socket.on('disconnect', (reason) => {
+      // Keep membership while Socket.IO can restore the private session and packets.
+      if (socket.data.playerId && ['transport close', 'transport error', 'ping timeout', 'forced close', 'forced server close'].includes(reason)) {
+        const timer = setTimeout(() => {
+          pendingDisconnects.delete(socket.id);
+          handleDisconnect(io, socket);
+        }, io.opts.connectionStateRecovery.maxDisconnectionDuration);
+        timer.unref();
+        pendingDisconnects.set(socket.id, timer);
+      } else {
+        handleDisconnect(io, socket);
+      }
+    });
   });
 }
 
@@ -15,7 +34,7 @@ function handleDisconnect(io, socket) {
   const room = rooms.get(roomCode);
   if (!room) return;
   const player = room.players.find((p) => p.id === playerId);
-  if (!player) return;
+  if (!player || player.socket_id !== socket.id) return;
   player.is_connected = false;
   player.socket_id = null;
   io.to(roomCode).emit('room:player_disconnected', { playerId, nickname });

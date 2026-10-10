@@ -36,6 +36,15 @@ function publicGenre(room, round) {
   return kind ? { workKind: round.workKind, workKindLabel: kind.label } : {};
 }
 
+function sendQuestionerView(io, room, round) {
+  const questioner = room.players.find((p) => p.id === round.questioner_id);
+  if (!questioner?.is_connected || !questioner.socket_id) return;
+  io.to(questioner.socket_id).emit('round:questioner_view', {
+    roundId: round.id, realTitle: round.real_title,
+    answers: round.answers.filter((a) => !a.is_real).map(({ id, title }) => ({ id, title })),
+  });
+}
+
 async function loadCpuSynopsis(io, room, round) {
   cancelCpuFetch(round);
   const controller = new AbortController();
@@ -292,6 +301,7 @@ function registerGameHandlers(io, socket) {
     round.contentType = sourceQuestion?.contentType || (getKind(sourceQuestion?.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
     round.declarations.clear();
     io.to(room.code).emit('round:synopsis_presented', { roundId: round.id, synopsis, contentType: round.contentType, ...publicGenre(room, round) });
+    sendQuestionerView(io, room, round);
   });
 
   for (const kind of ['known', 'unknown']) {
@@ -347,6 +357,7 @@ function registerGameHandlers(io, socket) {
     const title = textInput(payload?.title, 'タイトル', 500);
     if (round.answers.some((a) => a.player_id === player.id)) throw new Error('すでに偽タイトルを提出しています');
     round.answers.push({ id: randomUUID(), round_id: round.id, player_id: player.id, title, is_real: false });
+    io.to(player.socket_id).emit('round:fake_saved', { roundId: round.id });
     checkRoundProgress(io, room, round);
   });
 
@@ -359,12 +370,16 @@ function registerGameHandlers(io, socket) {
     if (answer.player_id === player.id) throw new Error('自分のタイトルには投票できません');
     if (round.votes.some((v) => v.voter_id === player.id)) throw new Error('すでに投票しています');
     round.votes.push({ voter_id: player.id, answer_id: answer.id });
+    io.to(player.socket_id).emit('round:vote_saved', { roundId: round.id });
     checkRoundProgress(io, room, round);
   });
 
   on('round:submit_mvp', (payload, room, player) => {
     const round = getCurrentRound(room);
-    if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
+    const questioner = room.players.find((p) => p.id === round.questioner_id);
+    if (round.questioner_id !== player.id && !(questioner && !questioner.is_connected && player.is_host)) {
+      throw new Error('出題者のみ操作できます。出題者が退出した場合はホストが選出してください');
+    }
     requirePhase(round, 'revealed');
     if (round.mvpAnswerId) throw new Error('すでにMVPを選出しています');
     const answer = round.answers.find((a) => a.id === payload?.answerId && !a.is_real);
@@ -386,6 +401,9 @@ function registerGameHandlers(io, socket) {
     const questioner = room.players.find((p) => p.id === round.questioner_id);
     const canSkip = round.status === 'selecting' && questioner && !questioner.is_connected;
     if (round.status !== 'revealed' && !canSkip) throw new Error('結果発表を待ってください');
+    if (round.status === 'revealed' && round.questioner_id !== null && !round.mvpAnswerId) {
+      throw new Error('MVPを選出してから次へ進んでください');
+    }
     if (room.current_round >= room.total_rounds) {
       room.status = 'finished';
       const scores = playerScores(room);
@@ -411,6 +429,7 @@ function checkAllDeclared(io, room, round) {
 function checkRoundProgress(io, room, round) {
   const answerers = connectedAnswerers(room, round);
   if (round.status === 'submitting') {
+    sendQuestionerView(io, room, round);
     const submittedCount = answerers.filter((p) => round.answers.some((a) => a.player_id === p.id)).length;
     const computerCount = room.players.filter((p) => p.is_computer).length;
     const questioner = room.players.find((p) => p.id === round.questioner_id);

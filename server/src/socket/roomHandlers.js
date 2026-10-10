@@ -34,6 +34,8 @@ function registerRoomHandlers(io, socket) {
         room.players.push(player);
         socket.join(room.code);
         socket.data = { playerId: player.id, roomCode: room.code, nickname };
+        // Recovery needs an event offset even when the host is alone in the lobby.
+        socket.emit('room:session_ready', {});
         const allPlayers = lobbyPlayers(room);
         if (!isHost) {
           socket.to(room.code).emit('room:player_joined', {
