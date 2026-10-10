@@ -254,3 +254,122 @@ test('old banks cannot serve unverified or personal works; valid official unknow
   writeFileSync(bankPath,JSON.stringify({schemaVersion:1,questions:[unverified]}));const source=createQuestionService({bankPath,enabled:false});t.after(()=>source.stop());await assert.rejects(source.selectQuestion(),/公式流通/);
   writeFileSync(bankPath,JSON.stringify({schemaVersion:1,questions:[unverified,q]}));assert.equal((await source.selectQuestion()).id,q.id);
 });
+
+test('a ready work catalogue is usable before a slow search route consumes the deadline', async t => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1000);
+  t.after(() => clearTimeout(timer));
+  let cancelled = false;
+  const result = await discoverLiveCandidates({ kind: 'novel', signal: controller.signal, fetchImpl: async (url, { signal }) => {
+    if (!url.includes('yahoo')) return response('<a href="/rb/123/">港の便り</a>');
+    return new Promise((_, reject) => signal.addEventListener('abort', () => {
+      cancelled = true; reject(Error('slow search cancelled'));
+    }, { once: true }));
+  } });
+  assert.equal(controller.signal.aborted, false);
+  assert.ok(result.remaining);
+  controller.abort();
+  await result.remaining;
+  assert.equal(cancelled, true);
+  assert.deepEqual(result.candidates.map(candidate => candidate.url), ['https://books.rakuten.co.jp/rb/123/']);
+});
+
+test('after two used works, slow invalid candidates in one medium cannot starve the third new work', async t => {
+  let third = false;
+  const source = createLiveQuestionSource({ deadlineMilliseconds: 180, discoverImpl: async ({ kind }) => ({
+    candidates: third && kind === 'game'
+      ? Array.from({ length: 9 }, (_, i) => ({ kind, url: `https://creator.example.org/game/invalid${i}` }))
+      : [{ kind, url: `https://creator.example.org/${kind}/valid` }],
+  }), fetchImpl: async url => {
+    if (url.includes('/invalid')) { await new Promise(resolve => setTimeout(resolve, 75)); return response('<title>作品の説明なし</title>'); }
+    const kind = new URL(url).pathname.split('/')[1];
+    return response(mediaPage(kind, `${kind}への便り`));
+  } });
+  t.after(() => source.stop());
+  const first = await source.selectQuestion();
+  const second = await source.selectQuestion([first.id]);
+  assert.equal(first.kind, 'novel');
+  assert.equal(second.kind, 'film');
+  third = true;
+  const next = await source.selectQuestion([first.id, second.id]);
+  assert.equal(next.kind, 'manga');
+  assert.equal(new Set([first.id, second.id, next.id]).size, 3);
+  assert.equal(source.getStatus().activeRequests, 0);
+});
+
+test('candidate rotation retains a later valid work when every other discovery has no usable links', async t => {
+  const source = createLiveQuestionSource({ discoverImpl: async ({ kind, pass }) => ({
+    candidates: kind === 'film' && pass === 0 ? [work(1), work(2), work(3), work(4)] : [],
+  }), fetchImpl: async url => response(url === work(4).url ? html(4) : '<title>作品情報なし</title>') });
+  t.after(() => source.stop());
+  assert.equal((await source.selectQuestion()).id, work(4).id);
+});
+
+test('a slower discovery route retains its valid work when the ready catalogue only contains invalid pages', async t => {
+  const source = createLiveQuestionSource({ deadlineMilliseconds: 1000, fetchImpl: async url => {
+    const location = new URL(url);
+    if (location.hostname === 'search.yahoo.co.jp' && location.searchParams.get('p').includes('小説')) {
+      await new Promise(resolve => setTimeout(resolve, 30));
+      return response('<a ping="/xts/click" href="https://publisher.example.org/books/letter">港の便り</a>');
+    }
+    if (location.pathname === '/books/letter') return response(commercialBook());
+    if (location.hostname === 'books.rakuten.co.jp' && location.pathname === '/search') {
+      return response('<a href="/rb/1/">説明なしの書籍</a><a href="/rb/2/">説明なしの書籍</a><a href="/rb/3/">説明なしの書籍</a>');
+    }
+    return response('<title>作品情報なし</title>');
+  } });
+  t.after(() => source.stop());
+  const result = await source.selectQuestion();
+  assert.equal(result.sources[0].url, 'https://publisher.example.org/books/letter');
+  assert.equal(result.kind, 'novel');
+});
+
+test('successful selection cancels its still-pending discovery transport', async t => {
+  let cancelled = false;
+  const source = createLiveQuestionSource({ deadlineMilliseconds: 1000, fetchImpl: async (url, { signal }) => {
+    if (url.includes('yahoo')) return new Promise((_, reject) => signal.addEventListener('abort', () => {
+      cancelled = true; reject(Error('losing discovery cancelled'));
+    }, { once: true }));
+    return response(new URL(url).pathname === '/search' ? '<a href="/rb/123/">港の便り</a>' : commercialBook());
+  } });
+  t.after(() => source.stop());
+  assert.equal((await source.selectQuestion()).kind, 'novel');
+  assert.equal(cancelled, true);
+  assert.equal(source.getStatus().activeRequests, 0);
+});
+
+test('a completed late route is checked before a large ready queue exhausts the budget', async t => {
+  const source = createLiveQuestionSource({ maxRequests: 8, discoverImpl: async ({ kind, pass }) => ({
+    candidates: kind === 'novel' && pass === 0
+      ? Array.from({ length: 60 }, (_, i) => ({ kind, url: `https://publisher.example.org/invalid${i}` })) : [],
+    ...(kind === 'novel' && pass === 0 && { remaining: new Promise(resolve => setTimeout(() => resolve({
+      candidates: [{ kind, url: 'https://publisher.example.org/book/letter' }],
+    }), 5)) }),
+  }), fetchImpl: async url => {
+    if (url.endsWith('/book/letter')) return response(commercialBook());
+    await new Promise(resolve => setTimeout(resolve, 15));
+    return response('<title>作品情報なし</title>');
+  } });
+  t.after(() => source.stop());
+  assert.equal((await source.selectQuestion()).kind, 'novel');
+});
+
+test('unavailable media cannot exhaust the request budget before a verified used-medium fallback is tried', async t => {
+  let repeated = false;
+  const seen = [];
+  const source = createLiveQuestionSource({ maxRequests: 32, discoverImpl: async ({ kind, pass, fetchImpl }) => {
+    seen.push({ kind, pass });
+    await fetchImpl(`https://search.example.org/${kind}/${pass}`);
+    return { candidates: kind === 'film'
+      ? [{ kind, url: `https://creator.example.org/film/${repeated ? 'second' : 'first'}` }]
+      : repeated ? Array.from({ length: 60 }, (_, i) => ({ kind, url: `https://creator.example.org/${kind}/invalid${i}` })) : [] };
+  }, fetchImpl: async url => response(url.includes('/film/') && !url.includes('search.example.org')
+    ? mediaPage('film', url.endsWith('first') ? '最初の便り' : '次の便り') : '<title>作品情報なし</title>') });
+  t.after(() => source.stop());
+  const first = await source.selectQuestion();
+  repeated = true; seen.length = 0;
+  const next = await source.selectQuestion([first.id]);
+  assert.equal(next.kind, 'film');
+  assert.notEqual(next.id, first.id);
+  for (const kind of ['novel', 'game', 'manga']) assert.ok(seen.some(search => search.kind === kind && search.pass === 1));
+});
