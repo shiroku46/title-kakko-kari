@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
-import { useSocketListeners, getSocket, disconnectSocket } from '../hooks/useSocket';
+import { useSocketListeners, getSocket, leaveRoom } from '../hooks/useSocket';
+import useRoomRecovery from '../hooks/useRoomRecovery';
 import { colors } from '../theme';
 import { Text } from '../components/ui/GameText';
 import { StationeryButton } from '../components/ui';
@@ -18,46 +19,48 @@ function normalizeContentType(value) {
 
 export default function GameScreen({ navigation, route }) {
   const { room, player, gameData } = route.params;
+  const saved = gameData.resumeState || {};
   const socket = getSocket();
   const genreDisclosure = Boolean(gameData.settings?.genreDisclosure);
   const [workKindLabel, setWorkKindLabel] = useState(gameData.round?.workKindLabel || null);
   const [isHost, setIsHost] = useState(player.is_host);
   const [humanCount, setHumanCount] = useState(gameData.humanCount ?? 4);
-  const [synopsisError, setSynopsisError] = useState(null);
+  const [synopsisError, setSynopsisError] = useState(saved.synopsisError || null);
 
   const [mode, setMode] = useState(gameData.mode ?? 'player');
-  const [phase, setPhase] = useState(gameData.mode === 'cpu' ? 'confirming' : 'selecting');
+  const [phase, setPhase] = useState(saved.phase || (gameData.mode === 'cpu' ? 'confirming' : 'selecting'));
   const [round, setRound] = useState(gameData.round);
   const [currentRound, setCurrentRound] = useState(gameData.currentRound);
   const [totalRounds, setTotalRounds] = useState(gameData.totalRounds);
   const [questioner, setQuestioner] = useState(gameData.questioner);
   const [contentType, setContentType] = useState(normalizeContentType(gameData.round?.contentType));
 
-  const [synopsis, setSynopsis] = useState(null);
-  const [questionerView, setQuestionerView] = useState(null);
-  const [reconnecting, setReconnecting] = useState(!socket.connected);
-  const [fetchedSynopsis, setFetchedSynopsis] = useState(null);
-  const [choices, setChoices] = useState([]);
-  const [ownAnswerId, setOwnAnswerId] = useState(null);
-  const [revealData, setRevealData] = useState(null);
-  const [fakeSubmittedCount, setFakeSubmittedCount] = useState(0);
-  const [voteProgress, setVoteProgress] = useState({ voted: 0, total: 0 });
-  const [knownDeclarations, setKnownDeclarations] = useState([]);
-  const [allDeclared, setAllDeclared] = useState(false);
-  const [mvpData, setMvpData] = useState(null);
+  const [synopsis, setSynopsis] = useState(saved.synopsis || null);
+  const [questionerView, setQuestionerView] = useState(saved.questionerView || null);
+  const [fetchedSynopsis, setFetchedSynopsis] = useState(saved.fetchedSynopsis || null);
+  const [choices, setChoices] = useState(saved.choices || []);
+  const [ownAnswerId, setOwnAnswerId] = useState(saved.ownAnswerId || null);
+  const [revealData, setRevealData] = useState(saved.revealData || null);
+  const [fakeSubmittedCount, setFakeSubmittedCount] = useState(saved.fakeSubmittedCount || 0);
+  const [voteProgress, setVoteProgress] = useState(saved.voteProgress || { voted: 0, total: 0 });
+  const [knownDeclarations, setKnownDeclarations] = useState(saved.knownDeclarations || []);
+  const [allDeclared, setAllDeclared] = useState(Boolean(saved.allDeclared));
+  const [mvpData, setMvpData] = useState(saved.mvpData || null);
   const [selectingKey, setSelectingKey] = useState(0);
-  const [questionerDisconnected, setQuestionerDisconnected] = useState(false);
+  const [questionerDisconnected, setQuestionerDisconnected] = useState(Boolean(saved.questionerDisconnected));
   const [departureNotice, setDepartureNotice] = useState(null);
   const [stoppedMessage, setStoppedMessage] = useState(null);
   const [discardedTitle, setDiscardedTitle] = useState(null);
   const leavingRef = useRef(false);
+  const reconnecting = useRoomRecovery(navigation, leavingRef);
+  const resumed = round.id === gameData.round.id ? saved : {};
 
   const isQuestioner = player.id === questioner?.id;
 
   function leaveGame() {
     if (leavingRef.current) return;
     leavingRef.current = true;
-    disconnectSocket();
+    leaveRoom();
     navigation.replace('Home');
   }
 
@@ -67,29 +70,6 @@ export default function GameScreen({ navigation, route }) {
       { text: '部屋から出る', style: 'destructive', onPress: leaveGame },
     ]);
   }
-
-  useEffect(() => {
-    const sessionLost = () => {
-      leaveGame();
-      Alert.alert('部屋へ復帰できませんでした', '接続の待機時間を過ぎたか、サーバーが再起動しました。もう一度、部屋を作るか参加してください。');
-    };
-    const onDisconnect = () => {
-      if (leavingRef.current) return;
-      if (!socket.active) return sessionLost();
-      setReconnecting(true);
-    };
-    const onConnect = () => {
-      if (leavingRef.current) return;
-      if (!socket.recovered) return sessionLost();
-      setReconnecting(false);
-    };
-    socket.on('disconnect', onDisconnect);
-    socket.on('connect', onConnect);
-    return () => {
-      socket.off('disconnect', onDisconnect);
-      socket.off('connect', onConnect);
-    };
-  }, [navigation, socket]);
 
   useEffect(() => {
     let active = true;
@@ -312,6 +292,8 @@ export default function GameScreen({ navigation, route }) {
             playerId={player.id}
             knownDeclarations={knownDeclarations}
             allDeclared={allDeclared}
+            initialTitle={questionerView?.realTitle}
+            initialDeclaration={resumed.declaration}
             socket={socket}
           />
         );
@@ -328,6 +310,8 @@ export default function GameScreen({ navigation, route }) {
             fakeSubmittedCount={fakeSubmittedCount}
             realTitle={amQuestioner ? questionerView?.realTitle : null}
             submittedAnswers={amQuestioner ? questionerView?.answers : []}
+            initialSubmitted={resumed.submitted}
+            initialTitle={resumed.submittedTitle}
             socket={socket}
           />
         );
@@ -345,6 +329,8 @@ export default function GameScreen({ navigation, route }) {
             playerId={player.id}
             voteProgress={voteProgress}
             realTitle={amQuestioner ? questionerView?.realTitle : null}
+            initialVoted={resumed.voted}
+            initialAnswerId={resumed.voteAnswerId}
             socket={socket}
           />
         );

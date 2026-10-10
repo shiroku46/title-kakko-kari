@@ -112,6 +112,7 @@ process.env.NODE_ENV = 'production';
 process.env.ALLOW_THREE_PLAYER_DEV = 'true';
 process.env.ALLOWED_ORIGINS = 'https://game.example';
 process.env.QUESTION_BANK_PATH = fixturePath;
+process.env.ROOM_STATE_PATH = join(fixtureDirectory, 'rooms.json');
 // Keep these socket-level tests independent from remote discovery. Dedicated
 // question-service tests exercise on-demand collection with controlled sources.
 process.env.QUESTION_COLLECTION_ENABLED = 'false';
@@ -1427,7 +1428,7 @@ test('a lone lobby host recovers without losing the room or host role', async (t
   assert.equal(state.room.players[0].is_host, true);
 });
 
-test('expired recovery cleans up the room and rejects the old membership', async (t) => {
+test('expired packet replay reserves the room and rejects unauthenticated fresh membership', async (t) => {
   const { bots: [host], room } = await roomWith(t, 1);
   await event(host, 'room:session_ready');
   const duration = io.opts.connectionStateRecovery.maxDisconnectionDuration;
@@ -1436,8 +1437,9 @@ test('expired recovery cleans up the room and rejects the old membership', async
   const disconnected = once(io.sockets.sockets.get(host.socket.id), 'disconnect', { signal: AbortSignal.timeout(3000) });
   host.socket.io.engine.close();
   await disconnected;
-  for (let i = 0; rooms.has(room.code) && i < 50; i++) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(rooms.has(room.code), false);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(rooms.has(room.code), true);
+  assert.equal(rooms.get(room.code).players[0].is_online, false);
   const currentTime = Date.now();
   const now = t.mock.method(Date, 'now', () => currentTime + duration + 1000);
   const reconnected = once(host.socket, 'connect', { signal: AbortSignal.timeout(3000) });
@@ -1462,6 +1464,56 @@ test('replayed transport state cannot restore a removed game membership', async 
   assert.equal((await rejected)[0], 'io server disconnect');
   assert.equal(host.socket.connected, false);
   assert.equal(io.sockets.sockets.has(socketId), false);
+});
+
+test('a snapshot write failure leaves no orphan seat and returns no storage path', async (t) => {
+  const host = await bot(t);
+  const count = rooms.size;
+  const before = readFileSync(process.env.ROOM_STATE_PATH, 'utf8');
+  t.mock.method(require('node:fs'), 'renameSync', () => { throw new Error('private-storage-path'); });
+  const result = await ack(host, 'room:create', { nickname: '保存障害の確認' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /部屋を保存できません/);
+  assert(!JSON.stringify(result).includes('private-storage-path'));
+  assert.equal(rooms.size, count);
+  assert.equal(readFileSync(process.env.ROOM_STATE_PATH, 'utf8'), before);
+});
+
+test('browser room bookmarks survive reload, observe deletion and tolerate unavailable storage', () => {
+  const source = readFileSync(join(__dirname, '../client/src/utils/roomSession.js'), 'utf8')
+    .replaceAll('export function ', 'function ') + '\n({ getRoomSession, saveRoomSession, clearRoomSession })';
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
+  const api = runInNewContext(source, { localStorage: storage });
+  const saved = { code: '000123', playerId: 'own-seat', token: 'x'.repeat(43), nickname: '本人', serverUrl: 'https://game.example' };
+  api.saveRoomSession(saved);
+  const reloaded = runInNewContext(source, { localStorage: storage });
+  assert.equal(reloaded.getRoomSession().token, saved.token);
+  api.clearRoomSession();
+  assert.equal(reloaded.getRoomSession(), null, 'another tab must observe explicit exit');
+  api.saveRoomSession(saved);
+  values.set([...values.keys()][0], JSON.stringify({ ...saved, token: 'invalid' }));
+  assert.equal(reloaded.getRoomSession(), null);
+  const unavailable = runInNewContext(source, { localStorage: {
+    getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); },
+  } });
+  unavailable.saveRoomSession(saved);
+  assert.equal(unavailable.getRoomSession().code, saved.code);
+  unavailable.clearRoomSession();
+  assert.equal(unavailable.getRoomSession(), null);
+});
+
+test('CPU snapshot failures produce a retry screen instead of an unhandled asynchronous error', async (t) => {
+  const { bots } = await roomWith(t, 4);
+  const delayed = delayNextQuestionSelection(t);
+  await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 1 });
+  await delayed.started;
+  t.mock.method(require('node:fs'), 'renameSync', () => { throw new Error('private-storage-path'); });
+  delayed.release();
+  const failure = await event(bots[0], 'round:synopsis_fetch_failed');
+  assert.match(failure.error, /部屋を保存できません/);
+  assert(!JSON.stringify(failure).includes('private-storage-path'));
+  assert.equal(bots[0].events.some((e) => e.name === 'round:synopsis_fetched'), false);
 });
 
 test('only the questioner receives the real title and submitted titles; host chooses MVP after departure', async (t) => {

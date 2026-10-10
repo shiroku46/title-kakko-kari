@@ -28,10 +28,12 @@ export default function VotingPhase({
   ownAnswerId,
   isQuestioner,
   voteProgress,
+  initialVoted = false,
+  initialAnswerId = null,
   socket,
 }) {
-  const [selectedId, setSelectedId] = useState(null);
-  const [voted, setVoted] = useState(false);
+  const [selectedId, setSelectedId] = useState(initialAnswerId);
+  const [voted, setVoted] = useState(initialVoted);
   const [submitting, setSubmitting] = useState(false);
   const [voteError, setVoteError] = useState(null);
   const { isPC, contentPadding } = useResponsiveLayout();

@@ -1,29 +1,45 @@
-const { rooms, getCurrentRound, getMember } = require('../gameState');
+const { rooms, getCurrentRound, getMember, persistRooms, updateRoomExpiry } = require('../gameState');
 const { registerRoomHandlers } = require('./roomHandlers');
 const { registerGameHandlers, checkRoundProgress } = require('./gameHandlers');
 
-function registerSocketHandlers(io) {
-  const pendingDisconnects = new Map();
+function registerSocketHandlers(io, instanceId) {
   io.on('connection', (socket) => {
-    clearTimeout(pendingDisconnects.get(socket.id));
-    pendingDisconnects.delete(socket.id);
+    const connectedAt = process.uptime();
     if (socket.recovered) {
-      try { getMember(socket); }
+      try {
+        const { room, player } = getMember(socket);
+        player.is_online = true;
+        updateRoomExpiry(room);
+        persistRooms();
+      }
       catch (_) { socket.disconnect(true); return; }
     }
     registerRoomHandlers(io, socket);
     registerGameHandlers(io, socket);
-    socket.on('disconnect', (reason) => {
-      // Keep membership while Socket.IO can restore the private session and packets.
-      if (socket.data.playerId && ['transport close', 'transport error', 'ping timeout', 'forced close', 'forced server close'].includes(reason)) {
-        const timer = setTimeout(() => {
-          pendingDisconnects.delete(socket.id);
-          handleDisconnect(io, socket);
-        }, io.opts.connectionStateRecovery.maxDisconnectionDuration);
-        timer.unref();
-        pendingDisconnects.set(socket.id, timer);
-      } else {
+    socket.on('room:leave', (_, callback) => {
+      try {
         handleDisconnect(io, socket);
+        socket.leave(socket.data.roomCode);
+        socket.data = {};
+        if (typeof callback === 'function') callback({ ok: true });
+      } catch (error) {
+        if (typeof callback === 'function') callback({ ok: false, error: error.message });
+      }
+    });
+    socket.on('disconnect', (reason) => {
+      // Reasons and elapsed times identify transport loss without logging a seat or credential.
+      console.info('[Session]', JSON.stringify({ instanceId, reason, connectedSeconds: Math.floor(process.uptime() - connectedAt) }));
+      try {
+        if (reason === 'client namespace disconnect') return handleDisconnect(io, socket);
+        const room = rooms.get(socket.data.roomCode);
+        const player = room?.players.find((p) => p.id === socket.data.playerId && p.socket_id === socket.id);
+        if (!player) return;
+        // Losing a transport reserves the seat; it never acts as a voluntary exit.
+        player.is_online = false;
+        updateRoomExpiry(room);
+        persistRooms();
+      } catch (_) {
+        console.error('[Session] 部屋の保存に失敗しました');
       }
     });
   });
@@ -36,6 +52,8 @@ function handleDisconnect(io, socket) {
   const player = room.players.find((p) => p.id === playerId);
   if (!player || player.socket_id !== socket.id) return;
   player.is_connected = false;
+  player.is_online = false;
+  player.resume_hash = null;
   player.socket_id = null;
   io.to(roomCode).emit('room:player_disconnected', { playerId, nickname });
   const connectedPlayers = room.players.filter((p) => p.is_connected);
@@ -43,15 +61,18 @@ function handleDisconnect(io, socket) {
   // Delete the whole session, including titles, votes and declarations, when empty.
   if (!humans.length) {
     rooms.delete(roomCode);
+    persistRooms();
     return;
   }
-  if (player.is_host) humans[0].is_host = true;
+  if (player.is_host) (humans.find((p) => p.is_online) || humans[0]).is_host = true;
   player.is_host = false;
+  updateRoomExpiry(room);
   if (room.status === 'waiting') {
     room.players = connectedPlayers;
+    persistRooms();
     return;
   }
-  if (room.status !== 'playing') return;
+  if (room.status !== 'playing') { persistRooms(); return; }
   const round = getCurrentRound(room);
   if (humans.length === 1 && (!connectedPlayers.some((p) => p.is_computer) || round.questioner_id !== null)) {
     // One person cannot continue this party game. Preserve earned scores and
@@ -62,6 +83,7 @@ function handleDisconnect(io, socket) {
       reason: 'not_enough_players',
       message: 'ほかの人がいなくなったため、ゲームを終わります。ホームに戻って、部屋を作り直してください。',
     });
+    persistRooms();
     return;
   }
   if (round.questioner_id === playerId) {
@@ -78,6 +100,7 @@ function handleDisconnect(io, socket) {
     });
   }
   checkRoundProgress(io, room, round);
+  persistRooms();
 }
 
 module.exports = { registerSocketHandlers };

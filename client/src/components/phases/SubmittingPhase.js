@@ -28,10 +28,12 @@ export default function SubmittingPhase({
   fakeSubmittedCount,
   realTitle,
   submittedAnswers = [],
+  initialSubmitted = false,
+  initialTitle = '',
   socket,
 }) {
-  const [fakeTitle, setFakeTitle] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+  const [fakeTitle, setFakeTitle] = useState(initialTitle);
+  const [submitted, setSubmitted] = useState(initialSubmitted);
   const [submitting, setSubmitting] = useState(false);
   const [requestError, setRequestError] = useState(null);
   const pendingRef = useRef(false);

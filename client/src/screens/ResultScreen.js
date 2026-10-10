@@ -7,7 +7,7 @@ import {
   Platform,
 } from 'react-native';
 import { Text } from '../components/ui/GameText';
-import { disconnectSocket } from '../hooks/useSocket';
+import { leaveRoom } from '../hooks/useSocket';
 import { colors, radii } from '../theme';
 import {
   PaperPanel,
@@ -23,7 +23,7 @@ export default function ResultScreen({ navigation, route }) {
   const { isPC, contentPadding } = useResponsiveLayout();
 
   const playAgain = () => {
-    disconnectSocket();
+    leaveRoom();
     navigation.replace('Home');
   };
 

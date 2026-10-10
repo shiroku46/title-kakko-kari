@@ -30,14 +30,16 @@ export default function SelectingPhase({
   questionerDisconnected = false,
   knownDeclarations = [],
   allDeclared,
+  initialTitle = '',
+  initialDeclaration = null,
   socket,
 }) {
   const [synopsisText, setSynopsisText] = useState('');
-  const [realTitle, setRealTitle] = useState('');
+  const [realTitle, setRealTitle] = useState(initialTitle || '');
   const [workKind, setWorkKind] = useState(null);
   const [automaticQuestionId, setAutomaticQuestionId] = useState(null);
-  const [declared, setDeclared] = useState(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [declared, setDeclared] = useState(initialDeclaration);
+  const [submitted, setSubmitted] = useState(Boolean(isQuestioner && synopsis));
   const [pendingAction, setPendingAction] = useState(null);
   const [requestError, setRequestError] = useState(null);
   const [skipConfirming, setSkipConfirming] = useState(false);

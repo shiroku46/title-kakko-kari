@@ -6,6 +6,7 @@ import {
 import { Text, TextInput } from '../components/ui/GameText';
 import { getCurrentUrl } from '../hooks/useSocket';
 import useRoomEntry from '../hooks/useRoomEntry';
+import { getRoomSession } from '../utils/roomSession';
 import { DEFAULT_SERVER_URL } from '../config';
 import { colors } from '../theme';
 import { brandAssets, GAME_NAME } from '../theme/brand';
@@ -23,6 +24,7 @@ export default function HomeScreen({ navigation }) {
   const wide = width >= 1200;
   const entry = useRoomEntry(navigation);
   const joining = mode === 'join';
+  const previousRoom = getRoomSession();
 
   const openRules = () => navigation.navigate('Rules');
   const toggleSettings = () => setShowSettings((value) => !value);
@@ -71,6 +73,10 @@ export default function HomeScreen({ navigation }) {
         {joining ? '← 戻る' : '部屋に入る'}
       </StationeryButton>
     </View>}
+
+    {previousRoom && !entry.busy ? <StationeryButton variant="neutral"
+      onPress={() => entry.enterRoom({ ...previousRoom, code: previousRoom.code, joining: true, resuming: true })}
+      accessibilityLabel="前の部屋に戻る">前の部屋に戻る（{previousRoom.code}）</StationeryButton> : null}
 
     <TouchableOpacity style={styles.rulesLink} onPress={openRules} disabled={entry.busy}
       accessibilityRole="button" accessibilityLabel="遊び方を見る">

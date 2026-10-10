@@ -9,7 +9,8 @@ import {
 } from 'react-native';
 import { Text } from '../components/ui/GameText';
 import { Alert } from '../utils/alert';
-import { useSocketListeners, getSocket, disconnectSocket } from '../hooks/useSocket';
+import { useSocketListeners, getSocket, leaveRoom } from '../hooks/useSocket';
+import useRoomRecovery from '../hooks/useRoomRecovery';
 import { colors, radii } from '../theme';
 import {
   PaperPanel,
@@ -36,7 +37,7 @@ export default function LobbyScreen({ navigation, route }) {
   const leavingRef = useRef(false);
   const startRequestRef = useRef(null);
   const socket = getSocket();
-  const [reconnecting, setReconnecting] = useState(!socket.connected);
+  const reconnecting = useRoomRecovery(navigation, leavingRef);
   const { isPC, contentPadding } = useResponsiveLayout();
 
   useSocketListeners({
@@ -70,31 +71,11 @@ export default function LobbyScreen({ navigation, route }) {
   });
 
   useEffect(() => {
-    const sessionLost = () => {
-      leavingRef.current = true;
-      disconnectSocket();
-      navigation.replace('Home');
-      Alert.alert('部屋へ復帰できませんでした', '接続の待機時間を過ぎたか、サーバーが再起動しました。もう一度、部屋を作るか参加してください。');
-    };
-    const onDisconnect = () => {
-      if (leavingRef.current) return;
-      if (!socket.active) return sessionLost();
-      setReconnecting(true);
-    };
-    const onConnect = () => {
-      if (leavingRef.current) return;
-      if (socket.recovered) return setReconnecting(false);
-      sessionLost();
-    };
-    socket.on('disconnect', onDisconnect);
-    socket.on('connect', onConnect);
     return () => {
-      socket.off('disconnect', onDisconnect);
-      socket.off('connect', onConnect);
       clearTimeout(startRequestRef.current);
       startRequestRef.current = null;
     };
-  }, [navigation, socket]);
+  }, []);
 
   function handleStart() {
     if (startRequestRef.current || leavingRef.current) return;
@@ -199,7 +180,7 @@ export default function LobbyScreen({ navigation, route }) {
             variant="ghost"
             onPress={() => {
               leavingRef.current = true;
-              disconnectSocket();
+              leaveRoom();
               navigation.replace('Home');
             }}
             accessibilityLabel="ルームを退出"

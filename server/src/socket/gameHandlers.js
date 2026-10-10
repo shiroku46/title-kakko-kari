@@ -6,7 +6,7 @@ const { MAX_LENGTH } = require('../questions/quality');
 const { generateComputerTitles } = require('../computerTitles');
 const {
   rooms, getMember, getCurrentRound, connectedAnswerers, publicRound,
-  playerScores, textInput,
+  playerScores, textInput, persistRooms,
 } = require('../gameState');
 
 // WeakMap entries cannot leak through the public round/room serializers.
@@ -76,17 +76,22 @@ async function loadCpuSynopsis(io, room, round) {
   const host = room.players.find((p) => p.is_host && p.is_connected);
   if (!work) {
     round.fetchError = failure || '出典付きの問題を用意できませんでした。再取得してください。';
+  } else {
+    round.synopsis = work.synopsis;
+    round.real_title = work.realTitle;
+    round.sourceQuestion = work;
+    round.workKind = work.kind;
+    round.contentType = work.contentType || (getKind(work.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
+    room.usedQuestionIds.push(work.id);
+  }
+  try { persistRooms(); }
+  catch (error) { round.fetchError = error.message; round.synopsis = null; }
+  if (round.fetchError) {
     if (host) io.to(host.socket_id).emit('round:synopsis_fetch_failed', {
       roundId: round.id, error: round.fetchError,
     });
     return;
   }
-  round.synopsis = work.synopsis;
-  round.real_title = work.realTitle;
-  round.sourceQuestion = work;
-  round.workKind = work.kind;
-  round.contentType = work.contentType || (getKind(work.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
-  room.usedQuestionIds.push(work.id);
   if (host) io.to(host.socket_id).emit('round:synopsis_fetched', {
     roundId: round.id, synopsis: work.synopsis, contentType: round.contentType, ...publicGenre(room, round),
   });
@@ -143,6 +148,7 @@ function registerGameHandlers(io, socket) {
           throw new Error('ゲームが開始していないか、終了しています');
         }
         const result = handler(payload, room, player);
+        if (event !== 'round:get_synopsis') persistRooms();
         if (typeof callback === 'function') callback({ ok: true, ...result });
       } catch (error) {
         if (typeof callback === 'function') callback({ ok: false, error: error.message });
@@ -179,6 +185,7 @@ function registerGameHandlers(io, socket) {
       if (state.version !== version) throw new Error('取得中に出題内容が変更されました。もう一度お試しください');
       state.question = work;
       room.usedQuestionIds.push(work.id);
+      persistRooms();
       callback({ ok: true, roundId: round.id, questionId: work.id, title: work.realTitle,
         synopsis: work.synopsis, kind: work.kind, contentType: work.contentType || 'synopsis' });
     } catch (error) {
@@ -466,7 +473,7 @@ function transitionToVoting(io, room, round) {
 function revealRound(io, room, round) {
   if (round.status !== 'voting') return;
   const realAnswer = round.answers.find((a) => a.is_real);
-  const roundScores = room.players.filter((p) => p.id !== round.questioner_id).map((p) => {
+  round.roundScores = room.players.filter((p) => p.id !== round.questioner_id).map((p) => {
     const correct_pts = Number(round.votes.some((v) => v.voter_id === p.id && v.answer_id === realAnswer.id));
     const fake = round.answers.find((a) => a.player_id === p.id);
     const deceive_pts = fake ? round.votes.filter((v) => v.answer_id === fake.id).length : 0;
@@ -475,7 +482,11 @@ function revealRound(io, room, round) {
     return { player_id: p.id, correct_pts, deceive_pts, total_pts };
   });
   round.status = 'revealed';
-  io.to(room.code).emit('round:revealed', {
+  io.to(room.code).emit('round:revealed', getRevealedRound(room, round));
+}
+
+function getRevealedRound(room, round) {
+  return {
     roundId: round.id, realTitle: round.real_title,
     contentType: round.contentType || 'synopsis',
     workKind: round.workKind || round.sourceQuestion?.kind || null,
@@ -487,8 +498,48 @@ function revealRound(io, room, round) {
         author: author ? { id: author.id, nickname: author.nickname } : null };
     }),
     votes: round.votes.map((v) => ({ voterId: v.voter_id, answerId: v.answer_id })),
-    roundScores, playerScores: playerScores(room),
-  });
+    roundScores: round.roundScores, playerScores: playerScores(room),
+  };
 }
 
-module.exports = { registerGameHandlers, checkRoundProgress };
+function getResumeGame(room, player) {
+  const round = getCurrentRound(room);
+  const answerers = connectedAnswerers(room, round);
+  const questioner = room.players.find((p) => p.id === round.questioner_id);
+  const isQuestioner = round.questioner_id === player.id;
+  const mode = round.questioner_id === null ? 'cpu' : 'player';
+  const mvpAnswer = round.answers.find((a) => a.id === round.mvpAnswerId);
+  const mvpAuthor = mvpAnswer && room.players.find((p) => p.id === mvpAnswer.player_id);
+  const synopsisPublic = round.questioner_id !== null || round.previewConfirmed;
+  return {
+    totalRounds: room.total_rounds, currentRound: room.current_round, mode, settings: room.settings,
+    humanCount: room.players.filter((p) => p.is_connected && !p.is_computer).length,
+    questioner: questioner ? { id: questioner.id, nickname: questioner.nickname } : null,
+    round: { ...publicRound(round, room), synopsis: synopsisPublic ? round.synopsis : null },
+    resumeState: {
+      phase: mode === 'cpu' && round.status === 'selecting' && !round.previewConfirmed ? 'confirming' : round.status,
+      synopsis: synopsisPublic ? round.synopsis : null,
+      fetchedSynopsis: mode === 'cpu' && player.is_host ? round.synopsis : null,
+      synopsisError: mode === 'cpu' && player.is_host ? round.fetchError : null,
+      questionerView: isQuestioner ? { roundId: round.id, realTitle: round.real_title,
+        answers: round.answers.filter((a) => !a.is_real).map(({ id, title }) => ({ id, title })) } : null,
+      choices: round.status === 'voting' ? round.answers.map((a) => ({ id: a.id, title: a.title, displayOrder: a.display_order })) : [],
+      ownAnswerId: round.answers.find((a) => a.player_id === player.id)?.id || null,
+      submitted: round.answers.some((a) => a.player_id === player.id),
+      submittedTitle: round.answers.find((a) => a.player_id === player.id)?.title || '',
+      voted: round.votes.some((v) => v.voter_id === player.id),
+      voteAnswerId: round.votes.find((v) => v.voter_id === player.id)?.answer_id || null,
+      declaration: round.declarations.get(player.id) || null,
+      knownDeclarations: answerers.filter((p) => round.declarations.get(p.id) === 'known').map((p) => p.nickname),
+      allDeclared: answerers.length > 0 && answerers.every((p) => round.declarations.has(p.id)),
+      fakeSubmittedCount: round.answers.filter((a) => !a.is_real).length,
+      voteProgress: { voted: round.votes.length, total: answerers.length },
+      revealData: round.status === 'revealed' ? getRevealedRound(room, round) : null,
+      questionerDisconnected: Boolean(questioner && !questioner.is_connected),
+      mvpData: mvpAnswer ? { answerId: mvpAnswer.id, answerTitle: mvpAnswer.title,
+        playerNickname: mvpAuthor.nickname, playerId: mvpAuthor.id, playerScores: playerScores(room) } : null,
+    },
+  };
+}
+
+module.exports = { registerGameHandlers, checkRoundProgress, getResumeGame };
