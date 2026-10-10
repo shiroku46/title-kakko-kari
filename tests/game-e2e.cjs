@@ -1503,6 +1503,72 @@ test('browser room bookmarks survive reload, observe deletion and tolerate unava
   assert.equal(unavailable.getRoomSession(), null);
 });
 
+test('a transport lost during the resume reply keeps recovery active; an unavailable seat still returns home', { timeout: 10000 }, async (t) => {
+  const host = await bot(t);
+  const entry = await ok(host, 'room:create', { nickname: '復帰中に再切断' });
+  let markPending;
+  const pending = new Promise((resolve) => { markPending = resolve; });
+  let delayed;
+  const holdOneReply = (socket) => socket.use((packet, next) => {
+    if (packet[0] === 'room:resume' && !delayed) { delayed = next; markPending(); }
+    else next();
+  });
+  io.on('connection', holdOneReply);
+  t.after(() => { io.off('connection', holdOneReply); delayed?.(); });
+  const home = [];
+  const alerts = [];
+  const leaving = { current: false };
+  let cleared = false;
+  let restored;
+  let markRestored;
+  const returned = new Promise((resolve) => { markRestored = resolve; });
+  let markUnavailable;
+  const unavailable = new Promise((resolve) => { markUnavailable = resolve; });
+  let cleanup;
+  const source = readFileSync(join(__dirname, '../client/src/hooks/useRoomRecovery.js'), 'utf8')
+    .replace(/^import .*;\r?\n/gmu, '').replace('export default function ', 'function ');
+  const useRecovery = runInNewContext(`${source}\nuseRoomRecovery;`, {
+    useState: (value) => [value, () => {}], useEffect: (effect) => { cleanup = effect(); },
+    getSocket: () => host.socket,
+    getRoomSession: () => ({ code: entry.room.code, playerId: entry.player.id, token: entry.token }),
+    clearRoomSession: () => { cleared = true; },
+    disconnectSocket: () => host.socket.disconnect(),
+    showRoom: (_, result) => { restored = result; markRestored(); },
+    Alert: { alert: (...args) => { alerts.push(args); markUnavailable(); } },
+  });
+  useRecovery({ replace: (screen) => home.push(screen) }, leaving);
+  t.after(() => cleanup());
+  async function interrupt() {
+    const disconnected = once(host.socket, 'disconnect', { signal: AbortSignal.timeout(3000) });
+    const serverDisconnected = once(io.sockets.sockets.get(host.socket.id), 'disconnect', { signal: AbortSignal.timeout(3000) });
+    host.socket.io.engine.close();
+    await Promise.all([disconnected, serverDisconnected]);
+  }
+  await interrupt();
+  host.socket.connect();
+  await pending;
+  await interrupt();
+  assert.deepEqual(home, [], 'a failed transport must not cancel automatic recovery');
+  assert.deepEqual(alerts, []);
+  assert.equal(cleared, false);
+  assert.equal(leaving.current, false);
+  assert.equal(host.socket.active, true);
+  host.socket.connect();
+  await returned;
+  assert.equal(restored.room.code, entry.room.code);
+  assert.equal(restored.player.id, entry.player.id);
+  await ok(host, 'room:leave');
+  await interrupt();
+  const currentTime = Date.now();
+  const clock = t.mock.method(Date, 'now', () => currentTime + io.opts.connectionStateRecovery.maxDisconnectionDuration + 1000);
+  host.socket.connect();
+  await unavailable;
+  clock.mock.restore();
+  assert.deepEqual(home, ['Home']);
+  assert.equal(cleared, true, 'a genuinely unavailable seat must revoke the bookmark');
+  assert.equal(leaving.current, true);
+});
+
 test('CPU snapshot failures produce a retry screen instead of an unhandled asynchronous error', async (t) => {
   const { bots } = await roomWith(t, 4);
   const delayed = delayNextQuestionSelection(t);

@@ -29,6 +29,7 @@ export default function useRoomRecovery(navigation, leavingRef) {
         code: session.code, playerId: session.playerId, token: session.token,
       }, (error, result) => {
         if (!active || leavingRef.current) return;
+        if (!socket.connected && socket.active) return;
         if (error || !result?.ok) return fail(error
           ? 'サーバーの返事を待ちきれませんでした。ホームの「前の部屋に戻る」から試してください。'
           : result.error, result?.rejoinUnavailable);
