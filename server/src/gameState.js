@@ -36,7 +36,7 @@ function getCurrentRound(room) {
 }
 
 function connectedAnswerers(room, round) {
-  return room.players.filter((p) => p.is_connected && p.id !== round.questioner_id);
+  return room.players.filter((p) => p.is_connected && !p.is_computer && p.id !== round.questioner_id);
 }
 
 // Keep the existing wire fields; never expose answers, votes, declarations or

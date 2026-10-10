@@ -138,6 +138,7 @@ questionApi.selectQuestionAsync = async (excludedIds) => {
 };
 const { server, io } = require('../server/src/index');
 const { rooms } = require('../server/src/gameState');
+const { generateComputerTitles } = require('../server/src/computerTitles');
 const originalFetch = global.fetch;
 let externalFetches = 0;
 let url;
@@ -1206,4 +1207,159 @@ test('editing the helper genre keeps the declared medium and drops incompatible 
   const shown=await event(q,'round:synopsis_presented',true);assert.equal(shown.workKind,'film');
   const round=rooms.get(room.code).rounds.at(-1);assert.equal(round.workKind,'film');assert.equal(round.sourceQuestion,null);
   for(const b of bots){while(b.events.some(e=>e.name==='round:synopsis_presented'))await event(b,'round:synopsis_presented',true);}
+});
+
+test('computer titles follow the supplied synopsis, stay distinct and handle a short introduction', () => {
+  for (const synopsis of ['宇宙船。惑星。', '港町。手紙。', 'あああ。']) {
+    const titles = generateComputerTitles(synopsis, 5);
+    assert.equal(titles.length, 5);
+    assert.equal(new Set(titles).size, 5);
+    assert.ok(titles.every((title) => typeof title === 'string' && title.length > 0 && title.length <= 50));
+    if (synopsis.startsWith('宇宙船')) assert.ok(titles.every((title) => /宇宙船|惑星/u.test(title)));
+    if (synopsis.startsWith('港町')) assert.ok(titles.every((title) => /港町|手紙/u.test(title)));
+  }
+  assert.deepEqual(generateComputerTitles('港町。手紙。', 0), []);
+});
+
+test('computer seats are host-only, bounded, synchronized and cannot be forged by a joining human', async (t) => {
+  const { bots, room } = await roomWith(t, 2);
+  const host = bots[0];
+  await denied(bots[1], 'room:set_computers', { count: 2 });
+  for (const count of [-1, 6, 1.5, '2', null, true]) await denied(host, 'room:set_computers', { count });
+  const added = await ok(host, 'room:set_computers', { count: 2 });
+  const ids = added.allPlayers.filter((p) => p.isComputer).map((p) => p.id);
+  assert.equal(ids.length, 2);
+  assert.deepEqual((await event(bots[1], 'room:players_updated')).allPlayers, added.allPlayers);
+  assert.ok(rooms.get(room.code).players.filter((p) => p.is_computer).every((p) => !p.is_host && p.socket_id === null));
+  const same = await ok(host, 'room:set_computers', { count: 2 });
+  assert.deepEqual(same.allPlayers.filter((p) => p.isComputer).map((p) => p.id), ids);
+  const joining = await bot(t);
+  const joined = await ok(joining, 'room:join', { code: room.code, nickname: 'コンピュータ3', isComputer: true, is_computer: true });
+  assert.equal(joined.player.is_computer, undefined);
+  assert.equal(joined.allPlayers.find((p) => p.id === joined.player.id).isComputer, false);
+  const filled = await ok(host, 'room:set_computers', { count: 3 });
+  assert.equal(filled.allPlayers.length, 6);
+  assert.equal(new Set(filled.allPlayers.map((p) => p.nickname)).size, 6);
+  await denied(host, 'room:set_computers', { count: 4 });
+  const outsider = await bot(t);
+  await denied(outsider, 'room:join', { code: room.code, nickname: '満員' });
+  await ok(host, 'room:set_computers', { count: 0 });
+  assert.equal(rooms.get(room.code).players.length, 3);
+  await denied(host, 'game:start', { mode: 'cpu' });
+});
+
+for (const [humanCount, computerCount, mode] of [[2, 2, 'player'], [2, 2, 'cpu'], [1, 3, 'cpu'], [1, 5, 'cpu']]) {
+  test(`${humanCount} humans + ${computerCount} title-only computers / ${mode}: complete every round without computer votes or questions`, async (t) => {
+    writeBank();
+    const { bots, room } = await roomWith(t, humanCount);
+    const host = bots[0];
+    await ok(host, 'room:set_computers', { count: computerCount });
+    if (humanCount === 1) await denied(host, 'game:start', { mode: 'player' });
+    await ok(host, 'game:start', { mode, totalRounds: 2 });
+    await denied(host, 'room:set_computers', { count: 0 });
+    const totalRounds = mode === 'player' ? humanCount : 2;
+    for (let number = 1; number <= totalRounds; number++) {
+      const start = await event(host, number === 1 ? 'game:started' : 'game:round_started');
+      assert.equal(start.humanCount, humanCount);
+      assert.equal(start.totalRounds, totalRounds);
+      assert.ok((start.playerOrder || []).every((p) => bots.some((b) => b.player.id === p.id)));
+      const questioner = bots.find((b) => b.player.id === start.questioner?.id);
+      const controller = questioner || host;
+      const answerers = bots.filter((b) => b !== questioner);
+      let realTitle;
+      if (mode === 'cpu') {
+        const fetched = await event(host, 'round:synopsis_fetched');
+        realTitle = questionForSynopsis(fetched.synopsis).realTitle;
+        if (humanCount === 1) await denied(host, 'round:use_manual');
+        await ok(host, 'round:confirm_synopsis');
+      } else {
+        realTitle = `本物の答え${number}`;
+        await ok(questioner, 'round:submit_synopsis', { synopsis: '港町に届いた手紙から家族の秘密を知り、青年は旅に出る。', realTitle });
+      }
+      await denied(controller, 'round:start_submitting');
+      for (const b of answerers) await ok(b, 'round:declare_unknown');
+      const declared = await event(controller, 'round:all_declared');
+      assert.equal(declared.totalCount, answerers.length);
+      await ok(controller, 'round:start_submitting');
+      await denied(controller, 'round:start_submitting');
+      const state = rooms.get(room.code);
+      const round = state.rounds.at(-1);
+      const computerIds = state.players.filter((p) => p.is_computer).map((p) => p.id);
+      assert.equal(round.answers.length, computerCount);
+      assert.equal(new Set(round.answers.map((a) => a.title)).size, computerCount);
+      assert.ok(round.answers.every((a) => computerIds.includes(a.player_id) && !a.is_real));
+      assert.ok(!JSON.stringify((await ok(host, 'room:get_state')).room).includes(realTitle));
+      for (let i = 0; i < answerers.length; i++) {
+        await ok(answerers[i], 'round:submit_fake', { title: `人間の案${number}-${i}`, playerId: computerIds[0] });
+        await denied(answerers[i], 'round:submit_fake', { title: '二重提出' });
+      }
+      const shown = await event(host, 'round:choices_presented');
+      assert.equal(shown.choices.length, computerCount + answerers.length + 1);
+      assert.ok(shown.choices.every((choice) => !('author' in choice) && !('isReal' in choice)));
+      const computerAnswer = round.answers.find((a) => a.player_id === computerIds[0]);
+      const realAnswer = round.answers.find((a) => a.is_real);
+      for (let i = 0; i < answerers.length; i++) {
+        const own = round.answers.find((a) => a.player_id === answerers[i].player.id);
+        await denied(answerers[i], 'round:submit_vote', { answerId: own.id });
+        await ok(answerers[i], 'round:submit_vote', { answerId: i === 0 ? computerAnswer.id : realAnswer.id });
+      }
+      const revealed = await event(host, 'round:revealed');
+      assert.equal(revealed.realTitle, realTitle);
+      assert.equal(revealed.votes.length, answerers.length);
+      assert.ok(revealed.votes.every((v) => !computerIds.includes(v.voterId)));
+      const computerScore = revealed.roundScores.find((score) => score.player_id === computerIds[0]);
+      assert.equal(computerScore.correct_pts, 0);
+      assert.equal(computerScore.deceive_pts, 1);
+      if (questioner) await ok(questioner, 'round:submit_mvp', { answerId: computerAnswer.id });
+      await ok(host, 'game:next_round');
+    }
+    const finished = await event(host, 'game:finished');
+    assert.equal(finished.finalScores.length, humanCount + computerCount);
+    const computer = rooms.get(room.code).players.find((p) => p.is_computer);
+    assert.equal(computer.score, totalRounds * (mode === 'player' ? 2 : 1));
+    assert.equal(computer.turn_order, null);
+  });
+}
+
+test('a human inherits host duties ahead of computers and can continue CPU play alone', async (t) => {
+  writeBank();
+  const { bots, room } = await roomWith(t, 1);
+  const host = bots[0];
+  await ok(host, 'room:set_computers', { count: 3 });
+  const guest = await bot(t);
+  guest.player = (await ok(guest, 'room:join', { code: room.code, nickname: '引継ぎ' })).player;
+  await ok(host, 'game:start', { mode: 'cpu', totalRounds: 1 });
+  await event(host, 'round:synopsis_fetched');
+  host.socket.disconnect();
+  await event(guest, 'room:player_disconnected');
+  await event(guest, 'round:synopsis_fetched');
+  const snapshot = await ok(guest, 'room:get_state');
+  assert.equal(snapshot.room.status, 'playing');
+  assert.equal(snapshot.room.players.find((p) => p.id === guest.player.id).is_host, true);
+  assert.ok(snapshot.room.players.filter((p) => p.is_computer).every((p) => !p.is_host));
+  await confirmCpuAndStart(guest, [guest]);
+  await ok(guest, 'round:submit_fake', { title: '引継ぎ後の案' });
+  const shown = await event(guest, 'round:choices_presented');
+  await ok(guest, 'round:submit_vote', { answerId: shown.choices.find((c) => c.id !== shown.ownAnswerId).id });
+  await event(guest, 'round:revealed');
+  await ok(guest, 'game:next_round');
+  await event(guest, 'game:finished');
+  guest.socket.disconnect();
+  for (let i = 0; rooms.has(room.code) && i < 50; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(rooms.has(room.code), false);
+});
+
+test('computers do not keep a room alive or replace a departed human questioner', async (t) => {
+  const waiting = await roomWith(t, 1);
+  await ok(waiting.bots[0], 'room:set_computers', { count: 5 });
+  waiting.bots[0].socket.disconnect();
+  for (let i = 0; rooms.has(waiting.room.code) && i < 50; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(rooms.has(waiting.room.code), false);
+  const { bots, room } = await roomWith(t, 2);
+  await ok(bots[0], 'room:set_computers', { count: 2 });
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  bots[0].socket.disconnect();
+  assert.equal((await event(bots[1], 'game:stopped')).reason, 'not_enough_players');
+  assert.equal(rooms.get(room.code).status, 'finished');
+  await denied(bots[1], 'game:next_round');
 });

@@ -3,6 +3,7 @@ const { shuffle } = require('../utils/shuffle');
 const { selectQuestionAsync } = require('../questions');
 const { getKind } = require('../questions/kinds');
 const { MAX_LENGTH } = require('../questions/quality');
+const { generateComputerTitles } = require('../computerTitles');
 const {
   rooms, getMember, getCurrentRound, connectedAnswerers, publicRound,
   playerScores, textInput,
@@ -95,6 +96,7 @@ function startRound(io, room, mode, event, playerOrder) {
   room.rounds.push(round);
   io.to(room.code).emit(event, {
     totalRounds: room.total_rounds, currentRound: room.current_round,
+    humanCount: room.players.filter((p) => p.is_connected && !p.is_computer).length,
     questioner: questioner ? { id: questioner.id, nickname: questioner.nickname } : null,
     round: publicRound(round, room), mode, settings: room.settings, ...(playerOrder && { playerOrder }),
   });
@@ -106,6 +108,11 @@ function requirePhase(round, phase) {
 }
 
 function startSubmitting(io, room, round) {
+  const computers = room.players.filter((p) => p.is_computer);
+  const titles = generateComputerTitles(round.synopsis, computers.length);
+  computers.forEach((player, index) => round.answers.push({
+    id: randomUUID(), round_id: round.id, player_id: player.id, title: titles[index], is_real: false,
+  }));
   round.status = 'submitting';
   // CPU synopsis was private to the host until confirmation. Every answerer
   // needs it now; reuse the existing public synopsis event.
@@ -113,6 +120,7 @@ function startSubmitting(io, room, round) {
     roundId: round.id, synopsis: round.synopsis, contentType: round.contentType, ...publicGenre(room, round),
   });
   io.to(room.code).emit('round:submitting_started', { roundId: round.id });
+  checkRoundProgress(io, room, round);
 }
 
 function registerGameHandlers(io, socket) {
@@ -185,7 +193,9 @@ function registerGameHandlers(io, socket) {
     const minPlayers = (_isDev && _allowThree) ? 3 : 4;
     if (connectedPlayers.length < minPlayers) throw new Error(`最低${minPlayers}人が必要です（推奨4〜6人）`);
     if (connectedPlayers.length > 6) throw new Error('最大6人です');
-    const ordered = mode === 'player' ? shuffle(connectedPlayers) : [];
+    const humans = connectedPlayers.filter((p) => !p.is_computer);
+    if (mode === 'player' && humans.length < 2) throw new Error('プレイヤー出題には人間が2人以上必要です。1人で遊ぶ場合はCPU出題を選んでください');
+    const ordered = mode === 'player' ? shuffle(humans) : [];
     ordered.forEach((p, i) => { p.turn_order = i + 1; });
     room.settings.genreDisclosure = payload?.genreDisclosure ?? room.settings.genreDisclosure;
     room.status = 'playing';
@@ -239,6 +249,7 @@ function registerGameHandlers(io, socket) {
     if (!player.is_host) throw new Error('ホストのみ操作できます');
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null || round.previewConfirmed) throw new Error('CPUの取得待ち画面から操作してください');
+    if (connectedAnswerers(room, round).length < 2) throw new Error('手動出題には人間が2人以上必要です。もう一度検索してください');
     discardQuestion(io, room, round);
     cancelCpuFetch(round);
     ++round.fetchVersion;
@@ -253,6 +264,7 @@ function registerGameHandlers(io, socket) {
     round.declarations.clear();
     io.to(room.code).emit('game:round_started', {
       totalRounds: room.total_rounds, currentRound: room.current_round,
+      humanCount: room.players.filter((p) => p.is_connected && !p.is_computer).length,
       questioner: { id: player.id, nickname: player.nickname }, round: publicRound(round, room), mode: 'player', settings: room.settings,
     });
   });
@@ -400,9 +412,10 @@ function checkRoundProgress(io, room, round) {
   const answerers = connectedAnswerers(room, round);
   if (round.status === 'submitting') {
     const submittedCount = answerers.filter((p) => round.answers.some((a) => a.player_id === p.id)).length;
+    const computerCount = room.players.filter((p) => p.is_computer).length;
     const questioner = room.players.find((p) => p.id === round.questioner_id);
     if (questioner?.socket_id) io.to(questioner.socket_id).emit('round:fake_submitted', {
-      submittedCount, totalCount: answerers.length,
+      submittedCount: submittedCount + computerCount, totalCount: answerers.length + computerCount,
     });
     if (answerers.length && submittedCount === answerers.length) transitionToVoting(io, room, round);
   } else if (round.status === 'voting') {

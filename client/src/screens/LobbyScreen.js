@@ -41,6 +41,7 @@ export default function LobbyScreen({ navigation, route }) {
   useSocketListeners({
     'room:settings_updated': ({ settings }) => setGenreDisclosure(Boolean(settings.genreDisclosure)),
     'room:player_joined': ({ allPlayers }) => setPlayers(allPlayers),
+    'room:players_updated': ({ allPlayers }) => setPlayers(allPlayers),
     'room:player_disconnected': ({ playerId }) => {
       setPlayers((prev) => prev.filter((p) => p.id !== playerId));
       socket.emit('room:get_state', null, (res) => {
@@ -52,6 +53,7 @@ export default function LobbyScreen({ navigation, route }) {
           nickname: p.nickname,
           score: p.score,
           isHost: p.is_host,
+          isComputer: Boolean(p.is_computer),
         })));
       });
     },
@@ -87,6 +89,9 @@ export default function LobbyScreen({ navigation, route }) {
     if (players.length < MIN_PLAYERS) {
       return Alert.alert('まだ開始できません', `あと${MIN_PLAYERS - players.length}人の参加が必要です`);
     }
+    if (gameMode === 'player' && humanCount < 2) {
+      return Alert.alert('出題モードを選んでください', '1人で遊ぶ場合はCPU出題を選んでください。');
+    }
     setStarting(true);
     const timer = setTimeout(() => {
       if (startRequestRef.current !== timer) return;
@@ -115,6 +120,16 @@ export default function LobbyScreen({ navigation, route }) {
       setSettingsPending(false);
       if (error || !res?.ok) Alert.alert('ルールを変更できませんでした', error ? '接続を確認して、もう一度お試しください。' : res?.error);
       else setGenreDisclosure(Boolean(res.settings.genreDisclosure));
+    });
+  }
+
+  function updateComputers(count) {
+    if (settingsPending || starting) return;
+    setSettingsPending(true);
+    socket.timeout(10000).emit('room:set_computers', { count }, (error, res) => {
+      if (leavingRef.current) return;
+      setSettingsPending(false);
+      if (error || !res?.ok) Alert.alert('コンピュータを変更できませんでした', error ? '接続を確認して、もう一度お試しください。' : res?.error);
     });
   }
 
@@ -147,6 +162,9 @@ export default function LobbyScreen({ navigation, route }) {
   }
 
   const displaySlots = Array.from({ length: 6 }, (_, index) => players[index] ?? null);
+  const computerCount = players.filter((p) => p.isComputer).length;
+  const humanCount = players.length - computerCount;
+  const needsHumanQuestioner = gameMode === 'player' && humanCount < 2;
 
   return (
     <PopBackdrop>
@@ -224,7 +242,7 @@ export default function LobbyScreen({ navigation, route }) {
             <View style={styles.sectionHeader}>
               <View style={styles.sectionMarker} />
               <Text style={styles.sectionTitle}>参加メンバー</Text>
-              <Text style={styles.sectionSub}>4〜6人で遊べます</Text>
+              <Text style={styles.sectionSub}>合わせて4〜6席</Text>
             </View>
 
             <View style={[styles.playerGrid, isPC && styles.playerGridPC]}>
@@ -268,12 +286,24 @@ export default function LobbyScreen({ navigation, route }) {
                   </View>
                 </View>
 
+                <Text style={styles.settingsLabel}>コンピュータ回答者</Text>
+                <View style={styles.roundRow}>
+                  <StationeryButton variant="neutral" onPress={() => updateComputers(computerCount - 1)}
+                    disabled={settingsPending || starting || computerCount === 0}
+                    accessibilityLabel="コンピュータを1人減らす" style={styles.roundButton}>−</StationeryButton>
+                  <Text style={styles.computerCount} accessibilityLiveRegion="polite">{computerCount}人</Text>
+                  <StationeryButton variant="neutral" onPress={() => updateComputers(computerCount + 1)}
+                    disabled={settingsPending || starting || players.length >= 6}
+                    accessibilityLabel="コンピュータを1人増やす" style={styles.roundButton}>＋</StationeryButton>
+                </View>
+                <Text style={styles.startHint}>紹介文からタイトル案を自動提出します。投票と出題はしません。</Text>
+
                 <Text style={styles.settingsLabel}>出題モード</Text>
                 <View style={styles.modeStack}>
                   <ModeButton
                     selected={gameMode === 'player'}
                     title="プレイヤー出題"
-                    note="参加者が順番に作品を出題"
+                    note="人間の参加者が順番に作品を出題"
                     color={colors.red}
                     onPress={() => setGameMode('player')}
                   />
@@ -325,14 +355,16 @@ export default function LobbyScreen({ navigation, route }) {
                     variant="primary"
                     onPress={handleStart}
                     loading={starting}
-                    disabled={starting || settingsPending || players.length < MIN_PLAYERS}
+                    disabled={starting || settingsPending || players.length < MIN_PLAYERS || needsHumanQuestioner}
                     accessibilityLabel="ゲームを開始する"
                   >
                     ゲームを開始する →
                   </StationeryButton>
-                  {players.length < MIN_PLAYERS ? (
+                  {needsHumanQuestioner ? (
+                    <Text style={styles.startHint}>1人で遊ぶ場合はCPU出題を選んでください。人間出題には人間が2人以上必要です。</Text>
+                  ) : players.length < MIN_PLAYERS ? (
                     <Text style={styles.startHint}>
-                      あと{MIN_PLAYERS - players.length}人の参加が必要です
+                      あと{MIN_PLAYERS - players.length}席必要です。人間かコンピュータを追加してください。
                     </Text>
                   ) : (
                     <Text style={styles.startReady}>準備完了。いつでも開始できます！</Text>
@@ -539,6 +571,7 @@ const styles = StyleSheet.create({
   roundRow: { flexDirection: 'row', gap: 7, marginBottom: 14 },
   roundButton: { flex: 1, minWidth: 0, minHeight: 45, paddingHorizontal: 6 },
   roundButtonText: { fontSize: 13 },
+  computerCount: { alignSelf: 'center', color: colors.navy, fontSize: 18, fontWeight: '900', minWidth: 50, textAlign: 'center' },
   startArea: {
     borderTopWidth: 1.5,
     borderTopColor: colors.border,

@@ -20,19 +20,21 @@ function handleDisconnect(io, socket) {
   player.socket_id = null;
   io.to(roomCode).emit('room:player_disconnected', { playerId, nickname });
   const connectedPlayers = room.players.filter((p) => p.is_connected);
+  const humans = connectedPlayers.filter((p) => !p.is_computer);
   // Delete the whole session, including titles, votes and declarations, when empty.
-  if (!connectedPlayers.length) {
+  if (!humans.length) {
     rooms.delete(roomCode);
     return;
   }
-  if (player.is_host) connectedPlayers[0].is_host = true;
+  if (player.is_host) humans[0].is_host = true;
   player.is_host = false;
   if (room.status === 'waiting') {
     room.players = connectedPlayers;
     return;
   }
   if (room.status !== 'playing') return;
-  if (connectedPlayers.length === 1) {
+  const round = getCurrentRound(room);
+  if (humans.length === 1 && (!connectedPlayers.some((p) => p.is_computer) || round.questioner_id !== null)) {
     // One person cannot continue this party game. Preserve earned scores and
     // give the remaining member an explicit exit instead of waiting forever
     // for absent declarations, submissions or votes.
@@ -43,7 +45,6 @@ function handleDisconnect(io, socket) {
     });
     return;
   }
-  const round = getCurrentRound(room);
   if (round.questioner_id === playerId) {
     const fallback = connectedPlayers.find((p) => p.is_host) ?? connectedPlayers[0];
     io.to(roomCode).emit('game:questioner_disconnected', {
