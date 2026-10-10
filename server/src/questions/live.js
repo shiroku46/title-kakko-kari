@@ -35,13 +35,13 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     // Retry underrepresented media using another engine/page before a medium
     // already used by this room. Count delivered works, never failed searches.
     const searches = [
-      ...[0,1].flatMap(pass => priority.map(kind => ({ kind, pass }))),
-      ...[0,1].flatMap(pass => fallback.map(kind => ({ kind, pass }))),
-      ...orderedKinds.map(kind => ({ kind, pass: 2 })),
+      ...[0,1].flatMap(pass => priority.map(kind => ({ kind, pass, phase: 0 }))),
+      ...[0,1].flatMap(pass => fallback.map(kind => ({ kind, pass, phase: 1 }))),
+      ...orderedKinds.map(kind => ({ kind, pass: 2, phase: 2 })),
     ];
     lastStartedAt = new Date(now()).toISOString();
     const timeout = setTimeout(() => controller.abort(), deadlineMilliseconds);
-    let requests = 0, finished = false;
+    let requests = 0;
     const fetchPage = async (url, options = {}) => {
       controller.signal.throwIfAborted();
       const host = new URL(url).hostname;
@@ -70,20 +70,33 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
       // A fresh discovery is mandatory on every call, even when a prior call
       // succeeded. There is no bank lookup, failed-collection cooldown, global
       // exhausted inventory or shared pending question for concurrent rooms.
-      for (const { kind, pass } of searches) {
+      for (let index = 0; index < searches.length; index++) {
+        const search = searches[index];
+        const { kind, pass, phase } = search;
         if (requests >= maxRequests) break;
-        let candidates;
         try {
-          const discovery = await discoverImpl({ kind, pass, page: (page+pass)%20, fetchImpl: fetchPage, signal: controller.signal });
-          candidates = discovery.candidates;
+          if (search.queue) {
+            if (!search.queue.length && search.remaining) await search.remaining;
+          } else {
+            const discovery = await discoverImpl({ kind, pass, page: (page+pass)%20, fetchImpl: fetchPage, signal: controller.signal });
+            search.queue = discovery.candidates;
+            if (discovery.remaining) search.remaining = discovery.remaining.then(result => {
+              const queued = new Set(search.queue.map(c => c.url));
+              search.queue.unshift(...result.candidates.filter(c => !attempted.has(c.url) && !queued.has(c.url)));
+              search.remaining = null;
+            }, () => { search.remaining = null; });
+          }
         } catch { controller.signal.throwIfAborted(); continue; }
-        const queue = candidates.filter(c => (!c.kind || mediaKind(c.kind) === kind) && !excluded.has(c.id) && !attempted.has(c.url));
-        let examined = 0;
+        controller.signal.throwIfAborted();
+        const queue = search.queue;
+        for (let i = queue.length - 1; i >= 0; i--) {
+          const c = queue[i];
+          if ((c.kind && mediaKind(c.kind) !== kind) || excluded.has(c.id) || attempted.has(c.url)) queue.splice(i, 1);
+        }
         // Examine several different work pages concurrently within the shared
         // request/deadline budget. Slow or invalid pages cannot block another.
-        while (queue.length && requests < maxRequests) {
+        if (queue.length && requests < maxRequests) {
           const batch = queue.splice(0, 3);
-          examined += batch.length;
           const batchController = new AbortController();
           let chosen;
           try {
@@ -113,12 +126,17 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
             // is ever served. Alternate URLs cannot reintroduce a used title.
             delivered.set(chosen.id, { title: titleKey(chosen), kind: mediaKind(chosen.kind) });
             if (delivered.size > 20000) delivered.delete(delivered.keys().next().value);
-            finished = true; succeeded++; lastSuccessfulAt = new Date(now()).toISOString(); failure = null;
+            succeeded++; lastSuccessfulAt = new Date(now()).toISOString(); failure = null;
             return chosen;
           }
-          // Reserve discovery capacity for other media/domains rather than
-          // spending the entire deadline on a single catalogue's first page.
-          if (batch.some(c => c.webDepth > 0) || examined >= 12) break;
+        }
+        if (queue.length || search.remaining) {
+          // Rotate batches across media while retaining untried/late links.
+          // Two priority discovery passes must leave budget for fallback media.
+          const deferredPhase = phase === 0 && fallback.length ? 2 : phase;
+          const nextPhase = searches.findIndex((search, i) => i > index && search.phase > deferredPhase);
+          search.phase = deferredPhase;
+          searches.splice(nextPhase < 0 ? searches.length : nextPhase, 0, search);
         }
       }
       throw new Error('紹介文を確認できる作品が見つかりませんでした。もう一度ネット検索してください。');
@@ -129,8 +147,8 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     } finally {
       clearTimeout(timeout); active.delete(controller); completed++; lastCompletedAt = new Date(now()).toISOString();
       signal?.removeEventListener('abort', cancel);
-      // A timed-out transport cannot mutate another request or a future round.
-      if (!finished) controller.abort();
+      // Cancel losing discovery routes on success as well as on timeout.
+      controller.abort();
     }
   }
 
