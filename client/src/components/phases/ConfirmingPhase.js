@@ -22,6 +22,7 @@ export default function ConfirmingPhase({
   fetchedSynopsis,
   synopsisError,
   isHost,
+  canUseManual = true,
   socket,
   onRerollStart,
 }) {
@@ -110,13 +111,13 @@ export default function ConfirmingPhase({
                     もう一度検索する
                   </StationeryButton>
                 )}
-                <StationeryButton variant="neutral"
+                {canUseManual && <StationeryButton variant="neutral"
                   onPress={() => requestAction('round:use_manual', 'manual')}
                   loading={pendingAction === 'manual'} disabled={Boolean(pendingAction)}
                   accessibilityLabel="手動で出題する" style={styles.loadingButton}>
                   手動で出題する
-                </StationeryButton>
-                <Text style={styles.loadingText}>ホストが文章と答えを入力して、この回を続けられます。</Text>
+                </StationeryButton>}
+                <Text style={styles.loadingText}>{canUseManual ? 'ホストが文章と答えを入力して、この回を続けられます。' : '1人で遊ぶ場合はCPUの出題を使います。取得できなければ、もう一度検索してください。'}</Text>
               </View>
             ) : (
               <>

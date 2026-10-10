@@ -22,6 +22,7 @@ export default function GameScreen({ navigation, route }) {
   const genreDisclosure = Boolean(gameData.settings?.genreDisclosure);
   const [workKindLabel, setWorkKindLabel] = useState(gameData.round?.workKindLabel || null);
   const [isHost, setIsHost] = useState(player.is_host);
+  const [humanCount, setHumanCount] = useState(gameData.humanCount ?? 4);
   const [synopsisError, setSynopsisError] = useState(null);
 
   const [mode, setMode] = useState(gameData.mode ?? 'player');
@@ -85,9 +86,11 @@ export default function GameScreen({ navigation, route }) {
     socket.timeout(10000).emit('room:get_state', null, (error, response) => {
       if (!active || leavingRef.current || error || !response?.ok) return;
       setIsHost(Boolean(response.room.players.find((p) => p.id === player.id)?.is_host));
+      setHumanCount(response.room.players.filter((p) => p.is_connected && !p.is_computer).length);
       const currentQuestioner = response.room.players.find((p) => p.id === questioner?.id);
       setQuestionerDisconnected(Boolean(questioner?.id && !currentQuestioner?.is_connected));
-      if (response.room.status === 'finished' && response.room.players.filter((p) => p.is_connected).length === 1) {
+      if (response.room.status === 'finished' && response.room.players.filter((p) => p.is_connected && !p.is_computer).length === 1 &&
+          (questioner?.id || !response.room.players.some((p) => p.is_computer))) {
         // The stop notification can arrive while navigation mounts this page.
         setStoppedMessage('ほかの人がいなくなったため、ゲームを終わります。ホームに戻って、部屋を作り直してください。');
         setDepartureNotice(null);
@@ -102,6 +105,7 @@ export default function GameScreen({ navigation, route }) {
       setCurrentRound(data.currentRound);
       setTotalRounds(data.totalRounds);
       setQuestioner(data.questioner);
+      setHumanCount(data.humanCount ?? 4);
       setContentType(normalizeContentType(data.round?.contentType));
       if (data.mode) setMode(data.mode);
       setPhase(data.mode === 'cpu' ? 'confirming' : 'selecting');
@@ -211,6 +215,7 @@ export default function GameScreen({ navigation, route }) {
       socket.timeout(10000).emit('room:get_state', null, (error, res) => {
         if (!leavingRef.current && !error && res?.ok) {
           setIsHost(Boolean(res.room.players.find((p) => p.id === player.id)?.is_host));
+          setHumanCount(res.room.players.filter((p) => p.is_connected && !p.is_computer).length);
         }
       });
       setDepartureNotice(`${nickname}さんが部屋から出ました。`);
@@ -264,6 +269,7 @@ export default function GameScreen({ navigation, route }) {
             fetchedSynopsis={fetchedSynopsis}
             synopsisError={synopsisError}
             isHost={isHost}
+            canUseManual={humanCount >= 2}
             socket={socket}
             onRerollStart={() => {
               setFetchedSynopsis(null);
