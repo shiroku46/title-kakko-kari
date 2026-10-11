@@ -59,6 +59,59 @@ class TestClientSocketConfig(unittest.TestCase):
 
 
 class TestHomeScreenErrorHandling(unittest.TestCase):
+    def test_named_entry_without_password_and_authenticated_resume(self):
+        harness = r"""
+const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { runInNewContext } = require('node:vm');
+const source = readFileSync('client/src/hooks/useRoomEntry.js', 'utf8')
+  .replace(/^import .*;\r?\n/gm, '').replace('export default function', 'function');
+const messages = [], requests = [], shown = [];
+let saved = null, connections = 0;
+const socket = { connected: true, id: 'connection-1', emit(event, payload, ack) {
+  requests.push({ event, payload });
+  ack({ ok: true, room: { code: '123456' }, token: 'seat-token',
+    player: { id: 'seat-1', nickname: payload.nickname || saved.nickname, profile_ready: true } });
+} };
+const entry = runInNewContext(source + '\nuseRoomEntry({});', {
+  useState: value => [value, next => messages.push(next)], useRef: value => ({ current: value }),
+  useEffect() {}, AbortController, setTimeout, clearTimeout,
+  DEFAULT_SERVER_URL: 'http://localhost:3000',
+  fetch: async () => ({ ok: true, json: async () => ({ status: 'ok' }) }),
+  connectSocket: () => { connections++; return socket; }, disconnectSocket() {},
+  getRoomSession: () => saved, saveRoomSession: value => { saved = value; },
+  clearRoomSession: () => { saved = null; }, showRoom: (_, result) => shown.push(result),
+});
+(async () => {
+  const options = { serverUrl: 'http://localhost:3000' };
+  for (const nickname of ['', '   ']) {
+    await entry.enterRoom({ ...options, nickname });
+    assert.equal(messages.at(-1), '名前を入れてね。');
+  }
+  assert.equal(connections, 0, 'Blank names must fail before opening a connection');
+  await entry.enterRoom({ ...options, nickname: ' ホスト ' });
+  assert.equal(requests[0].event, 'room:create');
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[0].payload)), { nickname: 'ホスト' });
+  assert.equal(saved.nickname, 'ホスト');
+  await entry.enterRoom({ ...options, nickname: '参加者', joining: true, code: '123' });
+  assert.equal(messages.at(-1), '6けたの部屋のコードを入れてね。');
+  assert.equal(requests.length, 1);
+  await entry.enterRoom({ ...options, nickname: ' 参加者 ', joining: true, code: '123456' });
+  assert.equal(requests[1].event, 'room:join');
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[1].payload)), { nickname: '参加者', code: '123456' });
+  await entry.enterRoom({ ...options, code: '123456', joining: true, resuming: true });
+  assert.equal(requests[2].event, 'room:resume');
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[2].payload)),
+    { code: '123456', playerId: 'seat-1', token: 'seat-token' });
+  assert.equal(shown.length, 3);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+        result = subprocess.run(
+            ["node", "-e", harness], cwd=ROOT, capture_output=True,
+            text=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
     def run_connection_check(self, check):
         # Exercise the helpers that Home actually uses. They have no JSX or
         # React dependency; keep their original timers and event behavior.

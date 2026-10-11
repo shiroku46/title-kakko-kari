@@ -64,9 +64,10 @@ export default function useRoomEntry(navigation) {
     return () => { mounted.current = false; active.current?.abort(); };
   }, []);
 
-  async function enterRoom({ nickname = '', code, password = '', serverUrl, joining = false, resuming = false }) {
+  async function enterRoom({ nickname = '', code, serverUrl, joining = false, resuming = false }) {
     if (active.current) return;
     const nick = nickname.trim();
+    if (!resuming && !nick) return setError('名前を入れてね。');
     const roomCode = (code || '').trim();
     const targetUrl = (serverUrl.trim() || DEFAULT_SERVER_URL).replace(/\/+$/, '');
     if (joining && !/^\d{6}$/.test(roomCode)) return setError('6けたの部屋のコードを入れてね。');
@@ -100,7 +101,7 @@ export default function useRoomEntry(navigation) {
       if (resuming && !resume) throw new Error('前の部屋へ戻るための情報が見つかりません。');
       const result = await requestEntry(socket, resume ? 'room:resume' : joining ? 'room:join' : 'room:create',
         resume ? { code: saved.code, playerId: saved.playerId, token: saved.token }
-          : { ...(nick && { nickname: nick }), ...(joining && { code: roomCode }), password }, controller.signal);
+          : { nickname: nick, ...(joining && { code: roomCode }) }, controller.signal);
       if (controller.signal.aborted || !mounted.current) return;
       entered = true;
       saveRoomSession({ serverUrl: targetUrl, nickname: result.player.nickname, code: result.room.code,
