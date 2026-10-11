@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { DEFAULT_SERVER_URL } from '../config';
+import { clearRoomSession } from '../utils/roomSession';
 
 let sharedSocket = null;
 let currentUrl = DEFAULT_SERVER_URL;
@@ -32,6 +33,16 @@ export function connectSocket(url) {
 }
 
 export function disconnectSocket() {
+  if (sharedSocket) {
+    // Close the transport first: a failed connection attempt is not a room exit.
+    sharedSocket.io.engine?.close();
+    sharedSocket.disconnect();
+    sharedSocket = null;
+  }
+}
+
+export function leaveRoom() {
+  clearRoomSession();
   if (sharedSocket) {
     sharedSocket.disconnect();
     sharedSocket = null;

@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
-import { useSocketListeners, getSocket, disconnectSocket } from '../hooks/useSocket';
+import { useSocketListeners, getSocket, leaveRoom } from '../hooks/useSocket';
+import useRoomRecovery from '../hooks/useRoomRecovery';
+import PlayerSettings from '../components/PlayerSettings';
+import RoundProgress from '../components/RoundProgress';
 import { colors } from '../theme';
 import { Text } from '../components/ui/GameText';
 import { StationeryButton } from '../components/ui';
@@ -18,44 +21,53 @@ function normalizeContentType(value) {
 
 export default function GameScreen({ navigation, route }) {
   const { room, player, gameData } = route.params;
+  const saved = gameData.resumeState || {};
   const socket = getSocket();
   const genreDisclosure = Boolean(gameData.settings?.genreDisclosure);
   const [workKindLabel, setWorkKindLabel] = useState(gameData.round?.workKindLabel || null);
   const [isHost, setIsHost] = useState(player.is_host);
   const [humanCount, setHumanCount] = useState(gameData.humanCount ?? 4);
-  const [synopsisError, setSynopsisError] = useState(null);
+  const [synopsisError, setSynopsisError] = useState(saved.synopsisError || null);
 
   const [mode, setMode] = useState(gameData.mode ?? 'player');
-  const [phase, setPhase] = useState(gameData.mode === 'cpu' ? 'confirming' : 'selecting');
+  const [phase, setPhase] = useState(saved.phase || (gameData.mode === 'cpu' ? 'confirming' : 'selecting'));
+  const [deadlineAt, setDeadlineAt] = useState(gameData.round.deadlineAt);
+  const [phaseReady, setPhaseReady] = useState(Boolean(gameData.round.phaseReady));
   const [round, setRound] = useState(gameData.round);
   const [currentRound, setCurrentRound] = useState(gameData.currentRound);
   const [totalRounds, setTotalRounds] = useState(gameData.totalRounds);
   const [questioner, setQuestioner] = useState(gameData.questioner);
   const [contentType, setContentType] = useState(normalizeContentType(gameData.round?.contentType));
 
-  const [synopsis, setSynopsis] = useState(null);
-  const [fetchedSynopsis, setFetchedSynopsis] = useState(null);
-  const [choices, setChoices] = useState([]);
-  const [ownAnswerId, setOwnAnswerId] = useState(null);
-  const [revealData, setRevealData] = useState(null);
-  const [fakeSubmittedCount, setFakeSubmittedCount] = useState(0);
-  const [voteProgress, setVoteProgress] = useState({ voted: 0, total: 0 });
-  const [knownDeclarations, setKnownDeclarations] = useState([]);
-  const [allDeclared, setAllDeclared] = useState(false);
-  const [mvpData, setMvpData] = useState(null);
+  const [synopsis, setSynopsis] = useState(saved.synopsis || null);
+  const [questionerView, setQuestionerView] = useState(saved.questionerView || null);
+  const [fetchedSynopsis, setFetchedSynopsis] = useState(saved.fetchedSynopsis || null);
+  const [choices, setChoices] = useState(saved.choices || []);
+  const [ownAnswerId, setOwnAnswerId] = useState(saved.ownAnswerId || null);
+  const [revealData, setRevealData] = useState(saved.revealData || null);
+  const [fakeSubmittedCount, setFakeSubmittedCount] = useState(saved.fakeSubmittedCount || 0);
+  const [voteProgress, setVoteProgress] = useState(saved.voteProgress || { voted: 0, total: 0 });
+  const [roomPlayers, setRoomPlayers] = useState(room.players);
+  const [knownPlayerIds, setKnownPlayerIds] = useState(saved.knownPlayerIds ||
+    room.players.filter((p) => (saved.knownDeclarations || []).includes(p.nickname)).map((p) => p.id));
+  const knownDeclarations = knownPlayerIds.map((id) => roomPlayers.find((p) => p.id === id)?.nickname).filter(Boolean);
+  const [allDeclared, setAllDeclared] = useState(Boolean(saved.allDeclared));
+  const [mvpData, setMvpData] = useState(saved.mvpData || null);
   const [selectingKey, setSelectingKey] = useState(0);
-  const [questionerDisconnected, setQuestionerDisconnected] = useState(false);
+  const [questionerDisconnected, setQuestionerDisconnected] = useState(Boolean(saved.questionerDisconnected));
   const [departureNotice, setDepartureNotice] = useState(null);
   const [stoppedMessage, setStoppedMessage] = useState(null);
   const [discardedTitle, setDiscardedTitle] = useState(null);
   const leavingRef = useRef(false);
+  const reconnecting = useRoomRecovery(navigation, leavingRef);
+  const resumed = round.id === gameData.round.id ? saved : {};
 
   const isQuestioner = player.id === questioner?.id;
 
   function leaveGame() {
     if (leavingRef.current) return;
     leavingRef.current = true;
-    disconnectSocket();
+    leaveRoom();
     navigation.replace('Home');
   }
 
@@ -67,24 +79,13 @@ export default function GameScreen({ navigation, route }) {
   }
 
   useEffect(() => {
-    const onDisconnect = () => {
-      if (leavingRef.current) return;
-      // A fresh socket has no membership. Leave immediately rather than allow
-      // buffered game actions to run against a different connection.
-      leaveGame();
-      Alert.alert('接続が切れました', 'ホームに戻りました。もう一度、部屋を作るか参加してください。');
-    };
-    socket.on('disconnect', onDisconnect);
-    return () => socket.off('disconnect', onDisconnect);
-  }, [navigation, socket]);
-
-  useEffect(() => {
     let active = true;
     // A future questioner may have left during an earlier round. The existing
     // authenticated room snapshot also covers that case, without restoring an
     // old identity or exposing answers.
     socket.timeout(10000).emit('room:get_state', null, (error, response) => {
       if (!active || leavingRef.current || error || !response?.ok) return;
+      setRoomPlayers(response.room.players);
       setIsHost(Boolean(response.room.players.find((p) => p.id === player.id)?.is_host));
       setHumanCount(response.room.players.filter((p) => p.is_connected && !p.is_computer).length);
       const currentQuestioner = response.room.players.find((p) => p.id === questioner?.id);
@@ -100,6 +101,17 @@ export default function GameScreen({ navigation, route }) {
   }, [round.id, questioner?.id, player.id, socket]);
 
   useSocketListeners({
+    'room:players_updated': ({ players }) => {
+      if (!players) return;
+      setRoomPlayers(players);
+      setQuestioner((current) => current ? { ...current, nickname: players.find((p) => p.id === current.id)?.nickname || current.nickname } : current);
+      setMvpData((current) => current ? { ...current, playerNickname: players.find((p) => p.id === current.playerId)?.nickname || current.playerNickname } : current);
+      setRevealData((current) => current ? { ...current,
+        playerScores: current.playerScores.map((score) => ({ ...score, nickname: players.find((p) => p.id === score.id)?.nickname || score.nickname })),
+        answers: current.answers.map((answer) => ({ ...answer, author: answer.author ? { ...answer.author,
+          nickname: players.find((p) => p.id === answer.author.id)?.nickname || answer.author.nickname } : null })),
+      } : current);
+    },
     'game:round_started': (data) => {
       setRound(data.round);
       setCurrentRound(data.currentRound);
@@ -110,6 +122,7 @@ export default function GameScreen({ navigation, route }) {
       if (data.mode) setMode(data.mode);
       setPhase(data.mode === 'cpu' ? 'confirming' : 'selecting');
       setSynopsis(null);
+      setQuestionerView(null);
       setWorkKindLabel(null);
       setFetchedSynopsis(null);
       setSynopsisError(null);
@@ -118,7 +131,7 @@ export default function GameScreen({ navigation, route }) {
       setRevealData(null);
       setFakeSubmittedCount(0);
       setVoteProgress({ voted: 0, total: 0 });
-      setKnownDeclarations([]);
+      setKnownPlayerIds([]);
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
       setQuestionerDisconnected(false);
@@ -150,15 +163,18 @@ export default function GameScreen({ navigation, route }) {
       setWorkKindLabel(data.workKindLabel || null);
       setContentType(normalizeContentType(data.contentType));
     },
-    'round:known_declared': ({ player: p }) => {
-      setKnownDeclarations((prev) => [...new Set([...prev, p.nickname])]);
+    'round:questioner_view': (data) => {
+      if (data.roundId === round.id) setQuestionerView(data);
     },
-    'round:unknown_declared': () => {},
+    'round:known_declared': ({ player: p }) => {
+      setKnownPlayerIds((prev) => [...new Set([...prev, p.id])]);
+    },
+    'round:unknown_declared': ({ player: p }) => {
+      setKnownPlayerIds((prev) => prev.filter((id) => id !== p.id));
+    },
     'round:all_declared': ({ knownPlayerIds }) => {
       setAllDeclared(true);
-      setKnownDeclarations((prev) =>
-        knownPlayerIds.length === 0 ? [] : prev
-      );
+      setKnownPlayerIds(knownPlayerIds);
     },
     'round:declaration_started': ({ roundId }) => {
       if (roundId === round.id) setPhase('selecting');
@@ -168,16 +184,20 @@ export default function GameScreen({ navigation, route }) {
     },
     'round:reselect_started': ({ mode: nextMode }) => {
       setSynopsis(null);
+      setQuestionerView(null);
       setWorkKindLabel(null);
       setFetchedSynopsis(null);
       setSynopsisError(null);
       setContentType('synopsis');
-      setKnownDeclarations([]);
+      setKnownPlayerIds([]);
       setAllDeclared(false);
       setSelectingKey((k) => k + 1);
       if (nextMode === 'cpu') setPhase('confirming');
     },
-    'round:submitting_started': () => {
+    'round:phase_ready': ({ roundId }) => { if (roundId === round.id) setPhaseReady(true); },
+    'round:submitting_started': (data) => {
+      setDeadlineAt(data.deadlineAt);
+      setPhaseReady(false);
       if (mode === 'cpu' && fetchedSynopsis) setSynopsis(fetchedSynopsis);
       setPhase('submitting');
     },
@@ -185,6 +205,8 @@ export default function GameScreen({ navigation, route }) {
       setFakeSubmittedCount(data.submittedCount);
     },
     'round:choices_presented': (data) => {
+      setDeadlineAt(data.deadlineAt);
+      setPhaseReady(false);
       setChoices(data.choices);
       setOwnAnswerId(data.ownAnswerId ?? null);
       setPhase('voting');
@@ -211,9 +233,10 @@ export default function GameScreen({ navigation, route }) {
     },
     'room:player_disconnected': ({ playerId, nickname }) => {
       if (playerId === questioner?.id) setQuestionerDisconnected(true);
-      setKnownDeclarations((prev) => prev.filter((name) => name !== nickname));
+      setKnownPlayerIds((prev) => prev.filter((id) => id !== playerId));
       socket.timeout(10000).emit('room:get_state', null, (error, res) => {
         if (!leavingRef.current && !error && res?.ok) {
+          setRoomPlayers(res.room.players);
           setIsHost(Boolean(res.room.players.find((p) => p.id === player.id)?.is_host));
           setHumanCount(res.room.players.filter((p) => p.is_connected && !p.is_computer).length);
         }
@@ -224,7 +247,7 @@ export default function GameScreen({ navigation, route }) {
       const isMe = player.id === fallbackHostId;
       const msg = roundStatus === 'selecting'
         ? `出題者 ${qNickname} が離脱しました。\nホストがラウンドをスキップできます。`
-        : `出題者 ${qNickname} が離脱しました。\n結果確認後、ホストが次のラウンドへ進めます。`;
+        : `出題者 ${qNickname} が離脱しました。\n結果確認後、ホストがMVPを選んで次へ進めます。`;
       setQuestionerDisconnected(true);
       setIsHost(isMe);
       setDepartureNotice(msg + (isMe ? '\nあなたがホストです。' : ''));
@@ -267,6 +290,7 @@ export default function GameScreen({ navigation, route }) {
             currentRound={currentRound}
             totalRounds={totalRounds}
             fetchedSynopsis={fetchedSynopsis}
+            workKindLabel={genreDisclosure ? workKindLabel : null}
             synopsisError={synopsisError}
             isHost={isHost}
             canUseManual={humanCount >= 2}
@@ -286,6 +310,7 @@ export default function GameScreen({ navigation, route }) {
             totalRounds={totalRounds}
             questioner={questioner}
             synopsis={synopsis}
+            workKindLabel={genreDisclosure ? workKindLabel : null}
             isQuestioner={amQuestioner}
             isHost={isHost}
             isCpu={mode === 'cpu'}
@@ -294,6 +319,8 @@ export default function GameScreen({ navigation, route }) {
             playerId={player.id}
             knownDeclarations={knownDeclarations}
             allDeclared={allDeclared}
+            initialTitle={questionerView?.realTitle}
+            initialDeclaration={resumed.declaration}
             socket={socket}
           />
         );
@@ -305,9 +332,15 @@ export default function GameScreen({ navigation, route }) {
             totalRounds={totalRounds}
             questioner={questioner}
             synopsis={synopsis}
+            workKindLabel={genreDisclosure ? workKindLabel : null}
             isQuestioner={amQuestioner}
             playerId={player.id}
             fakeSubmittedCount={fakeSubmittedCount}
+            consent={gameData.settings?.advanceMode === 'consent'}
+            realTitle={amQuestioner ? questionerView?.realTitle : null}
+            submittedAnswers={amQuestioner ? questionerView?.answers : []}
+            initialSubmitted={resumed.submitted}
+            initialTitle={resumed.submittedTitle}
             socket={socket}
           />
         );
@@ -319,11 +352,16 @@ export default function GameScreen({ navigation, route }) {
             totalRounds={totalRounds}
             questioner={questioner}
             synopsis={synopsis}
+            workKindLabel={genreDisclosure ? workKindLabel : null}
             choices={choices}
             ownAnswerId={ownAnswerId}
             isQuestioner={amQuestioner}
             playerId={player.id}
             voteProgress={voteProgress}
+            consent={gameData.settings?.advanceMode === 'consent'}
+            realTitle={amQuestioner ? questionerView?.realTitle : null}
+            initialVoted={resumed.voted}
+            initialAnswerId={resumed.voteAnswerId}
             socket={socket}
           />
         );
@@ -337,6 +375,8 @@ export default function GameScreen({ navigation, route }) {
             contentType={contentType}
             isQuestioner={amQuestioner}
             isHost={isHost}
+            hasQuestioner={Boolean(questioner?.id)}
+            questionerDisconnected={questionerDisconnected}
             playerId={player.id}
             mvpData={mvpData}
             socket={socket}
@@ -360,6 +400,12 @@ export default function GameScreen({ navigation, route }) {
           部屋から出る
         </StationeryButton>
       </View>
+      <PlayerSettings player={roomPlayers.find((p) => p.id === player.id) || player} socket={socket} />
+      {reconnecting ? (
+        <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.departureNotice}>
+          接続を戻しています… この画面のままお待ちください。
+        </Text>
+      ) : null}
       {stoppedMessage ? (
         <View style={styles.stoppedPanel}>
           <Text accessibilityRole="alert" style={styles.stoppedTitle}>遊ぶ人がいなくなりました</Text>
@@ -385,9 +431,9 @@ export default function GameScreen({ navigation, route }) {
               <Text style={styles.discardedTitle}>{discardedTitle}</Text>
             </View>
           ) : null}
-          {genreDisclosure && workKindLabel ? (
-            <Text style={styles.genreNotice} accessibilityLiveRegion="polite">ジャンル：{workKindLabel}</Text>
-          ) : null}
+          <RoundProgress phase={phase} deadlineAt={deadlineAt} ready={phaseReady}
+            consent={gameData.settings?.advanceMode === 'consent'}
+            canAdvance={isQuestioner || isHost && (!questioner?.id || questionerDisconnected)} socket={socket} />
           {renderPhase()}
         </>
       )}

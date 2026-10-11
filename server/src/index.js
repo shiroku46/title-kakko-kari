@@ -10,6 +10,7 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
+const { randomUUID } = require('node:crypto');
 const { registerSocketHandlers } = require('./socket');
 const { startQuestionCollection, stopQuestionCollection,
   getQuestionCollectionStatus } = require('./questions');
@@ -18,9 +19,12 @@ const app = express();
 const server = http.createServer(app);
 
 const release = (process.env.RENDER_GIT_COMMIT || 'local').slice(0, 12);
+const instanceId = randomUUID();
 function runtimeInfo() {
   return {
     release,
+    instanceId,
+    uptimeSeconds: Math.floor(process.uptime()),
     node: process.version,
     dnsOrder: dns.getDefaultResultOrder(),
   };
@@ -45,6 +49,10 @@ function isAllowedOrigin(origin) {
 app.use(cors({ origin: corsOrigin }));
 
 const io = new Server(server, {
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000,
+    skipMiddlewares: false,
+  },
   cors: {
     origin: corsOrigin,
     methods: ['GET', 'POST'],
@@ -103,7 +111,7 @@ app.get('/api/random-work', (_req, res) => {
 });
 
 // Socket.io ハンドラーを登録
-registerSocketHandlers(io);
+registerSocketHandlers(io, instanceId);
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;

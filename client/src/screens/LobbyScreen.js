@@ -9,7 +9,9 @@ import {
 } from 'react-native';
 import { Text } from '../components/ui/GameText';
 import { Alert } from '../utils/alert';
-import { useSocketListeners, getSocket, disconnectSocket } from '../hooks/useSocket';
+import { useSocketListeners, getSocket, leaveRoom } from '../hooks/useSocket';
+import useRoomRecovery from '../hooks/useRoomRecovery';
+import PlayerSettings from '../components/PlayerSettings';
 import { colors, radii } from '../theme';
 import {
   PaperPanel,
@@ -30,16 +32,18 @@ export default function LobbyScreen({ navigation, route }) {
   const [cpuRounds, setCpuRounds] = useState(5);
   const [starting, setStarting] = useState(false);
   const [genreDisclosure, setGenreDisclosure] = useState(Boolean(room.settings?.genreDisclosure));
+  const [progressSettings, setProgressSettings] = useState({ advanceMode: room.settings?.advanceMode || 'auto', timeLimitSeconds: room.settings?.timeLimitSeconds || 0 });
   const [settingsPending, setSettingsPending] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
   const [isHost, setIsHost] = useState(player.is_host);
   const leavingRef = useRef(false);
   const startRequestRef = useRef(null);
   const socket = getSocket();
+  const reconnecting = useRoomRecovery(navigation, leavingRef);
   const { isPC, contentPadding } = useResponsiveLayout();
 
   useSocketListeners({
-    'room:settings_updated': ({ settings }) => setGenreDisclosure(Boolean(settings.genreDisclosure)),
+    'room:settings_updated': ({ settings }) => { setGenreDisclosure(Boolean(settings.genreDisclosure)); setProgressSettings(settings); },
     'room:player_joined': ({ allPlayers }) => setPlayers(allPlayers),
     'room:players_updated': ({ allPlayers }) => setPlayers(allPlayers),
     'room:player_disconnected': ({ playerId }) => {
@@ -48,12 +52,14 @@ export default function LobbyScreen({ navigation, route }) {
         if (!res.ok) return;
         setIsHost(Boolean(res.room.players.find((p) => p.id === player.id)?.is_host));
         setGenreDisclosure(Boolean(res.room.settings?.genreDisclosure));
+        setProgressSettings(res.room.settings);
         setPlayers(res.room.players.filter((p) => p.is_connected).map((p) => ({
           id: p.id,
           nickname: p.nickname,
           score: p.score,
           isHost: p.is_host,
           isComputer: Boolean(p.is_computer),
+          icon: p.icon, profileReady: p.profile_ready,
         })));
       });
     },
@@ -61,31 +67,24 @@ export default function LobbyScreen({ navigation, route }) {
       clearTimeout(startRequestRef.current);
       startRequestRef.current = null;
       navigation.replace('Game', {
-        room,
-        player: { ...player, is_host: isHost },
+        room: { ...room, players: players.map((p) => ({ ...p, is_host: p.isHost, is_computer: p.isComputer,
+          is_connected: true, is_online: p.isOnline, profile_ready: p.profileReady })) },
+        player: { ...player, ...players.find((p) => p.id === player.id), profile_ready: true, is_host: isHost },
         gameData: data,
       });
     },
   });
 
   useEffect(() => {
-    const onDisconnect = () => {
-      if (leavingRef.current) return;
-      leavingRef.current = true;
-      disconnectSocket();
-      navigation.replace('Home');
-      Alert.alert('切断', 'サーバーとの接続が切れました');
-    };
-    socket.on('disconnect', onDisconnect);
     return () => {
-      socket.off('disconnect', onDisconnect);
       clearTimeout(startRequestRef.current);
       startRequestRef.current = null;
     };
-  }, [navigation, socket]);
+  }, []);
 
   function handleStart() {
     if (startRequestRef.current || leavingRef.current) return;
+    if (!socket.connected) return Alert.alert('接続を戻しています', 'つながるまで、この画面のままお待ちください。');
     if (players.length < MIN_PLAYERS) {
       return Alert.alert('まだ開始できません', `あと${MIN_PLAYERS - players.length}人の参加が必要です`);
     }
@@ -112,14 +111,14 @@ export default function LobbyScreen({ navigation, route }) {
     });
   }
 
-  function updateGenreRule(value) {
+  function updateGenreRule(value, changes = {}) {
     if (settingsPending || starting) return;
     setSettingsPending(true);
-    socket.timeout(10000).emit('room:update_settings', { genreDisclosure: value }, (error, res) => {
+    socket.timeout(10000).emit('room:update_settings', { genreDisclosure: value, ...progressSettings, ...changes }, (error, res) => {
       if (leavingRef.current) return;
       setSettingsPending(false);
       if (error || !res?.ok) Alert.alert('ルールを変更できませんでした', error ? '接続を確認して、もう一度お試しください。' : res?.error);
-      else setGenreDisclosure(Boolean(res.settings.genreDisclosure));
+      else { setGenreDisclosure(Boolean(res.settings.genreDisclosure)); setProgressSettings(res.settings); }
     });
   }
 
@@ -175,13 +174,19 @@ export default function LobbyScreen({ navigation, route }) {
           { paddingHorizontal: contentPadding, maxWidth: CONTENT_MAX_WIDTH },
         ]}
       >
+        <PlayerSettings player={player} socket={socket} />
+        {reconnecting ? (
+          <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.codeHint}>
+            接続を戻しています… この画面のままお待ちください。
+          </Text>
+        ) : null}
         <View style={styles.topBar}>
           <GameLogo compact />
           <StationeryButton
             variant="ghost"
             onPress={() => {
               leavingRef.current = true;
-              disconnectSocket();
+              leaveRoom();
               navigation.replace('Home');
             }}
             accessibilityLabel="ルームを退出"
@@ -329,6 +334,18 @@ export default function LobbyScreen({ navigation, route }) {
                 <Text style={styles.startHint}>
                   {genreDisclosure ? '小説・映画・漫画・ゲームなど、お題の種類を見てタイトルを考えます。' : '作品の種類を伏せて、紹介文から自由にタイトルを考えます。'}
                 </Text>
+
+                <Text style={styles.settingsLabel}>進み方</Text>
+                <View style={styles.roundRow}>{[['auto', '自動送り'], ['consent', '出題者が進める']].map(([value, label]) =>
+                  <StationeryButton key={value} variant={progressSettings.advanceMode === value ? 'yellow' : 'neutral'}
+                    disabled={settingsPending || starting} onPress={() => updateGenreRule(genreDisclosure, { advanceMode: value })}
+                    accessibilityLabel={label}>{label}</StationeryButton>)}</View>
+                <Text style={styles.settingsLabel}>回答・投票の制限時間</Text>
+                <View style={styles.roundRow}>{[0, 30, 60, 120, 180].map((value) =>
+                  <StationeryButton key={value} variant={progressSettings.timeLimitSeconds === value ? 'yellow' : 'neutral'}
+                    disabled={settingsPending || starting} onPress={() => updateGenreRule(genreDisclosure, { timeLimitSeconds: value })}
+                    accessibilityLabel={value ? `${value}秒` : '制限なし'}>{value ? `${value}秒` : 'なし'}</StationeryButton>)}</View>
+                <Text style={styles.startHint}>時間が終わると提出済みの回答・投票で進みます。出題者が進める設定では同意を待ちます。タイトル案が一つもなければ提出を待ちます。</Text>
 
                 {gameMode === 'cpu' && (
                   <>
@@ -568,7 +585,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   modeButtonText: { textAlign: 'left', fontSize: 12, lineHeight: 19 },
-  roundRow: { flexDirection: 'row', gap: 7, marginBottom: 14 },
+  roundRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 14 },
   roundButton: { flex: 1, minWidth: 0, minHeight: 45, paddingHorizontal: 6 },
   roundButtonText: { fontSize: 13 },
   computerCount: { alignSelf: 'center', color: colors.navy, fontSize: 18, fontWeight: '900', minWidth: 50, textAlign: 'center' },

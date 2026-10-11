@@ -3,7 +3,7 @@ const { shuffle } = require('./utils/shuffle');
 const segmenter = new Intl.Segmenter('ja', { granularity: 'word' });
 const genericWords = new Set(['作品', '物語', '主人公', 'あらすじ', '紹介', '舞台', '彼女', '彼ら', '自身', '人々', '一人', '二人']);
 
-// shortcut: local word-and-phrase generation; use a language model only if richer title writing is required.
+// shortcut: local word-and-phrase generation; use a language model only when source-aware reasoning is required.
 function generateComputerTitles(synopsis, count) {
   if (!count) return [];
   const words = [...new Set([...segmenter.segment(synopsis)]
@@ -16,6 +16,8 @@ function generateComputerTitles(synopsis, count) {
       ...(word !== other ? [`${word}の${other}`, `${word}と${other}`] : []),
       `${word}の向こう側`, `${word}が消えた日`, `${word}を探して`,
       `最後の${word}`, `${word}の記憶`,
+      `${word}はまだ終わらない`, `${word}への手紙`, `${word}という約束`,
+      ...(word !== other ? [`${word}、そして${other}`, `${other}から届いた${word}`, `${word}をなくした${other}`] : []),
     ];
   });
   return shuffle([...new Set(candidates)]).slice(0, count);

@@ -12,7 +12,7 @@ function colorForName(name = '') {
 
 export default function PlayerCard({ player, isMe = false, isHost = false, status, style }) {
   const nickname = player?.nickname ?? '参加待ち';
-  const initial = player?.isComputer ? 'PC' : nickname === '参加待ち' ? '?' : nickname.charAt(0);
+  const initial = player?.icon || (player?.isComputer ? 'PC' : nickname === '参加待ち' ? '?' : nickname.charAt(0));
   const empty = nickname === '参加待ち' || !player;
 
   return (
