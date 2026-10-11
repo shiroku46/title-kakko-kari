@@ -3,11 +3,12 @@ const { discoverLiveCandidates, LIVE_KINDS } = require('./catalogues');
 const { generateWebQuestion } = require('./web-source');
 const { createSelectionPolicy } = require('./selection-policy');
 const { questionIsValid } = require('./validation');
+const { randomInt } = require('node:crypto');
 
 function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImpl = discoverLiveCandidates,
   generateImpl = generateWebQuestion, deadlineMilliseconds = 60000, maxRequests = 64,
   now = Date.now, initialKind = 0 } = {}) {
-  const selection = createSelectionPolicy();
+  const selection = createSelectionPolicy(require('./bank.json').questions);
   const active = new Set(), cooldowns = new Map(), delivered = new Map();
   const titleKey = q => `${q.kind}:${q.realTitle.normalize('NFKC').replace(/[\s\p{P}]/gu,'').toLowerCase()}`;
   const mediaKind = kind => ['novel', 'short-story', 'literary-work'].includes(kind) ? 'novel' : kind;
@@ -24,7 +25,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     const history = excludedIds.map(id => delivered.get(id)).filter(Boolean);
     const excludedTitles = new Set(history.map(q => q.title));
     const startKind = sequence++ % LIVE_KINDS.length;
-    const page = Math.floor(sequence / LIVE_KINDS.length) % 20;
+    const page = randomInt(20);
     const counts = Object.fromEntries(LIVE_KINDS.map(kind => [kind, 0]));
     for (const q of history) if (Object.hasOwn(counts, q.kind)) counts[q.kind]++;
     const orderedKinds = LIVE_KINDS.map((_, offset) => LIVE_KINDS[(startKind + offset) % LIVE_KINDS.length])
@@ -40,7 +41,22 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
       ...orderedKinds.map(kind => ({ kind, pass: 2, phase: 2 })),
     ];
     lastStartedAt = new Date(now()).toISOString();
-    const timeout = setTimeout(() => controller.abort(), deadlineMilliseconds);
+    const catalogueFallbacks = [];
+    let pendingUnknown = [];
+    let deadlineExpired = false;
+    const timeout = setTimeout(() => { deadlineExpired = true; controller.abort(); }, deadlineMilliseconds);
+    function selectFallback() {
+      const candidates = pendingUnknown.length ? pendingUnknown : catalogueFallbacks;
+      const leastUsed = Math.min(...candidates.map(q => counts[mediaKind(q.kind)]));
+      return selection.select(candidates.filter(q => counts[mediaKind(q.kind)] === leastUsed));
+    }
+    function deliver(chosen) {
+      // Keep exclusion metadata, never an inventory served to other requests.
+      delivered.set(chosen.id, { title: titleKey(chosen), kind: mediaKind(chosen.kind) });
+      if (delivered.size > 20000) delivered.delete(delivered.keys().next().value);
+      succeeded++; lastSuccessfulAt = new Date(now()).toISOString(); failure = null;
+      return chosen;
+    }
     let requests = 0;
     const fetchPage = async (url, options = {}) => {
       controller.signal.throwIfAborted();
@@ -99,6 +115,8 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
           const batch = queue.splice(0, 3);
           const batchController = new AbortController();
           let chosen;
+          const unknown = [];
+          pendingUnknown = unknown;
           try {
             chosen = await Promise.any(batch.map(async candidate => {
               attempted.add(candidate.url);
@@ -110,25 +128,23 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
               } catch (error) {
                 if ((candidate.webDepth || 0) < 2 && Array.isArray(error.additionalCandidates)) {
                   for (const linked of error.additionalCandidates.slice(0, 8)) if (!attempted.has(linked.url) && !excluded.has(linked.id)) {
-                    queue.push({ ...linked, webDepth: (candidate.webDepth || 0) + 1 });
+                    queue.push({ ...linked, discoveryRoute: candidate.discoveryRoute, webDepth: (candidate.webDepth || 0) + 1 });
                   }
                 }
                 throw error;
               }
               if (mediaKind(q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || !selection.isEligible(q)) throw new Error('作品条件を満たしません');
+              if (selection.tier(q) !== 0) {
+                (candidate.discoveryRoute === 'catalogue' ? catalogueFallbacks : unknown).push(q);
+                throw new Error('小規模作品の確認を優先します');
+              }
               return q;
             }));
           } catch { /* Try the next source batch when every work is invalid. */ }
           finally { batchController.abort(); }
           controller.signal.throwIfAborted();
-          if (chosen) {
-            // Only exclusion metadata is remembered; no synopsis inventory
-            // is ever served. Alternate URLs cannot reintroduce a used title.
-            delivered.set(chosen.id, { title: titleKey(chosen), kind: mediaKind(chosen.kind) });
-            if (delivered.size > 20000) delivered.delete(delivered.keys().next().value);
-            succeeded++; lastSuccessfulAt = new Date(now()).toISOString(); failure = null;
-            return chosen;
-          }
+          if (!chosen && unknown.length) chosen = selection.select(unknown);
+          if (chosen) return deliver(chosen);
         }
         if (queue.length || search.remaining) {
           // Rotate batches across media while retaining untried/late links.
@@ -139,8 +155,10 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
           searches.splice(nextPhase < 0 ? searches.length : nextPhase, 0, search);
         }
       }
+      if (catalogueFallbacks.length) return deliver(selectFallback());
       throw new Error('紹介文を確認できる作品が見つかりませんでした。もう一度ネット検索してください。');
     } catch {
+      if (deadlineExpired && !stopped && !signal?.aborted && (pendingUnknown.length || catalogueFallbacks.length)) return deliver(selectFallback());
       const message = stopped ? 'ネット検索を停止しました。' : 'ネット検索先から紹介文を取得できませんでした。もう一度検索してください。';
       failure = { code: controller.signal.aborted ? 'search_timeout' : 'search_failed', message, at: new Date(now()).toISOString() };
       throw new Error(message);

@@ -1217,16 +1217,36 @@ test('editing the helper genre keeps the declared medium and drops incompatible 
   for(const b of bots){while(b.events.some(e=>e.name==='round:synopsis_presented'))await event(b,'round:synopsis_presented',true);}
 });
 
-test('computer titles follow the supplied synopsis, stay distinct and handle a short introduction', () => {
-  for (const synopsis of ['宇宙船。惑星。', '港町。手紙。', 'あああ。']) {
+test('computer titles use complete natural phrases for the story theme, stay distinct and handle a short introduction', () => {
+  for (const synopsis of ['宇宙船。惑星。', '港町。手紙。差出人。', 'あああ。', '代償。政策。処遇。']) {
     const titles = generateComputerTitles(synopsis, 5);
     assert.equal(titles.length, 5);
     assert.equal(new Set(titles).size, 5);
     assert.ok(titles.every((title) => typeof title === 'string' && title.length > 0 && title.length <= 50));
-    if (synopsis.startsWith('宇宙船')) assert.ok(titles.every((title) => /宇宙船|惑星/u.test(title)));
-    if (synopsis.startsWith('港町')) assert.ok(titles.every((title) => /港町|手紙/u.test(title)));
+    if (synopsis.startsWith('宇宙船')) assert.ok(titles.every((title) => /星|銀河|宇宙|帰還|故郷|地球/u.test(title)));
+    if (synopsis.startsWith('港町')) assert.ok(titles.every((title) => /手紙|便り|宛先|差出人|届|一通|ポスト/u.test(title)));
+    assert.ok(titles.every((title) => !/代償|政策|処遇|港町の手紙|手紙と港町/u.test(title)));
   }
   assert.deepEqual(generateComputerTitles('港町。手紙。', 0), []);
+});
+
+test('computer titles do not turn cast names, credits or repeated incidental nouns into title fragments', () => {
+  const synopsis = 'アメリカの市長候補は息子を誘拐される。男は犯人を追い、警察の捜査に協力する。アフレックとワシントンが出演する。';
+  for (let index = 0; index < 10; index++) {
+    const titles = generateComputerTitles(synopsis, 5);
+    assert.equal(new Set(titles).size, 5);
+    assert.ok(titles.every(title => !/アメリカ|市長|候補|アフレック|ワシントン|出演/u.test(title)));
+    assert.ok(titles.every(title => /証|事件|犯人|アリバイ|供述|足音/u.test(title)));
+  }
+});
+
+test('escape and worldwide disaster stories receive relevant titles without treating Earth as a space voyage', () => {
+  const escape = generateComputerTitles('研究所に捕獲された生き物が、知恵を使って脱出し、生き残る道を探す。', 5);
+  assert.ok(escape.every(title => /出口|帰る|残った|脱出|扉|閉じ込め|追われ|突破/u.test(title)));
+  const disaster = generateComputerTitles('地球滅亡の危機を招いた会社の社長が世界を救おうとする。', 5);
+  assert.ok(disaster.every(title => !/宇宙|銀河|星間|帰還船|仕事|店/u.test(title)));
+  const heist = generateComputerTitles('データセンターに侵入して、警備をかいくぐりRAMを奪え。', 5);
+  assert.ok(heist.every(title => /奪|渡せない|取引|盗まれた|帰れない|獲物|裏切り|逃亡/u.test(title)));
 });
 
 test('computer seats are host-only, bounded, synchronized and cannot be forged by a joining human', async (t) => {
