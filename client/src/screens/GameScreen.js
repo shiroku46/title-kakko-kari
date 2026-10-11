@@ -113,6 +113,7 @@ export default function GameScreen({ navigation, route }) {
       } : current);
     },
     'game:round_started': (data) => {
+      previewRevision.current++;
       setRound(data.round);
       setCurrentRound(data.currentRound);
       setTotalRounds(data.totalRounds);
@@ -162,6 +163,7 @@ export default function GameScreen({ navigation, route }) {
       setContentType(normalizeContentType(data.contentType));
     },
     'round:synopsis_presented': (data) => {
+      if (data.roundId !== round.id) return;
       setSynopsis(data.synopsis);
       setWorkKindLabel(data.workKindLabel || null);
       setContentType(normalizeContentType(data.contentType));
@@ -299,6 +301,7 @@ export default function GameScreen({ navigation, route }) {
             canUseManual={humanCount >= 2}
             socket={socket}
             onRerollStart={() => {
+              previewRevision.current++;
               setFetchedSynopsis(null);
               setWorkKindLabel(null);
               setSynopsisError(null);
