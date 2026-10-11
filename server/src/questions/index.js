@@ -2,7 +2,7 @@ const { readBankSync, defaultPaths } = require('./store');
 const { questionIsValid, prepareQuestion } = require('./validation');
 const { createQuestionService } = require('./service');
 const { createSelectionPolicy } = require('./selection-policy');
-const { getKind } = require('./kinds');
+const { getKind, getGameGenre } = require('./kinds');
 
 const paths = defaultPaths();
 const selection = createSelectionPolicy(paths.seedPath ? readBankSync({ bankPath: paths.seedPath }).questions : []);
@@ -23,7 +23,7 @@ function getQuestionBank() {
 function selectQuestion(excludedIds = [], { kind } = {}) {
   if (kind !== undefined && (typeof kind !== 'string' || !getKind(kind))) throw new Error('作品のジャンルが不正です');
   const excluded = new Set(excludedIds);
-  const available = getQuestionBank().filter((question) => !excluded.has(question.id) && (kind === undefined || question.kind === kind));
+  const available = getQuestionBank().filter((question) => !excluded.has(question.id) && (kind === undefined || (kind === 'novel' ? getGameGenre(question.kind)?.id : question.kind) === kind));
   if (!available.length) throw new Error('この部屋でまだ出していない問題がありません。問題集を補充してください。');
   return selection.select(available);
 }

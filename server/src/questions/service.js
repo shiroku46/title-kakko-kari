@@ -1,7 +1,7 @@
 const { readBankSync, readStore, saveStore, defaultPaths, withStoreLock } = require('./store');
 const { questionIsValid, prepareQuestion } = require('./validation');
 const { createSelectionPolicy } = require('./selection-policy');
-const { getKind } = require('./kinds');
+const { getKind, getGameGenre } = require('./kinds');
 
 const STATUS_FAILURE_MESSAGES = Object.freeze({
   failed: '作品の自動収集に失敗しました。保存済みの問題は引き続き使用できます。',
@@ -44,7 +44,7 @@ function createQuestionService({
 
   function available(excludedIds = [], kind) {
     const excluded = new Set(excludedIds);
-    return readBankSync(paths).questions.map(prepareSavedQuestion).filter((q) => q && validateQuestion(q) && !excluded.has(q.id) && (kind === undefined || q.kind === kind));
+    return readBankSync(paths).questions.map(prepareSavedQuestion).filter((q) => q && validateQuestion(q) && !excluded.has(q.id) && (kind === undefined || (kind === 'novel' ? getGameGenre(q.kind)?.id : q.kind) === kind));
   }
 
   function collectNow() {

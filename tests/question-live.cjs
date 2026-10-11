@@ -343,6 +343,26 @@ test('explicit short-story and literary-work choices use book discovery and veri
     assert.equal((await source.selectQuestion([], { kind })).kind, kind);
   }
 });
+test('novel searches admit source short-story/literary-work kinds and reject cross-classification repeats', async t => {
+  for (const [kind, label] of [['short-story', '短編小説'], ['literary-work', '文学作品']]) {
+    const source = createLiveQuestionSource({ discoverImpl: async ({ kind: requested }) => {
+      assert.equal(requested, 'novel'); return { candidates: [{ ...work(1), kind }] };
+    }, fetchImpl: async () => response(commercialBook({ genre: label })) });
+    t.after(() => source.stop());
+    const q = await source.selectQuestion([], { kind: 'novel' });
+    assert.equal(q.kind, kind);
+    assert.equal(questionIsValid(q), true);
+    await assert.rejects(source.selectQuestion([q.id], { kind: 'novel' }));
+  }
+  let second = false;
+  const source = createLiveQuestionSource({ discoverImpl: async () => ({ candidates: [{ ...work(second ? 2 : 1), kind: second ? 'literary-work' : 'short-story' }] }),
+    fetchImpl: async () => response(commercialBook({ genre: second ? '文学作品' : '短編小説' })) });
+  t.after(() => source.stop());
+  const first = await source.selectQuestion([], { kind: 'novel' });
+  second = true;
+  await assert.rejects(source.selectQuestion([first.id], { kind: 'novel' }));
+});
+
 test('random selection requires own commercial publication, not a web posting, self publication or another work metadata',async()=>{
   const url='https://publisher.example.org/book/letter',policy=require('../server/src/questions/selection-policy').createSelectionPolicy();
   const generate=html=>generateWebQuestion({url,kind:'novel'},{fetchImpl:async()=>response(html)});

@@ -333,7 +333,7 @@ export default function LobbyScreen({ navigation, route }) {
                   ))}
                 </View>
                 <Text style={styles.startHint}>
-                  {genreDisclosure ? '小説・映画・漫画・ゲームなど、ジャンルを選んでから、そのジャンルの問題を用意します。' : '作品の種類を伏せて、紹介文から自由にタイトルを考えます。'}
+                  {genreDisclosure ? 'ノンジャンル・小説・映画・漫画・ゲームから選んで問題を用意します。小説には短編小説・文学作品も含みます。' : '作品の種類を伏せて、紹介文から自由にタイトルを考えます。'}
                 </Text>
 
                 <Text style={styles.settingsLabel}>進み方</Text>

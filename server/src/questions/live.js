@@ -10,7 +10,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
   now = Date.now, initialKind = 0 } = {}) {
   const selection = createSelectionPolicy();
   const active = new Set(), cooldowns = new Map(), delivered = new Map();
-  const titleKey = q => `${q.kind}:${q.realTitle.normalize('NFKC').replace(/[\s\p{P}]/gu,'').toLowerCase()}`;
+  const titleKey = q => `${mediaKind(q.kind)}:${q.realTitle.normalize('NFKC').replace(/[\s\p{P}]/gu,'').toLowerCase()}`;
   const mediaKind = kind => ['novel', 'short-story', 'literary-work'].includes(kind) ? 'novel' : kind;
   let sequence = initialKind, stopped = false, completed = 0, succeeded = 0;
   let lastStartedAt = null, lastCompletedAt = null, lastSuccessfulAt = null, failure = null;
@@ -105,7 +105,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
         const queue = search.queue;
         for (let i = queue.length - 1; i >= 0; i--) {
           const c = queue[i];
-          if ((c.kind && (requestedKind === undefined ? mediaKind(c.kind) : c.kind) !== kind) || excluded.has(c.id) || attempted.has(c.url)) queue.splice(i, 1);
+          if ((c.kind && (requestedKind === undefined || requestedKind === 'novel' ? mediaKind(c.kind) : c.kind) !== kind) || excluded.has(c.id) || attempted.has(c.url)) queue.splice(i, 1);
         }
         // Examine several different work pages concurrently within the shared
         // request/deadline budget. Slow or invalid pages cannot block another.
@@ -130,7 +130,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
                 }
                 throw error;
               }
-              if ((requestedKind === undefined ? mediaKind(q.kind) : q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || !selection.isEligible(q)) {
+              if ((requestedKind === undefined || requestedKind === 'novel' ? mediaKind(q.kind) : q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || !selection.isEligible(q)) {
                 details.rejectedWorks++; throw new Error('作品条件を満たしません');
               }
               return q;
