@@ -1587,7 +1587,7 @@ function focusedRecovery(socket, session, navigation, leaving, showRoom, onState
   }
   const { context, hook } = recoveryTestModules.get(socket);
   const globals = {
-    useIsFocused: () => focused, useState: value => [value, onState],
+    useIsFocused: () => focused, useState: value => { onState(value); return [value, onState]; },
     useEffect: effect => { cleanup = effect(); },
     getSocket: () => socket, getRoomSession: () => session,
     clearRoomSession: () => assert.fail('Focus changes must keep the private seat'),
@@ -1656,20 +1656,20 @@ test('returning to a covered route catches a reconnect and ignores the editor re
   assert.equal(host.socket.connected, true);
 });
 
-test('a name editor mounted while the old route awaits a resume reply takes over recovery on the already-connected transport', { timeout: 10000 }, async t => {
+test('a name editor mounted before resume ACK keeps controls pending on the already-connected transport', { timeout: 10000 }, async t => {
   let covered;
   let editor;
   t.after(() => { covered?.close(); editor?.close(); });
   const host = await bot(t);
   const entry = await ok(host, 'room:create', { nickname: '復帰待ち中の編集' });
   const session = { code: entry.room.code, playerId: entry.player.id, token: entry.token };
-  let held;
+  const held = [];
   let pending;
   const waiting = new Promise(resolve => { pending = resolve; });
   const delay = socket => socket.use((packet, next) => {
-    if (packet[0] === 'room:resume' && !held) { held = next; pending(); } else next();
+    if (packet[0] === 'room:resume') { held.push(next); pending(); } else next();
   });
-  io.on('connection', delay); t.after(() => { io.off('connection', delay); held?.(); });
+  io.on('connection', delay); t.after(() => { io.off('connection', delay); held.forEach(next => next()); });
   const calls = [];
   covered = focusedRecovery(host.socket, session, { route: 'Lobby' }, { current: false }, () => calls.push('covered'));
   covered.render(true);
@@ -1678,10 +1678,18 @@ test('a name editor mounted while the old route awaits a resume reply takes over
   covered.render(false);
   let returned;
   const done = new Promise(resolve => { returned = resolve; });
-  editor = focusedRecovery(host.socket, session, { route: 'NameEntry' }, { current: false }, (_, result) => { calls.push('editor'); returned(result); });
+  const editorStates = [];
+  editor = focusedRecovery(host.socket, session, { route: 'NameEntry' }, { current: false }, (_, result) => { calls.push('editor'); returned(result); }, value => editorStates.push(value));
   editor.render(true);
+  assert.equal(host.socket.connected, true);
+  assert.equal(editorStates[0], true, 'Initial editor controls must wait for room authentication, even if transport is connected');
+  assert.equal(editorStates.every(Boolean), true, 'Focusing the editor must not clear recovery before resume ACK');
+  while (held.length < 2) await new Promise(resolve => setImmediate(resolve));
+  const [oldResume, editorResume] = held.splice(0);
+  editorResume();
   const restored = await done; assert.equal(restored.player.id, entry.player.id);
-  held(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(editorStates.at(-1), false, 'Only the successful active resume ACK enables controls');
+  oldResume(); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(calls, ['editor']);
 });
 

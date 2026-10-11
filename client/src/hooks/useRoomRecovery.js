@@ -10,7 +10,7 @@ export default function useRoomRecovery(navigation, leavingRef) {
   const socket = getSocket();
   const focused = useIsFocused();
   if (!restoredConnections.has(socket)) restoredConnections.set(socket, socket.io.engine);
-  const [reconnecting, setReconnecting] = useState(!socket.connected);
+  const [reconnecting, setReconnecting] = useState(!socket.connected || socket.io.engine !== restoredConnections.get(socket));
   useEffect(() => {
     if (!focused) return;
     let active = true;
@@ -30,6 +30,7 @@ export default function useRoomRecovery(navigation, leavingRef) {
     };
     const onConnect = () => {
       if (!ownsRecovery()) return;
+      setReconnecting(true);
       const connection = socket.io.engine;
       const session = getRoomSession();
       if (!session) return fail('ホームから、もう一度部屋に入ってください。', true);
@@ -48,7 +49,7 @@ export default function useRoomRecovery(navigation, leavingRef) {
     };
     socket.on('disconnect', onDisconnect);
     socket.on('connect', onConnect);
-    setReconnecting(!socket.connected);
+    setReconnecting(!socket.connected || socket.io.engine !== restoredConnections.get(socket));
     if (socket.connected && socket.io.engine !== restoredConnections.get(socket)) onConnect();
     return () => {
       active = false;
