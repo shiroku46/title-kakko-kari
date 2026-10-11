@@ -20,7 +20,7 @@ export default function useRoomRecovery(navigation, leavingRef) {
       leavingRef.current = true;
       if (unavailable) clearRoomSession();
       disconnectSocket();
-      navigation.replace('Home');
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
       Alert.alert('接続を戻せませんでした', message);
     };
     const onDisconnect = () => {

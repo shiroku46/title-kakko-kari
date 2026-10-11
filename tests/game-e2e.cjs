@@ -1536,7 +1536,11 @@ test('a transport lost during the resume reply keeps recovery active; an unavail
     showRoom: (_, result) => { restored = result; markRestored(); },
     Alert: { alert: (...args) => { alerts.push(args); markUnavailable(); } },
   });
-  useRecovery({ replace: (screen) => home.push(screen), isFocused: () => true }, leaving);
+  useRecovery({ reset: state => {
+    assert.equal(state.index, 0);
+    assert.equal(JSON.stringify(state.routes), JSON.stringify([{ name: 'Home' }]));
+    home.push('Home');
+  }, isFocused: () => true }, leaving);
   t.after(() => cleanup());
   async function interrupt() {
     const disconnected = once(host.socket, 'disconnect', { signal: AbortSignal.timeout(3000) });
