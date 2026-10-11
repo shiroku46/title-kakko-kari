@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import HomeScreen from './src/screens/HomeScreen';
@@ -15,11 +15,15 @@ import { colors } from './src/theme';
 import { fontAssets } from './src/theme/fontAssets';
 import { GAME_NAME } from './src/theme/brand';
 import { FontsLoadedContext, Text } from './src/components/ui/GameText';
+import RoomBgm from './src/components/RoomBgm';
 
 const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts(fontAssets);
+  const navigationRef = useNavigationContainerRef();
+  const [inRoom, setInRoom] = useState(false);
+  const updateRoom = () => setInRoom(['NameEntry', 'Lobby', 'Game', 'Result'].includes(navigationRef.getCurrentRoute()?.name));
 
   if (!fontsLoaded && !fontError) {
     return (
@@ -36,8 +40,10 @@ export default function App() {
 
   return (
     <FontsLoadedContext.Provider value={fontsLoaded}>
-      <NavigationContainer documentTitle={{ formatter: () => GAME_NAME }}>
+      <NavigationContainer ref={navigationRef} onReady={updateRoom} onStateChange={updateRoom}
+        documentTitle={{ formatter: () => GAME_NAME }}>
         <StatusBar style="dark" />
+        <View style={styles.app}>
         <Stack.Navigator
           screenOptions={{
             headerShown: false,
@@ -52,12 +58,15 @@ export default function App() {
           <Stack.Screen name="Result" component={ResultScreen} />
           <Stack.Screen name="Rules" component={RulesScreen} />
         </Stack.Navigator>
+        <RoomBgm active={inRoom} />
+        </View>
       </NavigationContainer>
     </FontsLoadedContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
+  app: { flex: 1 },
   loading: {
     flex: 1,
     alignItems: 'center',
