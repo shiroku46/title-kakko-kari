@@ -3,6 +3,7 @@
   "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
+    { "source": "/api/auth/:path*", "destination": "https://title-kakko-kari.onrender.com/api/auth/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

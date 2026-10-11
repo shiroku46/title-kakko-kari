@@ -57,7 +57,7 @@ export default function SubmittingPhase({
     pendingRef.current = true;
     setSubmitting(true);
     setRequestError(null);
-    socket.timeout(10000).emit('round:submit_fake', { title: fakeTitle.trim() }, (error, res) => {
+    socket.timeout(10000).emit('round:submit_fake', { title: fakeTitle.trim(), roundId: round?.id }, (error, res) => {
       pendingRef.current = false;
       setSubmitting(false);
       if (error) return setRequestError('返事がありません。接続を確認して、もう一度お試しください。');

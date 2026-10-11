@@ -53,7 +53,7 @@ export default function VotingPhase({
     if (!selectedId || selectedId === ownAnswerId || voted || submitting) return;
     setVoteError(null);
     setSubmitting(true);
-    socket.timeout(10000).emit('round:submit_vote', { answerId: selectedId }, (error, res) => {
+    socket.timeout(10000).emit('round:submit_vote', { answerId: selectedId, roundId: round?.id }, (error, res) => {
       setSubmitting(false);
       if (error) {
         setVoteError('サーバーから応答がありません。接続を確認して、もう一度お試しください。');

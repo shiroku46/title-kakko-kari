@@ -62,7 +62,7 @@ export default function GameScreen({ navigation, route }) {
   const reconnecting = useRoomRecovery(navigation, leavingRef);
   const resumed = round.id === gameData.round.id ? saved : {};
 
-  const isQuestioner = player.id === questioner?.id;
+  const isQuestioner = player.id === round.questioner_id;
 
   function leaveGame() {
     if (leavingRef.current) return;
@@ -286,12 +286,11 @@ export default function GameScreen({ navigation, route }) {
   }, [phase, mode, fetchedSynopsis]);
 
   function renderPhase() {
-    const amQuestioner = player.id === questioner?.id;
-
     switch (phase) {
       case 'confirming':
         return (
           <ConfirmingPhase
+            round={round}
             currentRound={currentRound}
             totalRounds={totalRounds}
             fetchedSynopsis={fetchedSynopsis}
@@ -318,7 +317,7 @@ export default function GameScreen({ navigation, route }) {
             questioner={questioner}
             synopsis={synopsis}
             workKindLabel={genreDisclosure ? workKindLabel : null}
-            isQuestioner={amQuestioner}
+            isQuestioner={isQuestioner}
             isHost={isHost}
             isCpu={mode === 'cpu'}
             genreDisclosure={genreDisclosure}
@@ -340,12 +339,12 @@ export default function GameScreen({ navigation, route }) {
             questioner={questioner}
             synopsis={synopsis}
             workKindLabel={genreDisclosure ? workKindLabel : null}
-            isQuestioner={amQuestioner}
+            isQuestioner={isQuestioner}
             playerId={player.id}
             fakeSubmittedCount={fakeSubmittedCount}
             consent={gameData.settings?.advanceMode === 'consent'}
-            realTitle={amQuestioner ? questionerView?.realTitle : null}
-            submittedAnswers={amQuestioner ? questionerView?.answers : []}
+            realTitle={isQuestioner ? questionerView?.realTitle : null}
+            submittedAnswers={isQuestioner ? questionerView?.answers : []}
             initialSubmitted={resumed.submitted}
             initialTitle={resumed.submittedTitle}
             socket={socket}
@@ -362,11 +361,11 @@ export default function GameScreen({ navigation, route }) {
             workKindLabel={genreDisclosure ? workKindLabel : null}
             choices={choices}
             ownAnswerId={ownAnswerId}
-            isQuestioner={amQuestioner}
+            isQuestioner={isQuestioner}
             playerId={player.id}
             voteProgress={voteProgress}
             consent={gameData.settings?.advanceMode === 'consent'}
-            realTitle={amQuestioner ? questionerView?.realTitle : null}
+            realTitle={isQuestioner ? questionerView?.realTitle : null}
             initialVoted={resumed.voted}
             initialAnswerId={resumed.voteAnswerId}
             socket={socket}
@@ -380,7 +379,7 @@ export default function GameScreen({ navigation, route }) {
             totalRounds={totalRounds}
             revealData={revealData}
             contentType={contentType}
-            isQuestioner={amQuestioner}
+            isQuestioner={isQuestioner}
             isHost={isHost}
             hasQuestioner={Boolean(questioner?.id)}
             questionerDisconnected={questionerDisconnected}
@@ -432,10 +431,12 @@ export default function GameScreen({ navigation, route }) {
               {departureNotice}
             </Text>
           ) : null}
-          <RoundProgress phase={phase} deadlineAt={deadlineAt} ready={phaseReady}
+          <RoundProgress roundId={round?.id} phase={phase} deadlineAt={deadlineAt} ready={phaseReady}
             consent={gameData.settings?.advanceMode === 'consent'}
             canAdvance={isQuestioner || isHost && (!questioner?.id || questionerDisconnected)} socket={socket} />
-          {renderPhase()}
+          <View style={{ flex: 1 }} pointerEvents={reconnecting ? 'none' : 'auto'}>
+            {renderPhase()}
+          </View>
         </>
       )}
     </View>

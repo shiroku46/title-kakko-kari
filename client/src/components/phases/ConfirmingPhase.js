@@ -18,6 +18,7 @@ import {
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../../hooks/useResponsiveLayout';
 
 export default function ConfirmingPhase({
+  round,
   currentRound,
   totalRounds,
   fetchedSynopsis,
@@ -44,7 +45,7 @@ export default function ConfirmingPhase({
     setPendingAction(action);
     setRequestError(null);
     if (action === 'reroll') onRerollStart?.();
-    socket.timeout(10000).emit(event, null, (error, res) => {
+    socket.timeout(10000).emit(event, { roundId: round?.id }, (error, res) => {
       requestPendingRef.current = false;
       setPendingAction(null);
       if (error) {

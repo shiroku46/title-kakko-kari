@@ -40,7 +40,9 @@ function requestEntry(socket, event, payload, signal) {
     const timer = setTimeout(() => finish(new Error('返事がありません。もう一度試してね。')), 10000);
     signal.addEventListener('abort', onAbort, { once: true });
     if (signal.aborted) return onAbort();
+    const connectionId = socket.id;
     socket.emit(event, payload, (response) => {
+      if (settled || signal.aborted || socket.id !== connectionId) return;
       if (!response?.ok) {
         if (response?.rejoinUnavailable) clearRoomSession();
         return finish(new Error(response?.error || '部屋を用意できませんでした。'));

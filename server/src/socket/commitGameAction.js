@@ -1,4 +1,12 @@
 const { isDeepStrictEqual } = require('node:util');
+let operationQueue = Promise.resolve();
+
+// A snapshot covers every room. Reads, timers and writes share one queue.
+function runStateOperation(operation) {
+  const result = operationQueue.then(operation);
+  operationQueue = result.catch(() => {});
+  return result;
+}
 
 // For synchronous answer/score commands: persist before publishing their events.
 // Validation failures keep object identity, so unrelated pending fetches continue.
@@ -21,12 +29,7 @@ function commitGameAction(io, room, persist, mutate, onRollback) {
       };
     },
   };
-  let result;
-  try {
-    result = mutate(stagedIo, (effect) => effects.push(effect));
-    if (result && typeof result.then === 'function') throw new Error('ゲームの状態変更は同期で実行してください');
-    persist();
-  } catch (error) {
+  function rollback(error) {
     status = 'failed';
     events.length = 0;
     if (!isDeepStrictEqual(room, before)) {
@@ -46,15 +49,24 @@ function commitGameAction(io, room, persist, mutate, onRollback) {
     }
     throw error;
   }
-  status = 'committed';
-  for (const { target, event, args } of events) {
-    try { io.to(target).emit(event, ...args); }
-    catch (_) { console.error('[Game] 保存済みの更新を配信できませんでした。復帰で状態を再取得してください。'); }
+  function publish(result) {
+    status = 'committed';
+    for (const { target, event, args } of events) {
+      try { io.to(target).emit(event, ...args); }
+      catch (_) { console.error('[Game] 保存済みの更新を配信できませんでした。復帰で状態を再取得してください。'); }
+    }
+    const failedEffect = () => console.error('[Game] 保存済みの進行処理に失敗しました。復帰で状態を再取得してください。');
+    for (const effect of effects) {
+      try { effect()?.catch(failedEffect); } catch (_) { failedEffect(); }
+    }
+    return result;
   }
-  const failedEffect = () => console.error('[Game] 保存済みの進行処理に失敗しました。復帰で状態を再取得してください。');
-  for (const effect of effects) {
-    try { effect()?.catch(failedEffect); } catch (_) { failedEffect(); }
-  }
-  return result;
+  try {
+    const result = mutate(stagedIo, (effect) => effects.push(effect));
+    if (result && typeof result.then === 'function') throw new Error('ゲームの状態変更は同期で実行してください');
+    const saved = persist();
+    return saved && typeof saved.then === 'function'
+      ? saved.then(() => publish(result), rollback) : publish(result);
+  } catch (error) { return rollback(error); }
 }
-module.exports = { commitGameAction };
+module.exports = { commitGameAction, runStateOperation };
