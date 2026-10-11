@@ -34,7 +34,7 @@ export default function useRoomRecovery(navigation, leavingRef) {
     const onDisconnect = () => {
       if (!ownsRecovery()) return;
       cancelAttempt();
-      if (!socket.active) return fail('この画面の接続が終了しました。ホームの「前の部屋に戻る」から試してください。');
+      if (!socket.active) return fail('この画面の接続が終了しました。ホームの「落ち戻り」から試してください。');
       setReconnecting(true);
     };
     const onConnect = () => {

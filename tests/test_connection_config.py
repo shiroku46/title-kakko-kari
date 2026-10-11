@@ -84,6 +84,10 @@ const entry = runInNewContext(source + '\nuseRoomEntry({});', {
 });
 (async () => {
   const options = { serverUrl: 'http://localhost:3000' };
+  await entry.enterRoom({ ...options, joining: true, resuming: true });
+  assert.equal(messages.at(-1), 'このブラウザーに復帰情報がありません。参加した端末・ブラウザーで開いてください。');
+  assert.equal(connections, 0, 'Missing recovery information must fail before connecting');
+  assert.equal(requests.length, 0, 'Recovery must not create or join another seat');
   for (const nickname of ['', '   ']) {
     await entry.enterRoom({ ...options, nickname });
     assert.equal(messages.at(-1), '名前を入れてね。');

@@ -66,6 +66,7 @@ export default function useRoomEntry(navigation) {
 
   async function enterRoom({ nickname = '', code, serverUrl, joining = false, resuming = false }) {
     if (active.current) return;
+    if (resuming && !getRoomSession()) return setError('このブラウザーに復帰情報がありません。参加した端末・ブラウザーで開いてください。');
     const nick = nickname.trim();
     if (!resuming && !nick) return setError('名前を入れてね。');
     const roomCode = (code || '').trim();
