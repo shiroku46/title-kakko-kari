@@ -130,8 +130,31 @@ test('fresh discovery continues through a blocked engine to links from a live ca
   const result = await discoverLiveCandidates({ kind: 'novel', fetchImpl: async url => {
     seen.push(url); return url.includes('yahoo') ? new Response('', { status: 429 }) : response('<a title="港の便り" href="/rb/123/">港の便り</a>');
   } });
-  assert.equal(seen.length, 2); assert.equal(result.errors, 1);
+  assert.equal(seen.length, 3); assert.equal(result.errors, 2);
   assert.deepEqual(result.candidates.map(c => c.url), ['https://books.rakuten.co.jp/rb/123/']);
+});
+
+test('book discovery keeps unrestricted search and independently searches current publisher ISBN pages', async t => {
+  const pages = [];
+  const source = createLiveQuestionSource({ deadlineMilliseconds: 500, fetchImpl: async (url, {signal}) => {
+    pages.push(url);
+    const location = new URL(url);
+    if (location.hostname === 'books.rakuten.co.jp') {
+      return new Promise((resolve,reject) => signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+    }
+    if (location.hostname === 'search.yahoo.co.jp') {
+      if (!location.searchParams.get('p').startsWith('site:www.hanmoto.com/bd/isbn')) return response('<a ping="/xts/list" href="https://article.example.org/">作品リスト</a>');
+      return response('<a ping="/xts/work" href="https://publisher.example.org/book/letter">港の便り</a>');
+    }
+    if (location.pathname === '/book/letter') return response(commercialBook());
+    return response('<title>一般記事</title>');
+  }});
+  t.after(()=>source.stop());
+  const selected = await source.selectQuestion([], {kind:'novel'});
+  assert.equal(selected.kind,'novel'); assert.equal(selected.realTitle,'港の便り');
+  const queries=pages.filter(url=>new URL(url).hostname==='search.yahoo.co.jp').map(url=>new URL(url).searchParams.get('p'));
+  assert(queries.some(query=>!query.startsWith('site:')));
+  assert(queries.some(query=>query.startsWith('site:www.hanmoto.com/bd/isbn')));
 });
 
 test('catalogues yield current exact work links, not episodes, reviews, other hosts or a fixed title stock', () => {

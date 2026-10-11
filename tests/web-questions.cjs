@@ -21,6 +21,43 @@ function results(links) {
   return links.map((url, i) => `<a class="result__a" href="${url}">作品紹介${i}</a>`).join('');
 }
 
+const bookIndexUrl = 'https://www.hanmoto.com/bd/isbn/9784065373262';
+function publisherBook({ genre = '文芸 日本文学、小説・物語', intro = story, publisher = '海辺出版', date = '2026-01-01', isbn = '9784065373262', extra = '' } = {}) {
+  return `<title>港の約束 書く人(著) - 海辺出版 | 版元ドットコム</title>` +
+    `<body itemscope itemtype="http://schema.org/Book" itemid="${bookIndexUrl}">` +
+    '<section class="book-title-block-section"><h1><span itemprop="name"><ruby><rb>港の約束</rb><rp>(</rp><rt>ミナトノヤクソク</rt><rp>)</rp></ruby></span></h1></section>' +
+    '<div class="book-authors"><a itemprop="author" data-book-author-name="書く人">書く人</a></div>' +
+    `<div class="book-genre-block">${genre}</div><div class="book-codes" data-book-isbn13="${isbn}" data-book-ccode="${genre.includes('コミック') ? '0079' : '0093'}">${genre}</div>` +
+    `<div class="book-publishers" data-book-publisher="${publisher}"></div>` +
+    `<div class="book-dates" date-book-sales="${date}"></div>` +
+    `<div class="book-contents" data-book-contents-name="kaisetsu"><h2>紹介</h2><p>${intro}</p></div>${extra}</body>`;
+}
+
+test('publisher book records bind ruby titles, genre and official distribution to the current ISBN', async () => {
+  const { hasOfficialDistribution } = require('../server/src/questions/distribution-policy');
+  for (const [kind, genre] of [['novel', '文芸 日本文学、小説・物語'], ['short-story', '文芸 小説 短編集'],
+    ['literary-work', '文芸'], ['manga', 'コミックス(書籍)']]) {
+    const q = await generateWebQuestion({ url: bookIndexUrl, kind }, { fetchImpl: async () => page(publisherBook({genre}), bookIndexUrl) });
+    assert.equal(q.kind, kind); assert.equal(q.realTitle, '港の約束');
+    assert.equal(q.synopsis, story); assert(questionIsValid(q)); assert(hasOfficialDistribution(q));
+    assert.equal(q.evidence.distribution.publisher, '海辺出版');
+    assert.equal(q.evidence.distribution.identifier, '9784065373262');
+  }
+  const related = '<aside><div class="book-publishers" data-book-publisher="別作品出版"></div><div class="book-dates" date-book-sales="2026-01-01"></div></aside>';
+  for (const options of [{publisher:''}, {publisher:'書く人'}, {date:''}, {date:'2099-01-01'}]) {
+    const q = await generateWebQuestion({url:bookIndexUrl,kind:'novel'}, {fetchImpl:async()=>page(publisherBook({...options,extra:related}),bookIndexUrl)});
+    assert.equal(hasOfficialDistribution(q),false);
+  }
+  const manga = await generateWebQuestion({url:bookIndexUrl,kind:'novel'}, {fetchImpl:async()=>page(publisherBook({genre:'コミックス(書籍)',intro:'小説を執筆する主人公の物語。'+story}),bookIndexUrl)});
+  assert.equal(manga.kind,'manga');
+  for (const html of [publisherBook({isbn:'9784065373261'}), publisherBook().replace(bookIndexUrl, base),
+    publisherBook({extra:'<h2>あらすじ</h2>'+story}).replace(/<div class="book-contents"[\s\S]*?<\/div>/u,''),
+    publisherBook({intro:'短い紹介。',extra:'<h2>著者プロフィール</h2>'+story}),
+    publisherBook({intro:'短い紹介。</p><h3>著者プロフィール</h3><p>'+story})]) {
+    await assert.rejects(generateWebQuestion({url:bookIndexUrl,kind:'novel'}, {fetchImpl:async()=>page(html,bookIndexUrl)}));
+  }
+});
+
 test('web URL and every resolved address must be public HTTPS', async () => {
   for (const url of ['http://publisher.example.org', 'https://localhost/', 'https://127.0.0.1', 'https://2130706433', 'https://[::1]', 'https://x.internal', 'https://x.local', 'https://user:pass@publisher.example.org', 'https://publisher.example.org:8443']) assert.throws(() => publicUrl(url));
   for (const address of ['127.0.0.1','10.1.1.1','172.31.0.1','169.254.169.254','100.64.0.1','192.168.0.1','198.18.0.1','192.0.2.1','::1','::ffff:8.8.8.8','fe80::1','fc00::1','2001:db8::1','2001:10::1','2002:7f00::1','3fff::1']) assert.equal(publicAddress(address),false,address);

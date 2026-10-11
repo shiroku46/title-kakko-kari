@@ -38,7 +38,7 @@ function metadata(html) {
 const TYPE_KIND = { Book: 'literary-work', Movie: 'film', TVSeries: 'drama', VideoGame: 'game',
   MusicAlbum: 'album', MusicRecording: 'song', MusicComposition: 'music-work', Painting: 'artwork', Sculpture: 'artwork' };
 const GENRE = { novel: /小説|ノベル|novel/iu, 'short-story': /短編|短篇/iu,
-  'literary-work': /文学|童話|児童書|小説/iu, film: /映画|劇場|movie|film/iu,
+  'literary-work': /文学|文芸|童話|児童書|小説/iu, film: /映画|劇場|movie|film/iu,
   manga: /漫画|マンガ|コミック|manga/iu, anime: /アニメ|animation/iu,
   game: /ゲーム|game/iu, play: /舞台|戯曲|演劇/iu, drama: /ドラマ|tv series/iu,
   song: /楽曲|歌曲|シングル/iu, album: /アルバム/iu, 'music-work': /音楽|作曲|交響曲/iu,
@@ -238,6 +238,36 @@ function linkedCandidates(html, baseUrl, kind, { onlyStory = false } = {}) {
   return [...candidates.values()].sort((a,b) => b.score-a.score).slice(0,8).map(({ score, ...candidate }) => candidate);
 }
 
+function publisherBookWork(html, url) {
+  const source = new URL(url);
+  const isbn = source.hostname === 'www.hanmoto.com' && source.pathname.match(/^\/bd\/isbn\/((?:978|979)\d{10})\/?$/u)?.[1];
+  if (!isbn) return null;
+  const identity = attributes(html.match(/<body\b[^>]*>/iu)?.[0] || '');
+  if (identity.itemtype !== 'http://schema.org/Book' || identity.itemid?.replace(/\/$/u, '') !== url.replace(/\/$/u, '')) {
+    throw new Error('当該書籍のページ識別情報を確認できません');
+  }
+  const scoped = introductionMarkup(html, { includePublicationMetadata: true });
+  const own = className => container(scoped, a => (a.class || '').split(/\s/u).includes(className), { attributes });
+  const title = own('book-title-block-section').replace(/<(rt|rp)\b[^>]*>[\s\S]*?<\/\1>/giu, '');
+  const name = text(title.match(/<span\b[^>]*itemprop="name"[^>]*>([\s\S]*?)<\/span>/iu)?.[1]);
+  const codes = own('book-codes');
+  const code = attributes(scoped.match(/<div\b[^>]*class="book-codes\b[^>]*>/iu)?.[0] || '');
+  if (!name || code['data-book-isbn13'] !== isbn) throw new Error('作品名と当該ISBNを照合できません');
+  const publisher = attributes(scoped.match(/<div\b[^>]*class="book-publishers\b[^>]*>/iu)?.[0] || '');
+  const dates = attributes(scoped.match(/<div\b[^>]*class="book-dates\b[^>]*>/iu)?.[0] || '');
+  const author = [...own('book-authors').matchAll(/<a\b[^>]*>/giu)].map(m => attributes(m[0]))
+    .filter(a => a.itemprop === 'author').map(a => a['data-book-author-name']).filter(Boolean);
+  const genre = own('book-genre-block');
+  const intro = container(scoped, a => a['data-book-contents-name'] === 'kaisetsu', { attributes });
+  const classification = code['data-book-ccode']?.slice(-2);
+  const kind = /コミック|漫画/u.test(text(genre)) || classification === '79' ? 'manga' :
+    ['93', '97'].includes(classification) ? 'novel' : 'literary-work';
+  return { name, workType: 'Book', kind, genre: text(genre + codes), isbn, author,
+    publisher: publisher['data-book-publisher'] || publisher['data-book-imprint'] || '',
+    datePublished: dates['date-book-sales'] || '', markup: title + genre + codes + intro,
+    introduction: intro.replace(/(<h[1-6]\b[^>]*>)\s*紹介\s*(<\/h[1-6]>)/iu, '$1作品紹介$2') };
+}
+
 function extractWebWork(html, url, hintKind) {
   if (new URL(url).hostname === 'store.steampowered.com' && /class="[^"]*\bgame_area_dlc_bubble\b/iu.test(html)) {
     throw new Error('本編を必要とする追加コンテンツは独立した作品として採用しません');
@@ -253,13 +283,14 @@ function extractWebWork(html, url, hintKind) {
       LIST_TITLE.test(pageTitle) || ARTICLE_TITLE.test(pageTitle)) throw new Error('記事・一覧・人物ページは作品として採用しません');
   const posted = postedWork(html, url, { text, metadata });
   const creator = creatorWork(html, url, { text, metadata, attributes, introductionMarkup });
+  const book = publisherBookWork(html, url);
   if (new URL(url).hostname === 'booth.pm' && /^\/ja\/items\/\d+$/u.test(new URL(url).pathname) && !creator) {
     throw new Error('当該商品のオリジナル漫画・作者情報を確認できません');
   }
   if (new URL(url).hostname === 'motion-gallery.net' && /^\/projects\/[\w-]+$/u.test(new URL(url).pathname) && !creator) {
     throw new Error('当該プロジェクトの単一映画の作品名を確認できません');
   }
-  const works = posted ? [posted] : creator ? [creator] : structuredWorks(html);
+  const works = posted ? [posted] : creator ? [creator] : book ? [book] : structuredWorks(html);
   if (works.length > 1) throw new Error('複数作品の一覧はお題に使用しません');
   const structured = works[0];
   if ((!structured || creator) && EVENT_TITLE.test(pageTitle)) throw new Error('イベントや施設の運営支援は創作作品として採用しません');
@@ -291,7 +322,7 @@ function extractWebWork(html, url, hintKind) {
   const article = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/iu)?.[1];
   const retailWork = new URL(url).hostname==='books.rakuten.co.jp' && /^\/rb\/\d+\/$/u.test(new URL(url).pathname)
     ? container(html,a=>a.id==='productInfo',{attributes}) + container(html,a=>a.id==='productDetailedDescription',{attributes}) : '';
-  const primary = creator?.markup || retailWork || html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/iu)?.[1]
+  const primary = creator?.markup || book?.markup || retailWork || html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/iu)?.[1]
     || (article && key(text(article)).includes(key(realTitle)) ? article : html);
   const workMetadata = introductionMarkup(primary, { includeWorkRatings: true });
   // Read labels attached to this identified work. A search term, unrelated
@@ -303,11 +334,12 @@ function extractWebWork(html, url, hintKind) {
   const explicitKind = /映画|劇場版/u.test(titleContext) ? 'film' : /TVアニメ|テレビアニメ/u.test(titleContext) ? 'anime' :
     /漫画|マンガ|コミック/u.test(titleContext) ? 'manga' : /(?:ゲーム|RPG|ADV|アドベンチャー)/iu.test(titleContext) ? 'game' : null;
   const context = [genre, text(meta['og:type']), titleContext, text(introductionMarkup(primary)).slice(0,8000)].join(' ');
-  let kind = (!structured && meta['og:type']==='books.book' ? 'literary-work' : null) || TYPE_KIND[structured?.workType] || (structured?.workType === 'Product' ? 'literary-work' : null);
+  let kind = book?.kind || (!structured && meta['og:type']==='books.book' ? 'literary-work' : null) || TYPE_KIND[structured?.workType] || (structured?.workType === 'Product' ? 'literary-work' : null);
   const bookKinds = ['novel','short-story','literary-work','manga','poem','nonfiction'];
-  const compatibleHint = !structured || (['Book','Product'].includes(structured.workType) && bookKinds.includes(hintKind)) ||
+  const compatibleHint = (!book || book.kind === hintKind || book.kind === 'novel' && ['short-story','literary-work'].includes(hintKind)) &&
+    (!structured || (['Book','Product'].includes(structured.workType) && bookKinds.includes(hintKind)) ||
     (structured.workType === 'Movie' && ['film','anime'].includes(hintKind)) ||
-    (structured.workType === 'TVSeries' && ['drama','anime'].includes(hintKind)) || kind === hintKind;
+    (structured.workType === 'TVSeries' && ['drama','anime'].includes(hintKind)) || kind === hintKind);
   if (!structured && explicitKind) kind = explicitKind;
   if (compatibleHint && (!explicitKind || explicitKind === hintKind) && hintKind && GENRE[hintKind]?.test(context)) kind = hintKind;
   if (!kind) kind = Object.keys(GENRE).find((k) => GENRE[k].test(genre || context));
@@ -326,7 +358,7 @@ function extractWebWork(html, url, hintKind) {
   let aliases = questionTitleAliases(realTitle, [sourceTitle, ...[structured?.alternateName].flat()].filter((a) => typeof a === 'string' && text(a)).map(text), kind);
   // A plain heading alone is not enough: require an explicit introduction section
   // or typed work data. Search snippets and generic SEO descriptions never qualify.
-  const sections = introductionSections(creator?.markup || html, { workTitle: realTitle });
+  const sections = introductionSections(book ? book.introduction : creator?.markup || html, { workTitle: realTitle });
   // Prefer the explicitly bounded visible introduction. Retail structured
   // descriptions often concatenate price, reviews and unrelated product data.
   if (structured?.description) sections.push({ section: '作品紹介（構造化データ）', content: text(structured.description) });
