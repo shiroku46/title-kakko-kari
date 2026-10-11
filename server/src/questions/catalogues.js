@@ -43,6 +43,13 @@ async function discoverLiveCandidates({ kind, pass = 0, page = 0, fetchImpl, sig
     { url: searchUrl(engine, query, page % 4), parse: html => parseResults(html, engine, kind) },
     { url: catalogue, parse: html => catalogueLinks(html, catalogue, kind) },
   ];
+  if (['novel', 'short-story', 'literary-work', 'manga'].includes(kind)) {
+    // Search current publisher records too; a slow store must not be the only
+    // route to book ISBN, publication and introduction evidence.
+    const label = kind === 'manga' ? '漫画 短編集' : kind === 'short-story' ? '小説 短編集' : '小説 物語';
+    routes.push({ url: searchUrl(engine, `site:www.hanmoto.com/bd/isbn ${label}`, page % 4),
+      parse: html => parseResults(html, engine, kind) });
+  }
   const results = Array(routes.length);
   const tasks = routes.map(async (route, index) => {
     try {
