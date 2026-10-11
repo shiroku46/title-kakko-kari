@@ -6,6 +6,7 @@ import { getSocket, leaveRoom } from '../hooks/useSocket';
 import useRoomRecovery from '../hooks/useRoomRecovery';
 import { getRoomSession, saveRoomSession, showRoom } from '../utils/roomSession';
 import { rememberedName, rememberName } from '../utils/playerProfile';
+import { readAccount } from '../utils/accountAuth';
 import { colors } from '../theme';
 
 export default function NameEntryScreen({ navigation, route }) {
@@ -17,8 +18,16 @@ export default function NameEntryScreen({ navigation, route }) {
   const active = useRef(true);
   const requestPending = useRef(false);
   const leaving = useRef(false);
+  const edited = useRef(false);
   const reconnecting = useRoomRecovery(navigation, leaving);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => {
+    let current = true;
+    if (player.profile_ready === false) readAccount().then(({ user }) => {
+      if (current && !edited.current && user) setNickname(user.name?.slice(0, 12) || '');
+    });
+    return () => { current = false; };
+  }, [player.profile_ready]);
 
   function save() {
     if (!nickname.trim() || requestPending.current || reconnecting) return;
@@ -56,7 +65,7 @@ export default function NameEntryScreen({ navigation, route }) {
           <Text accessibilityRole="header" style={styles.heading}>名前を入力してください</Text>
           <Text style={styles.note}>この部屋で使う名前を決めましょう。</Text>
           <Text style={styles.label}>あなたの名前</Text>
-          <TextInput value={nickname} onChangeText={value => { setNickname(value); setError(''); }}
+          <TextInput value={nickname} onChangeText={value => { edited.current = true; setNickname(value); setError(''); }}
             accessibilityLabel="ニックネーム入力欄" placeholder="例：しろく" placeholderTextColor={colors.muted}
             style={styles.input} maxLength={12} editable={!pending && !reconnecting} autoFocus
             returnKeyType="done" onSubmitEditing={save} autoCorrect={false} />

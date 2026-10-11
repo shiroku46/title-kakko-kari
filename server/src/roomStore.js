@@ -7,7 +7,14 @@ const REJOIN_WINDOW_MS = 24 * 60 * 60 * 1000;
 function loadRooms() {
   if (!fs.existsSync(statePath)) return new Map();
   try {
-    const saved = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    return deserializeRooms(JSON.parse(fs.readFileSync(statePath, 'utf8')));
+  } catch {
+    throw new Error('部屋の保存データを読み込めません。保存ファイルを保全して確認してください。');
+  }
+}
+
+function deserializeRooms(saved) {
+  try {
     if (saved.version !== 1 || !Array.isArray(saved.rooms)) throw new Error();
     const rooms = new Map();
     for (const room of saved.rooms) {
@@ -41,14 +48,18 @@ function loadRooms() {
   }
 }
 
-function saveRooms(rooms) {
-  const data = { version: 1, rooms: [...rooms.values()].map((room) => ({
+function serializeRooms(rooms) {
+  return { version: 1, rooms: [...rooms.values()].map((room) => ({
     ...room, rounds: room.rounds.map((round) => ({ ...round, declarations: [...round.declarations] })),
   })) };
+}
+
+function saveRooms(rooms) {
+  const data = serializeRooms(rooms);
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
   const temporary = `${statePath}.tmp`;
   fs.writeFileSync(temporary, JSON.stringify(data), { mode: 0o600 });
   fs.renameSync(temporary, statePath);
 }
 
-module.exports = { loadRooms, saveRooms, REJOIN_WINDOW_MS };
+module.exports = { loadRooms, saveRooms, serializeRooms, deserializeRooms, REJOIN_WINDOW_MS };

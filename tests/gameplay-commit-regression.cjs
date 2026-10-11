@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { runInNewContext } = require('node:vm');
-const { commitGameAction } = require('../server/src/socket/commitGameAction');
+delete process.env.DATABASE_URL;
+const { commitGameAction, runStateOperation } = require('../server/src/socket/commitGameAction');
 
 function loadSource(path, mocks) {
   const module = { exports: {} };
@@ -25,7 +26,7 @@ function recorder(order = []) {
   } }; } } };
 }
 
-test('durable snapshot precedes event; queued payload cannot change afterwards', () => {
+test('durable snapshot precedes event; queued payload cannot change afterwards', async () => {
   const order = [];
   const { io, events } = recorder(order);
   const room = { players: [{ score: 0 }] };
@@ -43,7 +44,7 @@ test('durable snapshot precedes event; queued payload cannot change afterwards',
   assert.equal(events[0].args[0].score, 1);
 });
 
-test('failed write restores score, MVP and declaration Map; publishes no result', () => {
+test('failed write restores score, MVP and declaration Map; publishes no result', async () => {
   const { io, events } = recorder();
   const room = { players: [{ score: 0 }], rounds: [{ mvpAnswerId: null, declarations: new Map([['a', 'unknown']]) }] };
   let capturedIo;
@@ -61,7 +62,7 @@ test('failed write restores score, MVP and declaration Map; publishes no result'
   assert.equal(events.length, 0);
 });
 
-test('unchanged validation failure preserves pending-fetch object identity', () => {
+test('unchanged validation failure preserves pending-fetch object identity', async () => {
   const round = { synopsis: null, declarations: new Map() };
   const room = { rounds: [round] };
   let writes = 0;
@@ -72,7 +73,7 @@ test('unchanged validation failure preserves pending-fetch object identity', () 
   assert.equal(writes, 0);
 });
 
-test('delivery failure keeps committed score available for authoritative recovery', () => {
+test('delivery failure keeps committed score available for authoritative recovery', async () => {
   const room = { score: 0 };
   let durable;
   const io = { to() { return { emit() { throw new Error('transport lost'); } }; } };
@@ -83,7 +84,7 @@ test('delivery failure keeps committed score available for authoritative recover
   assert.equal(durable.score, 1);
 });
 
-test('external effects start only after save; their failure cannot roll back committed state', () => {
+test('external effects start only after save; their failure cannot roll back committed state', async () => {
   const room = { score: 0 };
   let effects = 0;
   assert.throws(() => commitGameAction(recorder().io, room, () => { throw new Error('write failed'); }, (_, defer) => {
@@ -119,6 +120,7 @@ function fixture(phase = 'revealed') {
     settings: { genreDisclosure: false }, usedQuestionIds: [] };
   let failWrite = false;
   let durable;
+  let pendingWrite;
   const order = [];
   const { io, events } = recorder(order);
   const dto = loadSource('server/src/gameState.js', {
@@ -131,7 +133,9 @@ function fixture(phase = 'revealed') {
     persistRooms() {
       order.push('persist');
       if (failWrite) throw new Error('保存に失敗しました');
-      durable = structuredClone(room);
+      const saved = structuredClone(room);
+      if (pendingWrite) return pendingWrite.then(() => { durable = saved; });
+      durable = saved;
     },
   };
   const game = loadSource('server/src/socket/gameHandlers.js', {
@@ -139,35 +143,33 @@ function fixture(phase = 'revealed') {
     '../questions': { selectQuestionAsync: async () => { throw new Error('unexpected fetch'); } },
     '../questions/kinds': { getKind: () => null }, '../questions/quality': { MAX_LENGTH: 1500 },
     '../computerTitles': { generateComputerTitles: () => [] },
-    './commitGameAction': { commitGameAction }, '../gameState': state,
+    './commitGameAction': { commitGameAction, runStateOperation }, '../gameState': state,
   });
   function register(id, installer) {
     const handlers = new Map();
     const socket = { id: 'socket-' + id, data: { playerId: id, roomCode: room.code },
       on: (event, handler) => handlers.set(event, handler) };
     installer(io, socket);
-    return (event, payload = {}) => {
-      let response;
-      handlers.get(event)(payload, (result) => { response = result; order.push('ack'); });
-      return response;
-    };
+    return (event, payload = {}) => new Promise((resolve) => {
+      handlers.get(event)({ roundId: room.rounds.find(r => r.round_number === room.current_round)?.id, ...payload }, (result) => { order.push('ack'); resolve(result); });
+    });
   }
   return { room, dto, state, game, io, events, order,
     command: (id) => register(id, game.registerGameHandlers),
-    register, fail(value) { failWrite = value; }, durable: () => durable };
+    register, delay(promise) { pendingWrite = promise; }, fail(value) { failWrite = value; }, durable: () => durable };
 }
 
-test('real MVP handler: failed save, retry, duplicate and resume cannot double-credit', () => {
+test('real MVP handler: failed save, retry, duplicate and resume cannot double-credit', async () => {
   const f = fixture();
   const command = f.command('q');
   f.fail(true);
-  assert.equal(command('round:submit_mvp', { answerId: 'fake-a' }).ok, false);
+  assert.equal((await command('round:submit_mvp', { answerId: 'fake-a' })).ok, false);
   assert.equal(f.room.players.find((p) => p.id === 'a').score, 0);
   assert.equal(f.room.rounds[0].mvpAnswerId, null);
   assert.equal(f.events.length, 0);
   f.fail(false);
-  assert.equal(command('round:submit_mvp', { answerId: 'fake-a' }).ok, true);
-  assert.equal(command('round:submit_mvp', { answerId: 'fake-a' }).ok, false);
+  assert.equal((await command('round:submit_mvp', { answerId: 'fake-a' })).ok, true);
+  assert.equal((await command('round:submit_mvp', { answerId: 'fake-a' })).ok, false);
   assert.equal(f.room.players.find((p) => p.id === 'a').score, 1);
   assert.equal(f.durable().players.find((p) => p.id === 'a').score, 1);
   assert.equal(f.events.filter((e) => e.event === 'round:mvp_selected').length, 1);
@@ -175,41 +177,41 @@ test('real MVP handler: failed save, retry, duplicate and resume cannot double-c
   assert.equal(f.room.players.find((p) => p.id === 'a').score, 1);
 });
 
-test('real last vote: failed reveal save remains voting; retry scores once after persistence', () => {
+test('real last vote: failed reveal save remains voting; retry scores once after persistence', async () => {
   const f = fixture('voting');
   f.room.rounds[0].votes = [{ voter_id: 'a', answer_id: 'real' }, { voter_id: 'b', answer_id: 'fake-a' }];
   const command = f.command('c');
   f.fail(true);
-  assert.equal(command('round:submit_vote', { answerId: 'real' }).ok, false);
+  assert.equal((await command('round:submit_vote', { answerId: 'real' })).ok, false);
   assert.equal(f.room.rounds[0].status, 'voting');
   assert.equal(f.room.rounds[0].votes.length, 2);
   assert.equal(f.room.players.find((p) => p.id === 'a').score, 0);
   assert.equal(f.events.length, 0);
   f.fail(false);
   f.order.length = 0;
-  assert.equal(command('round:submit_vote', { answerId: 'real' }).ok, true);
+  assert.equal((await command('round:submit_vote', { answerId: 'real' })).ok, true);
   assert.equal(f.room.rounds[0].status, 'revealed');
   assert.equal(f.room.players.find((p) => p.id === 'a').score, 2);
   assert.equal(f.room.players.find((p) => p.id === 'c').score, 1);
   assert.equal(f.order[0], 'persist');
-  assert.equal(command('round:submit_vote', { answerId: 'real' }).ok, false);
+  assert.equal((await command('round:submit_vote', { answerId: 'real' })).ok, false);
   assert.equal(f.events.filter((e) => e.event === 'round:revealed').length, 1);
 });
 
-test('resume declaration uses UUID and retains legacy names; unknown clears that UUID', () => {
+test('resume declaration uses UUID and retains legacy names; unknown clears that UUID', async () => {
   const f = fixture('selecting');
   const command = f.command('a');
-  assert.equal(command('round:declare_known').ok, true);
+  assert.equal((await command('round:declare_known')).ok, true);
   f.room.players.find((p) => p.id === 'a').nickname = '変更した名前';
   let saved = f.game.getResumeGame(f.room, f.room.players[0]).resumeState;
   assert.deepEqual(structuredClone(saved.knownPlayerIds), ['a']);
   assert.deepEqual(structuredClone(saved.knownDeclarations), ['変更した名前']);
-  assert.equal(command('round:declare_unknown').ok, true);
+  assert.equal((await command('round:declare_unknown')).ok, true);
   saved = f.game.getResumeGame(f.room, f.room.players[0]).resumeState;
   assert.equal(saved.knownPlayerIds.length, 0);
 });
 
-test('room/player/settings/round DTOs exclude current and future credentials and answer state', () => {
+test('room/player/settings/round DTOs exclude current and future credentials and answer state', async () => {
   const f = fixture();
   f.room.password_hash = 'secret-room-password';
   f.room.settings.oauthSecret = 'secret-oauth';
@@ -231,31 +233,31 @@ test('room/player/settings/round DTOs exclude current and future credentials and
   assert.equal(resumed.resumeState.questionerView, null);
 });
 
-test('lobby CPU/settings failed writes restore previous state and publish nothing', () => {
+test('lobby CPU/settings failed writes restore previous state and publish nothing', async () => {
   const f = fixture();
   f.room.status = 'waiting';
   const installer = loadSource('server/src/socket/roomHandlers.js', {
     '../gameState': f.state, './gameHandlers': { getResumeGame: f.game.getResumeGame },
-    './commitGameAction': { commitGameAction }, '../roomPassword': require('../server/src/roomPassword'),
+    './commitGameAction': { commitGameAction, runStateOperation }, '../roomPassword': require('../server/src/roomPassword'),
   }).registerRoomHandlers;
   const command = f.register('q', installer);
   const beforePlayers = f.room.players;
   const beforeSettings = f.room.settings;
   f.fail(true);
-  assert.equal(command('room:set_computers', { count: 1 }).ok, false);
+  assert.equal((await command('room:set_computers', { count: 1 })).ok, false);
   assert.equal(f.room.players, beforePlayers);
-  assert.equal(command('room:update_settings', { genreDisclosure: true }).ok, false);
+  assert.equal((await command('room:update_settings', { genreDisclosure: true })).ok, false);
   assert.equal(f.room.settings, beforeSettings);
   assert.equal(f.events.length, 0);
 });
 
-test('failed introduction and final advancement restore state and publish no success', () => {
+test('failed introduction and final advancement restore state and publish no success', async () => {
   const introduction = fixture('selecting');
   introduction.room.rounds[0].synopsis = null;
   introduction.room.rounds[0].real_title = null;
   const originalRound = introduction.room.rounds[0];
   introduction.fail(true);
-  assert.equal(introduction.command('q')('round:submit_synopsis', { synopsis: '港町の物語', realTitle: '本物' }).ok, false);
+  assert.equal((await introduction.command('q')('round:submit_synopsis', { synopsis: '港町の物語', realTitle: '本物' })).ok, false);
   assert.equal(introduction.room.rounds[0], originalRound);
   assert.equal(originalRound.synopsis, null);
   assert.equal(introduction.events.length, 0);
@@ -263,12 +265,12 @@ test('failed introduction and final advancement restore state and publish no suc
   ending.room.total_rounds = 1;
   ending.room.rounds[0].mvpAnswerId = 'fake-a';
   ending.fail(true);
-  assert.equal(ending.command('q')('game:next_round').ok, false);
+  assert.equal((await ending.command('q')('game:next_round')).ok, false);
   assert.equal(ending.room.status, 'playing');
   assert.equal(ending.events.length, 0);
 });
 
-test('consent mode waits for the controller, including deadline expiry and restart fields', () => {
+test('consent mode waits for the controller, including deadline expiry and restart fields', async () => {
   const f = fixture('submitting');
   f.room.settings = { genreDisclosure: false, advanceMode: 'consent', timeLimitSeconds: 30 };
   const round = f.room.rounds[0];
@@ -276,30 +278,66 @@ test('consent mode waits for the controller, including deadline expiry and resta
   f.game.checkRoundProgress(f.io, f.room, round);
   assert.equal(round.status, 'submitting');
   assert.equal(round.phase_ready, true);
-  assert.equal(f.command('a')('round:advance_phase').ok, false);
-  assert.equal(f.command('q')('round:advance_phase').ok, true);
+  assert.equal((await f.command('a')('round:advance_phase')).ok, false);
+  assert.equal((await f.command('q')('round:advance_phase')).ok, true);
   assert.equal(round.status, 'voting');
   assert(round.deadline_at > Date.now());
   round.deadline_at = Date.now() - 1;
-  f.game.checkRoundTimers(f.io);
+  await f.game.checkRoundTimers(f.io);
   assert.equal(round.status, 'voting');
   assert.equal(round.phase_ready, true);
-  assert.equal(f.command('q')('round:advance_phase').ok, true);
+  assert.equal((await f.command('q')('round:advance_phase')).ok, true);
   assert.equal(round.status, 'revealed');
 });
 
-test('automatic expiry uses only submitted titles and never makes an empty MVP round', () => {
+test('automatic expiry uses only submitted titles and never makes an empty MVP round', async () => {
   const f = fixture('submitting');
   const round = f.room.rounds[0];
   round.answers = [];
   round.deadline_at = Date.now() - 1;
-  f.game.checkRoundTimers(f.io);
+  await f.game.checkRoundTimers(f.io);
   assert.equal(round.status, 'submitting');
-  assert.equal(f.command('a')('round:submit_fake', { title: '遅れて届いた案' }).ok, true);
+  assert.equal((await f.command('a')('round:submit_fake', { title: '遅れて届いた案' })).ok, true);
   assert.equal(round.status, 'voting');
   round.deadline_at = Date.now() - 1;
   round.timer_notified = false;
-  f.game.checkRoundTimers(f.io);
+  await f.game.checkRoundTimers(f.io);
   assert.equal(round.status, 'revealed');
-  assert.equal(f.command('q')('round:submit_mvp', { answerId: round.answers.find((a) => !a.is_real).id }).ok, true);
+  assert.equal((await f.command('q')('round:submit_mvp', { answerId: round.answers.find((a) => !a.is_real).id })).ok, true);
+});
+
+test('pending asynchronous score save blocks duplicate, recovery reads, timer, fetch completion and exit until commit', async () => {
+  const f = fixture(); let release;
+  f.delay(new Promise(resolve => { release = resolve; }));
+  const command = f.command('q');
+  const first = command('round:submit_mvp', { answerId: 'fake-a' });
+  const duplicate = command('round:submit_mvp', { answerId: 'fake-a' });
+  const observations = [];
+  const followers = ['recovery', 'timer', 'fetch', 'exit'].map(name => runStateOperation(() => {
+    observations.push(name); assert.equal(f.durable().players[1].score, f.room.players[1].score);
+  }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.events.length, 0); assert.equal(f.durable(), undefined); assert.equal(observations.length, 0);
+  release(); assert.equal((await first).ok, true); assert.equal((await duplicate).ok, false); await Promise.all(followers);
+  assert.equal(f.events.filter(e => e.event === 'round:mvp_selected').length, 1);
+  assert.deepEqual(observations, ['recovery', 'timer', 'fetch', 'exit']);
+});
+test('asynchronous write rejection restores object identity and allows the next queued operation to retry', async () => {
+  const f = fixture(); const round = f.room.rounds[0]; const player = f.room.players[1]; let reject;
+  f.delay(new Promise((_, fail) => { reject = fail; }));
+  const command = f.command('q'); const first = command('round:submit_mvp', { answerId: 'fake-a' });
+  await new Promise(resolve => setImmediate(resolve)); reject(new Error('保存できません'));
+  assert.equal((await first).ok, false); assert.equal(f.room.rounds[0], round); assert.equal(f.room.players[1], player);
+  assert.equal(player.score, 0); assert.equal(round.mvpAnswerId, null); assert.equal(f.events.length, 0);
+  f.delay(null); assert.equal((await command('round:submit_mvp', { answerId: 'fake-a' })).ok, true);
+});
+test('old round UUID and missing UUID reject every mutating round command before writing', async () => {
+  const f = fixture('submitting'); const command = f.command('a'); const before = structuredClone(f.room);
+  for (const roundId of ['former-round', null]) for (const event of ['round:submit_fake', 'round:submit_vote', 'round:declare_known',
+    'round:declare_unknown', 'round:submit_synopsis', 'round:reselect', 'round:start_submitting', 'round:advance_phase',
+    'round:confirm_synopsis', 'round:reroll_synopsis', 'round:use_manual', 'round:submit_mvp', 'game:next_round']) {
+    const response = await command(event, { roundId, title: '古い回答', answerId: 'fake-a' });
+    assert.equal(response.ok, false); assert.match(response.error, /古いラウンド/);
+  }
+  assert.deepEqual(f.room, before); assert.equal(f.order.length, 26); assert.equal(f.events.length, 0);
 });

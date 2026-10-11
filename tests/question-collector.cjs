@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { resolve } = require('node:path');
 const { collectQuestions, identityKeys, DEFAULT_PROVIDERS, curlResponse } = require('../server/src/questions/collector');
 const { parseArgs } = require('../server/scripts/generate-questions.cjs');
 
@@ -506,11 +507,11 @@ test('curl source responses preserve Retry-After and binary payload bytes', asyn
 test('CLI defaults to online discovery and persistent accumulation rather than a fixed catalog', () => {
   const args = parseArgs([]);
   assert.equal(args.catalog, null);
-  assert.match(args.output, /server\/data\/questions\/bank\.json$/u);
-  assert.match(args.state, /server\/data\/questions\/discovery\.json$/u);
+  assert.equal(args.output, resolve(__dirname, '../server/data/questions/bank.json'));
+  assert.equal(args.state, resolve(__dirname, '../server/data/questions/discovery.json'));
   assert.equal(args.batchSize, 8);
   assert.equal(args.minimum, null);
-  assert.equal(parseArgs(['--catalog', 'fixture.json']).catalog.endsWith('/fixture.json'), true);
+  assert.equal(parseArgs(['--catalog', 'fixture.json']).catalog, resolve('fixture.json'));
   assert.equal(parseArgs(['--batch-size', '30', '--max-requests', '40']).batchSize, 30);
   assert.throws(() => parseArgs(['--batch-size', '0']));
   assert.throws(() => parseArgs(['--max-requests', '301']));
@@ -528,12 +529,12 @@ test('CLI replenishes the same configured persistent store as the running server
   process.env.QUESTION_BANK_PATH = '/tmp/title-custom-bank/bank.json';
   process.env.QUESTION_DISCOVERY_STATE_PATH = '/tmp/title-custom-bank/state.json';
   const args = parseArgs([]);
-  assert.equal(args.output, '/tmp/title-custom-bank/bank.json');
-  assert.equal(args.state, '/tmp/title-custom-bank/state.json');
+  assert.equal(args.output, resolve('/tmp/title-custom-bank/bank.json'));
+  assert.equal(args.state, resolve('/tmp/title-custom-bank/state.json'));
   assert.equal(args.seedPath, undefined);
   const explicit = parseArgs(['--output', '/tmp/separate-bank/bank.json']);
-  assert.equal(explicit.output, '/tmp/separate-bank/bank.json');
-  assert.equal(explicit.state, '/tmp/separate-bank/discovery.json');
+  assert.equal(explicit.output, resolve('/tmp/separate-bank/bank.json'));
+  assert.equal(explicit.state, resolve('/tmp/separate-bank/discovery.json'));
   assert.equal(explicit.explicitOutput, true);
 });
 

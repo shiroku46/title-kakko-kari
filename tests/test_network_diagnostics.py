@@ -17,7 +17,8 @@ class TestSafeNetworkDiagnostics(unittest.TestCase):
         cls.source = read("server/src/index.js")
 
     def test_health_preserves_status_ok(self):
-        self.assertIn("status: 'ok'", self.source)
+        self.assertIn("status: storage.ready ? 'ok' : 'unavailable'", self.source)
+        self.assertIn("res.status(storage.ready ? 200 : 503)", self.source)
         self.assertIn("app.get('/health'", self.source)
 
     def test_release_uses_render_commit_and_is_truncated(self):

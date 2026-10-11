@@ -4,7 +4,7 @@ const { selectQuestionAsync } = require('../questions');
 const { getKind } = require('../questions/kinds');
 const { MAX_LENGTH } = require('../questions/quality');
 const { generateComputerTitles } = require('../computerTitles');
-const { commitGameAction } = require('./commitGameAction');
+const { commitGameAction, runStateOperation } = require('./commitGameAction');
 const {
   rooms, getMember, getCurrentRound, connectedAnswerers, publicRound,
   playerScores, textInput, persistRooms, publicSettings,
@@ -74,13 +74,14 @@ async function loadCpuSynopsis(io, room, round) {
   } finally {
     if (cpuFetchControllers.get(round) === controller) cpuFetchControllers.delete(round);
   }
+  await runStateOperation(async () => {
   // A late selection must not overwrite a confirmed, skipped or abandoned round.
   if (rooms.get(room.code) !== room || getCurrentRound(room) !== round ||
       room.status !== 'playing' || round.status !== 'selecting' ||
       round.questioner_id !== null || round.previewConfirmed || round.fetchVersion !== version) return;
   const host = room.players.find((p) => p.is_host && p.is_connected);
   try {
-    commitGameAction(io, room, persistRooms, (stagedIo) => {
+    await commitGameAction(io, room, persistRooms, (stagedIo) => {
       if (!work) round.fetchError = failure || '出典付きの問題を用意できませんでした。再取得してください。';
       else {
         round.synopsis = work.synopsis;
@@ -98,6 +99,7 @@ async function loadCpuSynopsis(io, room, round) {
     round.fetchError = error.message;
     if (host) io.to(host.socket_id).emit('round:synopsis_fetch_failed', { roundId: round.id, error: error.message });
   }
+  });
 }
 
 function startRound(io, room, mode, event, playerOrder, defer) {
@@ -143,20 +145,23 @@ function startSubmitting(io, room, round) {
 
 function registerGameHandlers(io, socket) {
   function on(event, handler) {
-    socket.on(event, (payload, callback) => {
+    socket.on(event, (payload, callback) => runStateOperation(async () => {
       try {
         const { room, player } = getMember(socket);
         if (event !== 'game:start' && room.status !== 'playing') {
           throw new Error('ゲームが開始していないか、終了しています');
         }
+        if (event !== 'game:start' && payload?.roundId !== getCurrentRound(room)?.id) {
+          throw new Error('古いラウンドの操作です。現在の画面で操作し直してください。');
+        }
         const result = event === 'round:get_synopsis' ? handler(payload, room, player, io) :
-          commitGameAction(io, room, persistRooms,
+          await commitGameAction(io, room, persistRooms,
             (stagedIo, defer) => handler(payload, room, player, stagedIo, defer));
         if (typeof callback === 'function') callback({ ok: true, ...result });
       } catch (error) {
         if (typeof callback === 'function') callback({ ok: false, error: error.message });
       }
-    });
+    }));
   }
 
   socket.on('round:prepare_question', async (payload, callback) => {
@@ -164,6 +169,7 @@ function registerGameHandlers(io, socket) {
     let state;
     let version;
     try {
+      const { room, round, check, usedQuestionIds } = await runStateOperation(() => {
       const { room, player } = getMember(socket);
       const round = getCurrentRound(room);
       const check = () => {
@@ -183,13 +189,17 @@ function registerGameHandlers(io, socket) {
       version = ++state.version;
       state.loading = true;
       state.controller = new AbortController();
-      const work = await selectQuestionAsync([...room.usedQuestionIds], { signal: state.controller.signal });
+      return { room, round, check, usedQuestionIds: [...room.usedQuestionIds] };
+      });
+      const work = await selectQuestionAsync(usedQuestionIds, { signal: state.controller.signal });
+      await runStateOperation(async () => {
       check();
       if (state.version !== version) throw new Error('取得中に出題内容が変更されました。もう一度お試しください');
-      commitGameAction(io, room, persistRooms, () => room.usedQuestionIds.push(work.id));
+      await commitGameAction(io, room, persistRooms, () => room.usedQuestionIds.push(work.id));
       state.question = work;
       callback({ ok: true, roundId: round.id, questionId: work.id, title: work.realTitle,
         synopsis: work.synopsis, kind: work.kind, contentType: work.contentType || 'synopsis' });
+      });
     } catch (error) {
       callback({ ok: false, error: error.message });
     } finally {
@@ -483,13 +493,13 @@ function readyPhase(io, room, round, advance) {
   round.phase_ready = true;
   io.to(room.code).emit('round:phase_ready', { roundId: round.id, phase: round.status });
 }
-function checkRoundTimers(io) {
+async function checkRoundTimers(io) {
   for (const room of rooms.values()) {
     if (room.status !== 'playing') continue;
     const round = getCurrentRound(room);
     if (!['submitting', 'voting'].includes(round.status) || round.timer_notified || !deadlinePassed(round)) continue;
     try {
-      commitGameAction(io, room, persistRooms, (stagedIo) => {
+      await commitGameAction(io, room, persistRooms, (stagedIo) => {
         round.timer_notified = true;
         checkRoundProgress(stagedIo, room, round);
       });
@@ -513,6 +523,7 @@ function transitionToVoting(io, room, round) {
       roundId: round.id, choices, ownAnswerId, deadlineAt: round.deadline_at,
     });
   }
+  io.to(room.code).emit('round:vote_progress', { votedCount: 0, totalCount: connectedAnswerers(room, round).length });
 }
 
 function revealRound(io, room, round) {

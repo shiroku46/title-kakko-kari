@@ -10,7 +10,9 @@ const directory = mkdtempSync(join(tmpdir(), 'title-session-recovery-'));
 const statePath = join(directory, 'rooms.json');
 let child;
 let url;
-const childCode = `const {server}=require('./server/src/index');
+const childCode = `require('./server/node_modules/dotenv').config=()=>({parsed:{}});
+delete process.env.DATABASE_URL;
+const {server}=require('./server/src/index');
 server.listen(0,'127.0.0.1',()=>process.send(server.address().port));`;
 async function startServer() {
   child = spawn(process.execPath, ['-e', childCode], { cwd: join(__dirname, '..'),
@@ -31,14 +33,24 @@ after(async () => { await stopServer(); rmSync(directory, { recursive: true, for
 async function client(t, transport = 'websocket') {
   const socket = connect(url, { transports: [transport], reconnection: false });
   const events = [];
-  socket.onAny((name, data) => events.push({ name, data }));
+  socket.onAny((name, data) => {
+    if (data?.round?.id) socket.currentRoundId = data.round.id;
+    events.push({ name, data });
+  });
   t.after(() => socket.disconnect());
   await once(socket, 'connect', { signal: AbortSignal.timeout(5000) });
   return { socket, events };
 }
-function request(member, event, payload) {
+async function request(member, event, payload) {
+  await new Promise(resolve => setTimeout(resolve, 10));
+  if (event.startsWith('round:') || event === 'game:next_round') {
+    payload = { roundId: member.socket.currentRoundId, ...payload };
+  }
   return new Promise((resolve, reject) => member.socket.timeout(5000).emit(event, payload,
-    (error, response) => error ? reject(error) : resolve(response)));
+    (error, response) => {
+      if (response?.gameData?.round?.id) member.socket.currentRoundId = response.gameData.round.id;
+      error ? reject(error) : resolve(response);
+    }));
 }
 async function ok(member, event, payload) {
   const result = await request(member, event, payload);

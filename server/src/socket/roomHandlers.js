@@ -2,7 +2,7 @@ const { randomUUID, randomBytes, createHash, timingSafeEqual } = require('node:c
 const { rooms, createRoom, getRoom, getMember, publicRoom, publicPlayer, publicSettings, playerScores,
   textInput, persistRooms, updateRoomExpiry } = require('../gameState');
 const { getResumeGame } = require('./gameHandlers');
-const { commitGameAction } = require('./commitGameAction');
+const { commitGameAction, runStateOperation } = require('./commitGameAction');
 const { hashRoomPassword, verifyRoomPassword } = require('../roomPassword');
 
 function tokenHash(token) { return createHash('sha256').update(token).digest('hex'); }
@@ -16,6 +16,12 @@ function lobbyPlayers(room) {
 }
 
 function registerRoomHandlers(io, socket) {
+  const on = (event, handler) => socket.on(event, (...args) => {
+    return runStateOperation(() => handler(...args)).catch(() => {
+      const callback = args.at(-1);
+      if (typeof callback === 'function') callback({ ok: false, error: '部屋の操作を保存できませんでした。もう一度お試しください。' });
+    });
+  });
   let admissionPending = false;
   for (const event of ['room:create', 'room:join']) {
     socket.on(event, async (payload, callback) => {
@@ -25,23 +31,28 @@ function registerRoomHandlers(io, socket) {
       }
       admissionPending = true;
       try {
-        if (socket.data.playerId) throw new Error('すでにルームに参加しています');
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('入室情報が不正です');
         const suppliedName = payload?.nickname;
         const nickname = suppliedName === undefined ? `参加者${randomBytes(3).toString('hex')}` :
           textInput(suppliedName, 'ニックネーム', 12);
         const isHost = event === 'room:create';
-        let room;
+        const initial = await runStateOperation(() => {
+        if (socket.data.playerId) throw new Error('すでにルームに参加しています');
+        const room = isHost ? null : getRoom(textInput(payload?.code, 'ルームコード', 6).toUpperCase());
+        return { nickname, isHost, room, passwordHash: room?.password_hash };
+        });
+        const passwordHash = isHost ? await hashRoomPassword(payload?.password) : initial.passwordHash;
+        if (!isHost && !await verifyRoomPassword(passwordHash, payload?.password)) throw new Error('パスワードが違います');
+        await runStateOperation(async () => {
+        let room = initial.room;
         if (isHost) {
-          const passwordHash = await hashRoomPassword(payload?.password);
           if (!socket.connected) throw new Error('接続が切れました');
           if (socket.data.playerId) throw new Error('すでにルームに参加しています');
           room = createRoom();
           room.password_hash = passwordHash;
         } else {
           const code = textInput(payload?.code, 'ルームコード', 6).toUpperCase();
-          room = getRoom(code);
-          if (!await verifyRoomPassword(room.password_hash, payload?.password)) throw new Error('パスワードが違います');
+          if (getRoom(code) !== room) throw new Error('部屋への接続を確認してください');
           if (!socket.connected || rooms.get(code) !== room) throw new Error('部屋への接続を確認してください');
           if (socket.data.playerId) throw new Error('すでにルームに参加しています');
           if (room.status !== 'waiting') throw new Error('このルームのゲームはすでに開始しています');
@@ -55,10 +66,10 @@ function registerRoomHandlers(io, socket) {
         const player = {
           id: randomUUID(), room_id: room.id, nickname, is_host: isHost,
           socket_id: socket.id, is_connected: true, is_online: true, resume_hash: tokenHash(token), score: 0, turn_order: null,
-          icon: null, profile_ready: suppliedName !== undefined,
+          icon: null, profile_ready: payload.nickname !== undefined,
         };
         try {
-          commitGameAction(io, room, persistRooms, () => {
+          await commitGameAction(io, room, persistRooms, () => {
             room.players.push(player);
             updateRoomExpiry(room);
           });
@@ -80,6 +91,7 @@ function registerRoomHandlers(io, socket) {
         if (typeof callback === 'function') {
           callback({ ok: true, room: publicRoom(room), player: publicPlayer(player), token, allPlayers });
         }
+        });
       } catch (error) {
         if (typeof callback === 'function') callback({ ok: false, error: error.message });
       } finally {
@@ -88,9 +100,10 @@ function registerRoomHandlers(io, socket) {
     });
   }
 
-  socket.on('room:resume', (payload, callback) => {
+  on('room:resume', async (payload, callback) => {
     let rejoinUnavailable = true;
     try {
+      if (!socket.connected) throw new Error('接続が切れました');
       const room = getRoom(payload?.code);
       const player = room.players.find((p) => p.id === payload?.playerId && p.is_connected && !p.is_computer);
       if (!player?.resume_hash || typeof payload?.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(payload.token) ||
@@ -106,7 +119,7 @@ function registerRoomHandlers(io, socket) {
       player.socket_id = socket.id;
       player.is_online = true;
       updateRoomExpiry(room);
-      try { persistRooms(); }
+      try { await persistRooms(); }
       catch (error) {
         player.socket_id = previous.socket_id;
         player.is_online = previous.is_online;
@@ -124,18 +137,18 @@ function registerRoomHandlers(io, socket) {
         ...(room.status === 'playing' && { gameData: getResumeGame(room, player) }),
         ...(room.status === 'finished' && { finalScores: playerScores(room) }) });
     } catch (error) {
-      if (typeof callback === 'function') callback({ ok: false, error: error.message, rejoinUnavailable });
+      if (typeof callback === 'function') callback({ ok: false, error: error.message, rejoinUnavailable: error.code === 'ROOM_STORE_UNAVAILABLE' ? false : rejoinUnavailable });
     }
   });
 
-  socket.on('room:update_profile', (payload, callback) => {
+  on('room:update_profile', async (payload, callback) => {
     try {
       const { room, player } = getMember(socket);
       const nickname = textInput(payload?.nickname, 'ニックネーム', 12);
       if (room.players.some((p) => p.id !== player.id && p.is_connected && p.nickname === nickname)) {
         throw new Error('そのニックネームはすでに使われています');
       }
-      commitGameAction(io, room, persistRooms, (stagedIo) => {
+      await commitGameAction(io, room, persistRooms, (stagedIo) => {
         Object.assign(player, { nickname, icon: null, profile_ready: true });
         stagedIo.to(room.code).emit('room:players_updated', {
           allPlayers: lobbyPlayers(room), players: room.players.map(publicPlayer),
@@ -148,7 +161,7 @@ function registerRoomHandlers(io, socket) {
     }
   });
 
-  socket.on('room:set_computers', (payload, callback) => {
+  on('room:set_computers', async (payload, callback) => {
     try {
       const { room, player } = getMember(socket);
       if (!player.is_host) throw new Error('コンピュータの変更はホストのみ操作できます');
@@ -168,7 +181,7 @@ function registerRoomHandlers(io, socket) {
         });
       }
       const allPlayers = lobbyPlayers(room);
-      try { persistRooms(); }
+      try { await persistRooms(); }
       catch (error) { room.players = previousPlayers; throw error; }
       io.to(room.code).emit('room:players_updated', { allPlayers });
       if (typeof callback === 'function') callback({ ok: true, allPlayers });
@@ -177,7 +190,7 @@ function registerRoomHandlers(io, socket) {
     }
   });
 
-  socket.on('room:update_settings', (payload, callback) => {
+  on('room:update_settings', async (payload, callback) => {
     try {
       const { room, player } = getMember(socket);
       if (!player.is_host) throw new Error('ルールの変更はホストのみ操作できます');
@@ -190,7 +203,7 @@ function registerRoomHandlers(io, socket) {
       }
       const previousSettings = room.settings;
       room.settings = { ...room.settings, genreDisclosure: payload.genreDisclosure, advanceMode, timeLimitSeconds };
-      try { persistRooms(); }
+      try { await persistRooms(); }
       catch (error) { room.settings = previousSettings; throw error; }
       io.to(room.code).emit('room:settings_updated', { settings: publicSettings(room.settings) });
       if (typeof callback === 'function') callback({ ok: true, settings: publicSettings(room.settings) });
@@ -199,7 +212,7 @@ function registerRoomHandlers(io, socket) {
     }
   });
 
-  socket.on('room:get_state', (_, callback) => {
+  on('room:get_state', async (_, callback) => {
     try {
       const { room } = getMember(socket);
       if (typeof callback === 'function') callback({ ok: true, room: publicRoom(room) });

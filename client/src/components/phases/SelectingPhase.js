@@ -77,7 +77,7 @@ export default function SelectingPhase({
     requestPendingRef.current = true;
     setPendingAction(event);
     setRequestError(null);
-    socket.timeout(10000).emit(event, payload, (error, res) => {
+    socket.timeout(10000).emit(event, { ...payload, roundId: round?.id }, (error, res) => {
       requestPendingRef.current = false;
       setPendingAction(null);
       if (error) {
@@ -197,7 +197,7 @@ export default function SelectingPhase({
             currentRound={currentRound}
             totalRounds={totalRounds}
             questioner={questioner}
-            phase={isQuestioner ? '作品と紹介文を決める' : 'この作品、知っていますか？'}
+            phase={isQuestioner ? submitted ? '回答者の確認を待つ' : '作品と紹介文を決める' : 'この作品、知っていますか？'}
           />
 
           {isCpu && isHost && synopsis ? (
@@ -414,7 +414,7 @@ export default function SelectingPhase({
                     </View>
                   ) : canAdvance ? (
                     <View style={styles.successBox}>
-                      <Text style={styles.successTitle}>全員が「知らない」と回答しました</Text>
+                      <Text style={styles.successTitle}>回答者全員が「知らない」と回答しました</Text>
                       <Text style={styles.successText}>タイトル案の提出へ進めます。</Text>
                     </View>
                   ) : (
@@ -424,7 +424,7 @@ export default function SelectingPhase({
                         <View style={[styles.dot, { backgroundColor: colors.yellow }]} />
                         <View style={[styles.dot, { backgroundColor: colors.cyan }]} />
                       </View>
-                      <Text style={styles.waitingText}>みんなの回答を待っています…</Text>
+                      <Text style={styles.waitingText}>回答者の「知ってる／知らない」を待っています…</Text>
                     </View>
                   )}
 

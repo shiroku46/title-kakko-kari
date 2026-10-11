@@ -44,6 +44,7 @@ function sourceDetails(source) {
 }
 
 export default function RevealedPhase({
+  round,
   currentRound,
   totalRounds,
   revealData,
@@ -107,7 +108,7 @@ export default function RevealedPhase({
     pendingRef.current = true;
     setPendingAction(event);
     setRequestError(null);
-    socket.timeout(10000).emit(event, payload, (error, res) => {
+    socket.timeout(10000).emit(event, { ...payload, roundId: round?.id }, (error, res) => {
       pendingRef.current = false;
       setPendingAction(null);
       if (error) return setRequestError('返事がありません。接続を確認して、もう一度お試しください。');

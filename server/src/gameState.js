@@ -3,12 +3,47 @@ const { loadRooms, saveRooms, REJOIN_WINDOW_MS } = require('./roomStore');
 
 // One server owns the snapshot; ROOM_STATE_PATH must be on persistent storage
 // for recovery across hosting-instance replacement.
-const rooms = loadRooms();
+const databaseConfigured = Object.hasOwn(process.env, 'DATABASE_URL');
+const rooms = databaseConfigured ? new Map() : loadRooms();
+let databaseStore;
+
+async function initializeRooms(instanceId) {
+  if (!databaseConfigured) return;
+  try {
+    if (!process.env.DATABASE_URL?.trim()) throw new Error();
+    const { neon } = require('@neondatabase/serverless');
+    const { createNeonRoomStore } = require('./neonRoomStore');
+    const sql = neon(process.env.DATABASE_URL);
+    databaseStore = createNeonRoomStore((query, params = []) =>
+      sql.query(query, params, { fetchOptions: { signal: AbortSignal.timeout(10000) } }), instanceId);
+    const saved = await databaseStore.load();
+    rooms.clear();
+    for (const [code, room] of saved) rooms.set(code, room);
+  } catch (_) {
+    throw new Error('部屋の永続保存先を初期化できません。DATABASE_URL と専用 DB を確認してください。');
+  }
+}
+
+function roomStorageStatus() {
+  return { mode: databaseConfigured ? 'neon' : 'file', ready: !databaseConfigured || Boolean(databaseStore?.ready) };
+}
+
+function requireRoomStorage() {
+  if (roomStorageStatus().ready) return;
+  const error = new Error('部屋の保存先へ接続できません。少し待って、もう一度お試しください。');
+  error.code = 'ROOM_STORE_UNAVAILABLE';
+  throw error;
+}
 
 function persistRooms() {
+  requireRoomStorage();
   pruneRooms();
+  if (databaseStore) return databaseStore.save(rooms);
   try { saveRooms(rooms); }
-  catch (_) { throw new Error('部屋を保存できませんでした。接続を確認して、もう一度お試しください。'); }
+  catch (_) {
+    const error = new Error('部屋を保存できませんでした。接続を確認して、もう一度お試しください。');
+    error.code = 'ROOM_STORE_UNAVAILABLE'; throw error;
+  }
 }
 
 function updateRoomExpiry(room) {
@@ -23,6 +58,7 @@ function pruneRooms() {
 }
 
 function createRoom() {
+  requireRoomStorage();
   pruneRooms();
   let code;
   do { code = String(randomInt(0, 1000000)).padStart(6, '0'); } while (rooms.has(code));
@@ -35,6 +71,7 @@ function createRoom() {
 }
 
 function getRoom(code) {
+  requireRoomStorage();
   pruneRooms();
   const room = rooms.get(code);
   if (!room) throw new Error('ルームが見つかりません');
@@ -110,6 +147,7 @@ function textInput(value, label, maxLength) {
 }
 
 module.exports = {
+  initializeRooms, roomStorageStatus, requireRoomStorage,
   rooms, createRoom, getRoom, getMember, getCurrentRound, connectedAnswerers,
   publicRoom, publicRound, publicPlayer, publicSettings, playerScores, textInput, persistRooms, updateRoomExpiry,
 };

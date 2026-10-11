@@ -116,6 +116,9 @@ process.env.ROOM_STATE_PATH = join(fixtureDirectory, 'rooms.json');
 // Keep these socket-level tests independent from remote discovery. Dedicated
 // question-service tests exercise on-demand collection with controlled sources.
 process.env.QUESTION_COLLECTION_ENABLED = 'false';
+// File-store fixtures must not read a developer's private database configuration.
+require('../server/node_modules/dotenv').config = () => ({ parsed: {} });
+delete process.env.DATABASE_URL;
 delete process.env.SUPABASE_URL;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 const questionApi = require('../server/src/questions');
@@ -211,7 +214,10 @@ async function bot(t, transport = 'websocket') {
     reconnection: false,
   });
   const events = [];
-  socket.onAny((name, data) => events.push({ name, data }));
+  socket.onAny((name, data) => {
+    if (data?.round?.id) socket.currentRoundId = data.round.id;
+    events.push({ name, data });
+  });
   t.after(() => {
     socket.disconnect();
     for (const entry of events) {
@@ -221,10 +227,15 @@ async function bot(t, transport = 'websocket') {
   await once(socket, 'connect', { signal: AbortSignal.timeout(3000) });
   return { socket, events };
 }
-function ack(b, event, payload = null) {
+async function ack(b, event, payload = null) {
+  await new Promise(resolve => setTimeout(resolve, 10));
+  if (event.startsWith('round:') || event === 'game:next_round') {
+    payload = { roundId: b.socket.currentRoundId, ...payload };
+  }
   return new Promise((resolve, reject) => b.socket.timeout(3000).emit(event, payload,
     (error, response) => {
       if (error) return reject(error);
+      if (response?.gameData?.round?.id) b.socket.currentRoundId = response.gameData.round.id;
       try {
         const { questionId, ...publicResponse } = response || {};
         if (event === 'round:prepare_question' && response?.ok) assertNoSources(publicResponse);
@@ -282,6 +293,25 @@ async function roomWith(t, count) {
   }
   return { bots, room: created.room };
 }
+
+test('human questioner never declares known/unknown and answerers alone unlock submission', async t => {
+  const { bots, room } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find(b => b.player.id === started.round.questioner_id);
+  const answerers = bots.filter(b => b !== questioner);
+  await ok(questioner, 'round:submit_synopsis', { synopsis: '港町で手紙を探す物語。', realTitle: '秘密の正解' });
+  await denied(questioner, 'round:declare_known');
+  await denied(questioner, 'round:declare_unknown');
+  await denied(questioner, 'round:start_submitting');
+  for (const answerer of answerers) await ok(answerer, 'round:declare_unknown');
+  await event(questioner, 'round:all_declared');
+  const round = rooms.get(room.code).rounds.at(-1);
+  assert.equal(round.declarations.has(questioner.player.id), false);
+  assert.equal(round.declarations.size, answerers.length);
+  await ok(questioner, 'round:start_submitting');
+  assert.equal(round.status, 'submitting');
+});
 
 test('health, CORS and both Socket.IO transports without database configuration', async (t) => {
   const res = await fetch(`${url}/health`, { headers: { Origin: 'https://game.example' } });
@@ -1527,7 +1557,8 @@ test('a transport lost during the resume reply keeps recovery active; an unavail
   const source = readFileSync(join(__dirname, '../client/src/hooks/useRoomRecovery.js'), 'utf8')
     .replace(/^import .*;\r?\n/gmu, '').replace('export default function ', 'function ');
   const useRecovery = runInNewContext(`${source}\nuseRoomRecovery;`, {
-    useState: (value) => [value, () => {}], useEffect: (effect) => { cleanup = effect(); },
+    useState: (value) => [value, () => {}], useEffect: (effect) => { cleanup = effect(); }, setTimeout, clearTimeout,
+    useIsFocused: () => true,
     getSocket: () => host.socket,
     getRoomSession: () => ({ code: entry.room.code, playerId: entry.player.id, token: entry.token }),
     clearRoomSession: () => { cleared = true; },
@@ -1535,7 +1566,11 @@ test('a transport lost during the resume reply keeps recovery active; an unavail
     showRoom: (_, result) => { restored = result; markRestored(); },
     Alert: { alert: (...args) => { alerts.push(args); markUnavailable(); } },
   });
-  useRecovery({ replace: (screen) => home.push(screen) }, leaving);
+  useRecovery({ reset: state => {
+    assert.equal(state.index, 0);
+    assert.equal(JSON.stringify(state.routes), JSON.stringify([{ name: 'Home' }]));
+    home.push('Home');
+  }, isFocused: () => true }, leaving);
   t.after(() => cleanup());
   async function interrupt() {
     const disconnected = once(host.socket, 'disconnect', { signal: AbortSignal.timeout(3000) });
@@ -1566,6 +1601,150 @@ test('a transport lost during the resume reply keeps recovery active; an unavail
   assert.deepEqual(home, ['Home']);
   assert.equal(cleared, true, 'a genuinely unavailable seat must revoke the bookmark');
   assert.equal(leaving.current, true);
+});
+
+const recoveryTestModules = new WeakMap();
+function focusedRecovery(socket, session, navigation, leaving, showRoom, onState = () => {}) {
+  let focused = true;
+  let cleanup;
+  navigation.isFocused = () => focused;
+  navigation.onShowRoom = result => showRoom(navigation, result);
+  if (!recoveryTestModules.has(socket)) {
+    const source = readFileSync(join(__dirname, '../client/src/hooks/useRoomRecovery.js'), 'utf8')
+      .replace(/^import .*;\r?\n/gmu, '').replace('export default function ', 'function ');
+    const context = {};
+    recoveryTestModules.set(socket, { context, hook: runInNewContext(`${source}\nuseRoomRecovery;`, context) });
+  }
+  const { context, hook } = recoveryTestModules.get(socket);
+  const globals = {
+      setTimeout, clearTimeout,
+    useIsFocused: () => focused, useState: value => { onState(value); return [value, onState]; },
+    useEffect: effect => { cleanup = effect(); },
+    getSocket: () => socket, getRoomSession: () => session,
+    clearRoomSession: () => assert.fail('Focus changes must keep the private seat'),
+    disconnectSocket: () => assert.fail('Focus changes must keep the shared socket'),
+    showRoom: (route, result) => route.onShowRoom(result), Alert: { alert: message => assert.fail(message) },
+  };
+  return {
+    render(value) { cleanup?.(); focused = value; Object.assign(context, globals); hook(navigation, leaving); },
+    close() { cleanup?.(); },
+  };
+}
+
+test('only the focused name editor resumes the shared real transport; blurred routes register no duplicate recovery', { timeout: 10000 }, async t => {
+  let covered;
+  let editor;
+  t.after(() => { covered?.close(); editor?.close(); });
+  const host = await bot(t);
+  const entry = await ok(host, 'room:create', { nickname: '編集復帰検証' });
+  const session = { code: entry.room.code, playerId: entry.player.id, token: entry.token };
+  const calls = [];
+  let resumes = 0;
+  const count = socket => socket.use((packet, next) => { if (packet[0] === 'room:resume') resumes++; next(); });
+  io.on('connection', count); t.after(() => io.off('connection', count));
+  let returned;
+  const done = new Promise(resolve => { returned = resolve; });
+  covered = focusedRecovery(host.socket, session, { route: 'Lobby' }, { current: false }, () => calls.push('covered'));
+  editor = focusedRecovery(host.socket, session, { route: 'NameEntry' }, { current: false }, (_, result) => { calls.push('editor'); returned(result); });
+  covered.render(true); covered.render(false); editor.render(true);
+  assert.equal(host.socket.listeners('connect').length, 1);
+  const gone = once(host.socket, 'disconnect'); host.socket.io.engine.close(); await gone;
+  host.socket.connect(); const restored = await done;
+  assert.equal(resumes, 1); assert.deepEqual(calls, ['editor']);
+  assert.equal(restored.player.id, entry.player.id);
+  assert.equal(restored.room.code, entry.room.code);
+});
+
+test('returning to a covered route catches a reconnect and ignores the editor reply after cancel or leave', { timeout: 10000 }, async t => {
+  let covered;
+  let editor;
+  t.after(() => { covered?.close(); editor?.close(); });
+  const host = await bot(t);
+  const entry = await ok(host, 'room:create', { nickname: '編集キャンセル検証' });
+  const session = { code: entry.room.code, playerId: entry.player.id, token: entry.token };
+  const calls = [];
+  let held;
+  let pending;
+  const wait = new Promise(resolve => { pending = resolve; });
+  const delay = socket => socket.use((packet, next) => {
+    if (packet[0] === 'room:resume' && !held) { held = next; pending(); }
+    else next();
+  });
+  io.on('connection', delay); t.after(() => { io.off('connection', delay); held?.(); });
+  let returned;
+  const done = new Promise(resolve => { returned = resolve; });
+  covered = focusedRecovery(host.socket, session, { route: 'Game' }, { current: false }, (_, result) => { calls.push('covered'); returned(result); });
+  const leaving = { current: false };
+  editor = focusedRecovery(host.socket, session, { route: 'NameEntry' }, leaving, () => calls.push('editor'));
+  covered.render(true); covered.render(false); editor.render(true);
+  const gone = once(host.socket, 'disconnect'); host.socket.io.engine.close(); await gone;
+  host.socket.connect(); await wait;
+  editor.render(false); covered.render(true);
+  const restored = await done; assert.equal(restored.player.id, entry.player.id);
+  leaving.current = true; held();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['covered']);
+  assert.equal(host.socket.connected, true);
+});
+
+test('a name editor mounted before resume ACK keeps controls pending on the already-connected transport', { timeout: 10000 }, async t => {
+  let covered;
+  let editor;
+  t.after(() => { covered?.close(); editor?.close(); });
+  const host = await bot(t);
+  const entry = await ok(host, 'room:create', { nickname: '復帰待ち中の編集' });
+  const session = { code: entry.room.code, playerId: entry.player.id, token: entry.token };
+  const held = [];
+  let pending;
+  const waiting = new Promise(resolve => { pending = resolve; });
+  const delay = socket => socket.use((packet, next) => {
+    if (packet[0] === 'room:resume') { held.push(next); pending(); } else next();
+  });
+  io.on('connection', delay); t.after(() => { io.off('connection', delay); held.forEach(next => next()); });
+  const calls = [];
+  covered = focusedRecovery(host.socket, session, { route: 'Lobby' }, { current: false }, () => calls.push('covered'));
+  covered.render(true);
+  const gone = once(host.socket, 'disconnect'); host.socket.io.engine.close(); await gone;
+  host.socket.connect(); await waiting;
+  covered.render(false);
+  let returned;
+  const done = new Promise(resolve => { returned = resolve; });
+  const editorStates = [];
+  editor = focusedRecovery(host.socket, session, { route: 'NameEntry' }, { current: false }, (_, result) => { calls.push('editor'); returned(result); }, value => editorStates.push(value));
+  editor.render(true);
+  assert.equal(host.socket.connected, true);
+  assert.equal(editorStates[0], true, 'Initial editor controls must wait for room authentication, even if transport is connected');
+  assert.equal(editorStates.every(Boolean), true, 'Focusing the editor must not clear recovery before resume ACK');
+  while (held.length < 2) await new Promise(resolve => setImmediate(resolve));
+  const [oldResume, editorResume] = held.splice(0);
+  editorResume();
+  const restored = await done; assert.equal(restored.player.id, entry.player.id);
+  assert.equal(editorStates.at(-1), false, 'Only the successful active resume ACK enables controls');
+  oldResume(); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['editor']);
+});
+
+test('authoritative recovery removes the covered editor route without changing ordinary entry navigation', () => {
+  const source = readFileSync(join(__dirname, '../client/src/utils/roomSession.js'), 'utf8').replace(/export function /gu, 'function ');
+  const { showRoom } = runInNewContext(`${source}\n({ showRoom });`, {});
+  for (const covered of ['Lobby', 'Game']) {
+    for (const target of ['NameEntry', 'Lobby', 'Game', 'Result']) {
+      const result = { player: { id: 'same-seat', profile_ready: target !== 'NameEntry' }, room: { code: '123456', status: target === 'Result' ? 'finished' : 'waiting' },
+        finalScores: [{ id: 'same-seat', score: 9 }], allPlayers: [], ...(target === 'Game' ? { gameData: { round: { id: 'latest-round' } } } : {}) };
+      let restored;
+      const navigation = { getState: () => ({ index: 2, routes: [{ name: 'Home', key: 'home' }, { name: covered, key: 'stale' }, { name: 'NameEntry', params: { editing: true } }] }),
+        reset: state => { restored = state; }, replace: () => assert.fail('Editor recovery must remove the covered screen') };
+      showRoom(navigation, result);
+      assert.equal(restored.index, 1); assert.equal(JSON.stringify(restored.routes.map(r => r.name)), JSON.stringify(['Home', target]));
+      assert.equal(restored.routes[0].key, 'home');
+      assert.equal(restored.routes[1].params.player?.id || restored.routes[1].params.winner.id, 'same-seat');
+    }
+  }
+  let replaced;
+  showRoom({ getState: () => ({ index: 0, routes: [{ name: 'NameEntry', params: { editing: false } }] }),
+    replace: (name, params) => { replaced = { name, params }; }, reset: () => assert.fail('Initial entry keeps its normal replace') },
+    { player: { profile_ready: false }, room: { code: '123456' } });
+  assert.equal(replaced.name, 'NameEntry');
 });
 
 test('failed start, introduction, reselection, profile and explicit leave preserve authoritative state', async (t) => {
@@ -1707,7 +1886,7 @@ test('resuming a seat during password admission cannot attach one socket to two 
       password: '照合を待つ鍵', code: target.room.code,
     }, (result) => { reply = result; });
     let resumed;
-    serverSocket.listeners('room:resume')[0]({ code: original.room.code,
+    await serverSocket.listeners('room:resume')[0]({ code: original.room.code,
       playerId: original.player.id, token: original.token }, (result) => { resumed = result; });
     assert.equal(resumed.ok, true);
     await pending;
@@ -1771,4 +1950,32 @@ test('only the questioner receives the real title and submitted titles; host cho
   await denied(host, 'round:submit_mvp', { answerId: fake.id });
   await ok(host, 'game:next_round');
   assert.equal((await event(host, 'game:round_started')).currentRound, 2);
+});
+
+test('short transport loss delivers buffered former-round submission but cannot mutate the new round', async (t) => {
+  const { bots, room } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find(b => b.player.id === started.questioner.id);
+  const answerers = bots.filter(b => b !== questioner);
+  await ok(questioner, 'round:submit_synopsis', { synopsis: '断線中に進む検証作品', realTitle: '検証の正解' });
+  for (const b of answerers) await ok(b, 'round:declare_unknown');
+  await ok(questioner, 'round:start_submitting');
+  const subject = answerers[0]; const state = rooms.get(room.code); const oldRound = state.rounds[0];
+  const serverSocket = io.sockets.sockets.get(subject.socket.id);
+  const lost = once(serverSocket, 'disconnect'); subject.socket.io.engine.close(); await lost;
+  const buffered = new Promise((resolve, reject) => subject.socket.timeout(10000).emit('round:submit_fake',
+    { roundId: oldRound.id, title: '旧画面からの送信待ちタイトル' }, (error, response) => error ? reject(error) : resolve(response)));
+  assert.equal(subject.socket.sendBuffer.length, 1);
+  // Model an authoritative next round while the old browser is offline. The
+  // protocol under test is actual Socket.IO buffering/delivery, not UI mocking.
+  const nextRound = structuredClone(oldRound); nextRound.id = require('node:crypto').randomUUID();
+  nextRound.round_number = 2; nextRound.answers = nextRound.answers.filter(a => a.is_real); nextRound.votes = [];
+  state.rounds.push(nextRound); state.current_round = 2;
+  const returned = once(subject.socket, 'connect'); subject.socket.connect(); await returned;
+  const response = await buffered;
+  assert.equal(response.ok, false); assert.match(response.error, /古いラウンド/);
+  assert.equal(nextRound.answers.some(a => a.title === '旧画面からの送信待ちタイトル'), false);
+  assert.equal((await ack(subject, 'round:submit_fake', { roundId: nextRound.id, title: '新画面のタイトル' })).ok, true);
+  assert.equal(nextRound.answers.filter(a => a.player_id === subject.player.id).length, 1);
 });
