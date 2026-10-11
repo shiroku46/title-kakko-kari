@@ -111,7 +111,7 @@ export default function LobbyScreen({ navigation, route }) {
   function updateGenreRule(value, changes = {}) {
     if (settingsPending || starting) return;
     setSettingsPending(true);
-    socket.timeout(10000).emit('room:update_settings', { genreDisclosure: value, ...progressSettings, ...changes }, (error, res) => {
+    socket.timeout(10000).emit('room:update_settings', { ...progressSettings, ...changes, genreDisclosure: value }, (error, res) => {
       if (leavingRef.current) return;
       setSettingsPending(false);
       if (error || !res?.ok) Alert.alert('ルールを変更できませんでした', error ? '接続を確認して、もう一度お試しください。' : res?.error);
