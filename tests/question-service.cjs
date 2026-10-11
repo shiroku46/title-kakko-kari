@@ -54,6 +54,37 @@ function collected(questions, state = {}) {
   return { questions, state, added: questions, rejected: [], discovered: questions.length, requests: 1, exhausted: false };
 }
 
+test('saved and fixture selectors require the requested genre and respect used IDs', async t => {
+  const novel = question(80), film = question(81);
+  film.kind = 'film';
+  film.evidence.visibility = require('../server/src/questions/selection-policy').visibilityEvidence({
+    title: film.realTitle, kind: film.kind, sourceUrl: film.sources[0].url, genres: ['インディー'],
+  });
+  film.evidence.distribution = require('../server/src/questions/distribution-policy').distributionEvidence({
+    title: film.realTitle, kind: film.kind, sourceUrl: film.sources[0].url, publisher: '検証配給会社', date: '2026-01-01',
+  });
+  const files = fixture(t, [novel, film]), service = files.service({ enabled: false });
+  assert.equal((await service.selectQuestion([], { kind: 'film' })).id, film.id);
+  await assert.rejects(service.selectQuestion([film.id], { kind: 'film' }));
+  await assert.rejects(service.selectQuestion([], { kind: 'manga' }));
+  for (const kind of ['INVALID', ['film'], null]) await assert.rejects(service.selectQuestion([], { kind }), /ジャンル/);
+  const { execFileSync } = require('node:child_process');
+  const api = join(__dirname, '../server/src/questions/index.js');
+  const program = `const a=require(${JSON.stringify(api)}); (async()=>{
+    const options={kind:'film'}; const first=a.selectQuestion([],options),second=await a.selectQuestionAsync([],options);
+    require('node:assert/strict').equal(first.kind,'film');require('node:assert/strict').equal(second.kind,'film');
+    require('node:assert/strict').throws(()=>a.selectQuestion([first.id],options));
+    await require('node:assert/strict').rejects(a.selectQuestionAsync([],{kind:'manga'}));
+  })().catch(e=>{console.error(e.message);process.exitCode=1;});`;
+  execFileSync(process.execPath, ['-e', program], { env: { ...process.env, QUESTION_BANK_PATH: files.bankPath,
+    QUESTION_SEED_PATH: files.seedPath, QUESTION_COLLECTION_ENABLED: 'false' } });
+  writeFileSync(files.bankPath, JSON.stringify({ schemaVersion: 1, questions: [novel] }));
+  let collections = 0;
+  const collecting = files.service({ collectImpl: async () => { collections++; return collected([novel, film]); } });
+  assert.equal((await collecting.selectQuestion([], { kind: 'film' })).id, film.id);
+  assert.equal(collections, 1);
+});
+
 test('a populated store selects an unused verified question without requesting remote sources', async (t) => {
   const saved = [question(1), question(2), question(3)];
   const files = fixture(t, saved);

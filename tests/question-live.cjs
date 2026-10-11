@@ -6,7 +6,7 @@ const { join } = require('node:path');
 const { createLiveQuestionSource } = require('../server/src/questions/live');
 const { createQuestionService } = require('../server/src/questions/service');
 const { generateWebQuestion, hash } = require('../server/src/questions/web-source');
-const { discoverLiveCandidates, catalogueLinks } = require('../server/src/questions/catalogues');
+const { discoverLiveCandidates, catalogueLinks, catalogueUrl } = require('../server/src/questions/catalogues');
 const { questionIsValid } = require('../server/src/questions/validation');
 const { evidenceTier } = require('../server/src/questions/selection-policy');
 const { playableTitle } = require('../server/src/questions/title-policy');
@@ -16,6 +16,23 @@ const work = n => ({ url: `https://indie${n}.example.org/films/letter`, kind: 'f
 const html = n => `<title>自主制作映画「港への便り${n}の日」</title><h1>港への便り${n}の日</h1><dl><dt>配給</dt><dd>検証配給会社</dd><dt>公開日</dt><dd>2026-01-01</dd></dl><h2>あらすじ</h2><p>${story}</p>`;
 const response = body => new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8' } });
 const discovery = candidates => async () => ({ candidates: [...candidates] });
+
+test('an explicit genre limits every discovery attempt and never falls back to a different medium', async t => {
+  const searched = [];
+  const source = createLiveQuestionSource({ discoverImpl: async ({ kind }) => {
+    searched.push(kind); return { candidates: [work(1)] };
+  }, fetchImpl: async () => response(html(1)) });
+  t.after(() => source.stop());
+  assert.equal((await source.selectQuestion([], { kind: 'film' })).kind, 'film');
+  assert.ok(searched.length && searched.every(kind => kind === 'film'));
+  searched.length = 0;
+  await assert.rejects(source.selectQuestion([], { kind: 'novel' }));
+  assert.ok(searched.length && searched.every(kind => kind === 'novel'));
+  const before = searched.length;
+  for (const kind of ['INVALID', ['film'], null, 'constructor']) await assert.rejects(source.selectQuestion([], { kind }), /ジャンル/);
+  assert.equal(searched.length, before);
+  assert.equal(source.getStatus().activeRequests, 0);
+});
 
 test('production ignores missing/corrupt/populated banks and freshly fetches on every request', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'title-live-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -244,6 +261,17 @@ test('film catalogue uses the current category path and comics query targets ori
 
 const {hasOfficialDistribution,distributionEvidence,isbnIsValid,releaseDate}=require('../server/src/questions/distribution-policy');
 const commercialBook=(extra={},markup='')=>`<title>港の便り | 小説</title><h1>港の便り</h1><main><script type="application/ld+json">${JSON.stringify({'@type':'Book',name:'港の便り',genre:'小説',publisher:{name:'海辺出版'},author:{name:'書く人'},isbn:'9784065373262',datePublished:'2026-01-01',description:story,...extra})}</script><h2>あらすじ</h2><p>${story}</p>${markup}</main>`;
+
+test('explicit short-story and literary-work choices use book discovery and verify their exact kind', async t => {
+  for (const [kind, label] of [['short-story', '短編小説'], ['literary-work', '文学作品']]) {
+    assert.equal(new URL(catalogueUrl(kind, 0)).hostname, 'books.rakuten.co.jp');
+    const source = createLiveQuestionSource({ discoverImpl: async ({ kind: searched }) => {
+      assert.equal(searched, kind); return { candidates: [{ ...work(1), kind }] };
+    }, fetchImpl: async () => response(commercialBook({ genre: label })) });
+    t.after(() => source.stop());
+    assert.equal((await source.selectQuestion([], { kind })).kind, kind);
+  }
+});
 test('random selection requires own commercial publication, not a web posting, self publication or another work metadata',async()=>{
   const url='https://publisher.example.org/book/letter',policy=require('../server/src/questions/selection-policy').createSelectionPolicy();
   const generate=html=>generateWebQuestion({url,kind:'novel'},{fetchImpl:async()=>response(html)});

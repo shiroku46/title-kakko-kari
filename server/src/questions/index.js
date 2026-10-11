@@ -2,6 +2,7 @@ const { readBankSync, defaultPaths } = require('./store');
 const { questionIsValid, prepareQuestion } = require('./validation');
 const { createQuestionService } = require('./service');
 const { createSelectionPolicy } = require('./selection-policy');
+const { getKind } = require('./kinds');
 
 const paths = defaultPaths();
 const selection = createSelectionPolicy(paths.seedPath ? readBankSync({ bankPath: paths.seedPath }).questions : []);
@@ -19,9 +20,10 @@ function getQuestionBank() {
   return questions;
 }
 
-function selectQuestion(excludedIds = []) {
+function selectQuestion(excludedIds = [], { kind } = {}) {
+  if (kind !== undefined && (typeof kind !== 'string' || !getKind(kind))) throw new Error('作品のジャンルが不正です');
   const excluded = new Set(excludedIds);
-  const available = getQuestionBank().filter((question) => !excluded.has(question.id));
+  const available = getQuestionBank().filter((question) => !excluded.has(question.id) && (kind === undefined || question.kind === kind));
   if (!available.length) throw new Error('この部屋でまだ出していない問題がありません。問題集を補充してください。');
   return selection.select(available);
 }
@@ -33,7 +35,7 @@ function findQuestion(questionId) {
 // Preserve deterministic fixture behavior when automatic collection is disabled.
 function selectQuestionAsync(excludedIds = [], options) {
   return process.env.QUESTION_COLLECTION_ENABLED === 'false'
-    ? Promise.resolve().then(() => selectQuestion(excludedIds))
+    ? Promise.resolve().then(() => selectQuestion(excludedIds, options))
     : service.selectQuestion(excludedIds, options);
 }
 

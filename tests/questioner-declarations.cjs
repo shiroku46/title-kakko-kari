@@ -16,7 +16,7 @@ const socket = { connected: true };
 const mocks = {
   react: React,
   'react-native': { View: Box, ScrollView: Box, KeyboardAvoidingView: Box,
-    Platform: { OS: 'web' }, StyleSheet: { create: value => value } },
+    ActivityIndicator: Box, Platform: { OS: 'web' }, StyleSheet: { create: value => value } },
 };
 const ui = { PaperPanel: Box, StationeryButton: Button, PopBackdrop: Box, GameLogo: Box,
   RoundHeader: ({ phase }) => React.createElement('h1', null, phase) };
@@ -33,6 +33,9 @@ function loadScreen(path, overrides = {}) {
     if (name.endsWith('/theme')) return { colors: {}, radii: {} };
     if (name.endsWith('/ui/GameText')) return { Text: Box, TextInput: Input };
     if (name.endsWith('/ui')) return ui;
+    if (name.endsWith('/ui/GenreSelector')) return loadScreen('components/ui/GenreSelector.js', overrides);
+    if (name === './StationeryButton') return Button;
+    if (name === './GameText') return { Text: Box };
     if (name.endsWith('/ui/WorkIntroduction')) return ({ synopsis, realTitle }) => React.createElement('article', null, synopsis, realTitle);
     if (name.endsWith('/hooks/useResponsiveLayout')) return { useResponsiveLayout: () => ({ isPC: true, contentPadding: 16 }), CONTENT_MAX_WIDTH: 1000 };
     if (name.endsWith('/hooks/useSocket')) return { useSocketListeners() {}, getSocket: () => socket, leaveRoom() {} };
@@ -72,6 +75,69 @@ test('human questioner has no known/unknown choices, including a restored seat w
     assert.match(html, /回答者の確認を待つ/);
     assert.match(html, /秘密の正解/);
     assert.match(html, /aria-label="タイトル案提出へ進む" disabled=""/);
+  }
+});
+
+test('human and CPU controls select a genre before requesting a question and discard a mismatched preview', async () => {
+  for (const cpu of [false, true]) {
+    const state = [], requests = [];
+    let cursor = 0, tree;
+    const screen = loadScreen(`components/phases/${cpu ? 'Confirming' : 'Selecting'}Phase.js`, {
+      react: { ...React, useState(initial) {
+        const index = cursor++;
+        if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial;
+        return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value; }];
+      }, useRef(initial) { return state[cursor++] ||= { current: initial }; }, useEffect() {} },
+    });
+    const props = { round: { id: 'r', room_id: 'room' }, isQuestioner: true, isHost: true,
+      genreDisclosure: true, workKind: null, socket: { connected: true,
+        timeout: () => ({ emit(name, payload, reply) { requests.push({ name, payload, reply }); } }) },
+      onRerollStart(kind) { props.workKind = kind; props.fetchedSynopsis = null; },
+    };
+    const render = () => { cursor = 0; tree = screen(props); };
+    function find(label, node = tree) {
+      if (!node || typeof node !== 'object') return;
+      if (node.props?.accessibilityLabel === label) return node;
+      const children = typeof node.type === 'function' ? node.type(node.props) : node.props?.children;
+      for (const child of React.Children.toArray(children)) {
+        const found = find(label, child); if (found) return found;
+      }
+    }
+    const action = cpu ? '選んだジャンルで問題を選ぶ' : '出題の補助を使う';
+    render();
+    assert.equal(find(action).props.disabled, true);
+    await find(action).props.onPress();
+    assert.equal(requests.length, 0);
+    find('出題ジャンルを映画にする').props.onPress();
+    render();
+    assert.equal(find(action).props.disabled, false);
+    const pending = find(action).props.onPress();
+    assert.equal(requests[0].name, cpu ? 'round:reroll_synopsis' : 'round:prepare_question');
+    assert.equal(requests[0].payload.workKind, 'film');
+    assert.equal(requests[0].payload.roundId, 'r');
+    render();
+    assert.equal(find('出題ジャンルをゲームにする').props.disabled, true);
+    requests[0].reply(null, cpu ? { ok: true } : { ok: true, roundId: 'r',
+      kind: 'film', questionId: 'movie', synopsis: '映画の紹介文', title: '映画の秘密の答え' });
+    await pending;
+    if (cpu) props.fetchedSynopsis = '映画の紹介文';
+    render();
+    if (cpu) assert.ok(find('この紹介文で進む'));
+    else assert.equal(find('作品の紹介文入力欄').props.value, '映画の紹介文');
+    find('出題ジャンルをゲームにする').props.onPress();
+    render();
+    if (cpu) assert.equal(find('この紹介文で進む'), undefined);
+    else {
+      assert.equal(find('作品の紹介文入力欄').props.value, '');
+      assert.equal(find('本物タイトル入力欄').props.value, '');
+    }
+    const next = find(action).props.onPress();
+    assert.equal(requests[1].payload.workKind, 'game');
+    requests[1].reply(null, { ok: false, error: '取得先の待機時間中です' });
+    await next;
+    render();
+    assert.equal(find(action).props.disabled, false);
+    assert.equal(find('出題ジャンルをゲームにする').props.variant, 'yellow');
   }
 });
 test('answerer choices remain available and do not reveal the real title', () => {

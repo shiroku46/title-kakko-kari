@@ -333,7 +333,7 @@ export default function LobbyScreen({ navigation, route }) {
                   ))}
                 </View>
                 <Text style={styles.startHint}>
-                  {genreDisclosure ? '小説・映画・漫画・ゲームなど、お題の種類を見てタイトルを考えます。' : '作品の種類を伏せて、紹介文から自由にタイトルを考えます。'}
+                  {genreDisclosure ? '小説・映画・漫画・ゲームなど、ジャンルを選んでから、そのジャンルの問題を用意します。' : '作品の種類を伏せて、紹介文から自由にタイトルを考えます。'}
                 </Text>
 
                 <Text style={styles.settingsLabel}>進み方</Text>
@@ -394,7 +394,7 @@ export default function LobbyScreen({ navigation, route }) {
                 <Text style={styles.guestKicker}>READY?</Text>
                 <Text style={styles.guestTitle}>あなたは参加済みです</Text>
                 <Text style={styles.guestBody}>
-                  ジャンル指定：{genreDisclosure ? 'あり（お題の種類を表示）' : 'なし（お題の種類を伏せる）'}{'\n'}
+                  ジャンル指定：{genreDisclosure ? 'あり（ジャンルを選んで出題）' : 'なし（お題の種類を伏せる）'}{'\n'}
                   画面を閉じずに、そのままお待ちください。
                 </Text>
               </PaperPanel>

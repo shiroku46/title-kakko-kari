@@ -8,6 +8,7 @@ const LIVE_ENGINES = ['yahoo', 'bing', 'duckduckgo'];
 // Discovery entry points, not a stock of works. Every response is searched for
 // current links, and every chosen work is independently fetched and verified.
 function catalogueUrl(kind, page) {
+  if (['short-story', 'literary-work'].includes(kind)) kind = 'novel';
   if (kind === 'novel' || kind === 'manga') return `https://books.rakuten.co.jp/search?sitem=${encodeURIComponent(kind==='manga'?'漫画 短編集':'小説')}&g=${kind==='manga'?'001001':'001004'}&s=4&e=1&o=${page*30}`;
   if (kind === 'film') return `https://www.cinematoday.jp/movie/?page=${page+1}`;
   return `https://store.steampowered.com/search/?tags=492,21&category1=998&supportedlang=japanese&sort_by=Released_DESC&l=japanese&page=${page+1}`;

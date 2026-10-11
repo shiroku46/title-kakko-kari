@@ -1,4 +1,5 @@
 import WorkIntroduction from '../ui/WorkIntroduction';
+import GenreSelector from '../ui/GenreSelector';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -24,6 +25,7 @@ export default function SelectingPhase({
   totalRounds,
   questioner,
   synopsis,
+  workKind: initialWorkKind = null,
   workKindLabel,
   isQuestioner,
   isHost,
@@ -38,7 +40,7 @@ export default function SelectingPhase({
 }) {
   const [synopsisText, setSynopsisText] = useState('');
   const [realTitle, setRealTitle] = useState(initialTitle || '');
-  const [workKind, setWorkKind] = useState(null);
+  const [workKind, setWorkKind] = useState(initialWorkKind);
   const [automaticQuestionId, setAutomaticQuestionId] = useState(null);
   const [declared, setDeclared] = useState(initialDeclaration);
   const [submitted, setSubmitted] = useState(Boolean(isQuestioner && synopsis));
@@ -92,6 +94,7 @@ export default function SelectingPhase({
 
   async function handleAutoFetch() {
     if (requestPendingRef.current) return;
+    if (genreDisclosure && !workKind) return showError('fetch', '先に作品のジャンルを選択してください');
     if (!socket?.connected) {
       showError('fetch', 'サーバーに接続していません。接続を確認して、もう一度お試しください。');
       return;
@@ -101,12 +104,13 @@ export default function SelectingPhase({
     setRequestError(null);
     setSynopsisText('');
     setRealTitle('');
-    setWorkKind(null);
+    if (!genreDisclosure) setWorkKind(null);
     setAutomaticQuestionId(null);
     // An empty bank may discover and verify new source material on demand.
     try {
       const data = await new Promise((resolve, reject) => {
-        socket.timeout(70000).emit('round:prepare_question', { roomId: round?.room_id, roundId: round?.id }, (error, response) => {
+        socket.timeout(70000).emit('round:prepare_question', { roomId: round?.room_id, roundId: round?.id,
+          ...(genreDisclosure && { workKind }) }, (error, response) => {
           if (error) reject(error);
           else resolve(response);
         });
@@ -128,6 +132,16 @@ export default function SelectingPhase({
     } finally {
       requestPendingRef.current = false;
       if (activeRef.current) setPendingAction(null);
+    }
+  }
+
+  function selectGenre(kind) {
+    setWorkKind(kind);
+    setRequestError(null);
+    if (kind !== workKind && automaticQuestionId) {
+      setSynopsisText('');
+      setRealTitle('');
+      setAutomaticQuestionId(null);
     }
   }
 
@@ -284,7 +298,7 @@ export default function SelectingPhase({
 
                   <View style={styles.guideSteps}>
                     {[
-                      ['1', '作品を決める'],
+                      ['1', genreDisclosure ? 'ジャンルを選んで作品を決める' : '作品を決める'],
                       ['2', '紹介文を入力・編集'],
                       ['3', '正解のタイトルを確認'],
                     ].map(([num, label]) => (
@@ -313,11 +327,13 @@ export default function SelectingPhase({
                     </View>
                   </View>
 
+                  {genreDisclosure ? <GenreSelector workKind={workKind} onSelect={selectGenre} disabled={requestBusy} /> : null}
+
                   <StationeryButton
                     variant="secondary"
                     onPress={handleAutoFetch}
                     loading={fetching}
-                    disabled={requestBusy}
+                    disabled={requestBusy || (genreDisclosure && !workKind)}
                     accessibilityLabel={automaticQuestionId ? '別の作品を用意する' : '出題の補助を使う'}
                     style={styles.autoFetchButton}
                   >
@@ -328,26 +344,13 @@ export default function SelectingPhase({
                   </Text>
                   {requestError?.action === 'fetch' ? errorNotice : null}
 
-                  {genreDisclosure ? (
-                    <>
-                      <Text style={styles.fieldLabel}>作品のジャンル（参加者にも表示）</Text>
-                      <View style={[styles.actionRow, { flexWrap: 'wrap' }]}>
-                        {[['novel','小説'],['film','映画'],['manga','漫画'],['game','ゲーム'],['short-story','短編小説'],['literary-work','文学作品']].map(([kind,label]) => (
-                          <StationeryButton key={kind} variant={workKind === kind ? 'yellow' : 'neutral'}
-                            onPress={() => setWorkKind(kind)} disabled={requestBusy}
-                            accessibilityLabel={`出題ジャンルを${label}にする`}>{label}</StationeryButton>
-                        ))}
-                      </View>
-                    </>
-                  ) : null}
-
                   <Text style={styles.fieldLabel}>作品の紹介文</Text>
                   <TextInput
                     style={[styles.input, styles.textarea]}
                     placeholder="作品のタイトルが分からないように、紹介文を入力…"
                     placeholderTextColor={colors.muted}
                     value={synopsisText}
-                    editable={!requestBusy}
+                    editable={!requestBusy && (!genreDisclosure || Boolean(workKind))}
                     onChangeText={(text) => {
                       setSynopsisText(text);
                       setAutomaticQuestionId(null);
@@ -364,7 +367,7 @@ export default function SelectingPhase({
                     placeholder="結果発表まで参加者には見えません"
                     placeholderTextColor={colors.muted}
                     value={realTitle}
-                    editable={!requestBusy}
+                    editable={!requestBusy && (!genreDisclosure || Boolean(workKind))}
                     onChangeText={(text) => {
                       setRealTitle(text);
                       setAutomaticQuestionId(null);
@@ -378,7 +381,7 @@ export default function SelectingPhase({
                     variant="primary"
                     onPress={handleSubmitSynopsis}
                     loading={pendingAction === 'round:submit_synopsis'}
-                    disabled={requestBusy}
+                    disabled={requestBusy || (genreDisclosure && !workKind)}
                     accessibilityLabel="作品の紹介文を提示する"
                   >
                     作品の紹介文を提示する →

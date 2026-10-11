@@ -46,13 +46,13 @@ function sendQuestionerView(io, room, round) {
   });
 }
 
-function resetCpuSynopsis(round) {
+function resetCpuSynopsis(round, workKind = null) {
   ++round.fetchVersion;
   round.synopsis = null;
   round.real_title = null;
   round.sourceQuestion = null;
   round.contentType = null;
-  round.workKind = null;
+  round.workKind = workKind;
   round.fetchError = null;
   round.previewConfirmed = false;
   round.declarations.clear();
@@ -64,11 +64,12 @@ async function loadCpuSynopsis(io, room, round) {
   cpuFetchControllers.set(round, controller);
   const version = round.fetchVersion;
   const loadingHost = room.players.find((p) => p.is_host && p.is_connected);
-  if (loadingHost) io.to(loadingHost.socket_id).emit('round:synopsis_loading', { roundId: round.id });
+  if (loadingHost) io.to(loadingHost.socket_id).emit('round:synopsis_loading', { roundId: round.id, ...publicGenre(room, round) });
   let work;
   let failure;
   try {
-    work = await selectQuestionAsync(room.usedQuestionIds, { signal: controller.signal });
+    work = await selectQuestionAsync(room.usedQuestionIds, { signal: controller.signal,
+      ...(room.settings.genreDisclosure && { kind: round.workKind }) });
   } catch (error) {
     failure = error.message;
   } finally {
@@ -119,7 +120,10 @@ function startRound(io, room, mode, event, playerOrder, defer) {
     questioner: questioner ? { id: questioner.id, nickname: questioner.nickname } : null,
     round: publicRound(round, room), mode, settings: publicSettings(room.settings), ...(playerOrder && { playerOrder }),
   });
-  if (mode === 'cpu') { resetCpuSynopsis(round); defer(() => loadCpuSynopsis(io, room, round)); }
+  if (mode === 'cpu') {
+    resetCpuSynopsis(round);
+    if (!room.settings.genreDisclosure) defer(() => loadCpuSynopsis(io, room, round));
+  }
 }
 
 function requirePhase(round, phase) {
@@ -169,7 +173,7 @@ function registerGameHandlers(io, socket) {
     let state;
     let version;
     try {
-      const { room, round, check, usedQuestionIds } = await runStateOperation(() => {
+      const { room, round, check, usedQuestionIds, workKind } = await runStateOperation(() => {
       const { room, player } = getMember(socket);
       const round = getCurrentRound(room);
       const check = () => {
@@ -183,15 +187,17 @@ function registerGameHandlers(io, socket) {
         if (round.synopsis) throw new Error('作品を選び直してから補助を使ってください');
       };
       check();
+      const workKind = room.settings.genreDisclosure ? payload?.workKind : undefined;
+      if (room.settings.genreDisclosure && (typeof workKind !== 'string' || !getKind(workKind))) throw new Error('先に作品のジャンルを選択してください');
       state = helperStates.get(round) || { version: 0, loading: false, question: null };
       if (state.loading) throw new Error('問題の補助を取得中です');
       helperStates.set(round, state);
       version = ++state.version;
       state.loading = true;
       state.controller = new AbortController();
-      return { room, round, check, usedQuestionIds: [...room.usedQuestionIds] };
+      return { room, round, check, usedQuestionIds: [...room.usedQuestionIds], workKind };
       });
-      const work = await selectQuestionAsync(usedQuestionIds, { signal: state.controller.signal });
+      const work = await selectQuestionAsync(usedQuestionIds, { signal: state.controller.signal, kind: workKind });
       await runStateOperation(async () => {
       check();
       if (state.version !== version) throw new Error('取得中に出題内容が変更されました。もう一度お試しください');
@@ -240,7 +246,8 @@ function registerGameHandlers(io, socket) {
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
     if (payload?.roomId !== room.id || payload?.roundId !== round.id) throw new Error('現在の部屋とラウンドを指定してください');
-    if (!round.synopsis && !round.fetchError) return { roundId: round.id, synopsis: null, loading: true };
+    if (!round.synopsis && !round.fetchError) return { roundId: round.id, synopsis: null,
+      loading: !room.settings.genreDisclosure || Boolean(round.workKind), ...publicGenre(room, round) };
     if (!round.synopsis) throw new Error(round.fetchError);
     return { roundId: round.id, synopsis: round.synopsis, contentType: round.contentType, ...publicGenre(room, round) };
   });
@@ -260,14 +267,16 @@ function registerGameHandlers(io, socket) {
     io.to(room.code).emit('round:declaration_started', { roundId: round.id });
   });
 
-  on('round:reroll_synopsis', (_, room, player, io, defer) => {
+  on('round:reroll_synopsis', (payload, room, player, io, defer) => {
     const round = getCurrentRound(room);
     if (!player.is_host) throw new Error('ホストのみ操作できます');
     requirePhase(round, 'selecting');
     if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
     if (round.previewConfirmed) throw new Error('提示した作品は確認画面から選び直してください');
+    const workKind = room.settings.genreDisclosure ? (payload?.workKind === undefined ? round.workKind : payload.workKind) : null;
+    if (room.settings.genreDisclosure && (typeof workKind !== 'string' || !getKind(workKind))) throw new Error('先に作品のジャンルを選択してください');
     discardQuestion(io, room, round);
-    resetCpuSynopsis(round);
+    resetCpuSynopsis(round, workKind);
     defer(() => loadCpuSynopsis(io, room, round));
   });
 
@@ -339,6 +348,7 @@ function registerGameHandlers(io, socket) {
     const round = getCurrentRound(room);
     if (!isRoundController(round, player)) throw new Error('出題者またはCPU出題のホストのみ操作できます');
     requirePhase(round, 'selecting');
+    const workKind = room.settings.genreDisclosure ? round.workKind : null;
     discardQuestion(io, room, round);
     defer(() => invalidateHelper(round));
     round.synopsis = null;
@@ -350,7 +360,7 @@ function registerGameHandlers(io, socket) {
     io.to(room.code).emit('round:reselect_started', { roundId: round.id,
       mode: round.questioner_id === null ? 'cpu' : 'player', message: '別の作品を選んでいます...' });
     if (round.questioner_id === null) {
-      resetCpuSynopsis(round);
+      resetCpuSynopsis(round, workKind);
       defer(() => loadCpuSynopsis(io, room, round));
     }
   });
@@ -579,6 +589,7 @@ function getResumeGame(room, player) {
       synopsis: synopsisPublic ? round.synopsis : null,
       fetchedSynopsis: mode === 'cpu' && player.is_host ? round.synopsis : null,
       synopsisError: mode === 'cpu' && player.is_host ? round.fetchError : null,
+      ...(room.settings.genreDisclosure && (isQuestioner || player.is_host) && { workKind: round.workKind }),
       questionerView: isQuestioner ? { roundId: round.id, realTitle: round.real_title,
         answers: round.answers.filter((a) => !a.is_real).map(({ id, title }) => ({ id, title })) } : null,
       choices: round.status === 'voting' ? round.answers.map((a) => ({ id: a.id, title: a.title, displayOrder: a.display_order })) : [],
