@@ -112,6 +112,7 @@ process.env.NODE_ENV = 'production';
 process.env.ALLOW_THREE_PLAYER_DEV = 'true';
 process.env.ALLOWED_ORIGINS = 'https://game.example';
 process.env.QUESTION_BANK_PATH = fixturePath;
+process.env.ROOM_STATE_PATH = join(fixtureDirectory, 'rooms.json');
 // Keep these socket-level tests independent from remote discovery. Dedicated
 // question-service tests exercise on-demand collection with controlled sources.
 process.env.QUESTION_COLLECTION_ENABLED = 'false';
@@ -379,6 +380,7 @@ for (const count of [4, 5, 6]) {
         const duplicates = await Promise.all([ack(answerers[0], 'round:submit_fake', { title: '偽物0' }), ack(answerers[0], 'round:submit_fake', { title: '重複' })]);
         assert.equal(duplicates.filter((v) => v.ok).length, 1);
         await Promise.all(answerers.slice(1).map((b, i) => ok(b, 'round:submit_fake', { title: `偽物${i + 1}` })));
+        for (const b of answerers) assert.equal((await event(b, 'round:fake_saved')).roundId, data.round.id);
         const presentedChoices = await Promise.all(bots.map((b) => event(b, 'round:choices_presented')));
         const { choices } = presentedChoices[0];
         assert.equal(choices.length, answerers.length + 1);
@@ -400,6 +402,7 @@ for (const count of [4, 5, 6]) {
         const votes = await Promise.all([ack(answerers[0], 'round:submit_vote', { answerId: real.id }), ack(answerers[0], 'round:submit_vote', { answerId: real.id })]);
         assert.equal(votes.filter((v) => v.ok).length, 1);
         await Promise.all(answerers.slice(1).map((b) => ok(b, 'round:submit_vote', { answerId: lure.id })));
+        for (const b of answerers) assert.equal((await event(b, 'round:vote_saved')).roundId, data.round.id);
         const revealed = await event(host, 'round:revealed');
         assert.equal(revealed.realTitle, realTitle);
         if (mode === 'cpu') assert.deepEqual(revealed.sources, selectedQuestion.sources);
@@ -411,6 +414,8 @@ for (const count of [4, 5, 6]) {
         assert.deepEqual(points, { player_id: scorer, correct_pts: 1, deceive_pts: answerers.length - 1, total_pts: answerers.length });
         for (const p of revealed.playerScores) assert.equal(p.score, expected.get(p.id));
         if (questioner) {
+          await denied(host, 'game:next_round');
+          await denied(questioner, 'game:next_round');
           await denied(answerers[0], 'round:submit_mvp', { answerId: lure.id });
           await denied(questioner, 'round:submit_mvp', { answerId: real.id });
           const mvp = await Promise.all([ack(questioner, 'round:submit_mvp', { answerId: lure.id }), ack(questioner, 'round:submit_mvp', { answerId: lure.id })]);
@@ -518,6 +523,8 @@ test('CPU exhaustion switches one round to manual while keeping scores, remainin
   const revealed = await event(host, 'round:revealed');
   assert.equal(revealed.playerScores.find((p) => p.id === host.player.id).score, 7);
   assert.deepEqual(revealed.sources, []);
+  await denied(host, 'game:next_round');
+  await ok(host, 'round:submit_mvp', { answerId: choices.find((c) => c.id !== real.id).id });
   writeBank();
   await ok(host, 'game:next_round');
   const next = await event(host, 'game:round_started');
@@ -986,6 +993,7 @@ for (const phase of ['selecting', 'submitting', 'voting']) {
     const real = choices.find((choice) => choice.title === '最初の本物');
     for (const b of firstAnswerers) await ok(b, 'round:submit_vote', { answerId: real.id });
     await event(bots[0], 'round:revealed');
+    await ok(firstQuestioner, 'round:submit_mvp', { answerId: choices.find((c) => c.id !== real.id).id });
     await ok(bots[0], 'game:next_round');
     const second = await event(bots[0], 'game:round_started');
     const questioner = bots.find((b) => b.player.id === second.questioner.id);
@@ -1235,7 +1243,7 @@ test('computer seats are host-only, bounded, synchronized and cannot be forged b
   assert.deepEqual(same.allPlayers.filter((p) => p.isComputer).map((p) => p.id), ids);
   const joining = await bot(t);
   const joined = await ok(joining, 'room:join', { code: room.code, nickname: 'コンピュータ3', isComputer: true, is_computer: true });
-  assert.equal(joined.player.is_computer, undefined);
+  assert.equal(joined.player.is_computer, false);
   assert.equal(joined.allPlayers.find((p) => p.id === joined.player.id).isComputer, false);
   const filled = await ok(host, 'room:set_computers', { count: 3 });
   assert.equal(filled.allPlayers.length, 6);
@@ -1362,4 +1370,342 @@ test('computers do not keep a room alive or replace a departed human questioner'
   assert.equal((await event(bots[1], 'game:stopped')).reason, 'not_enough_players');
   assert.equal(rooms.get(room.code).status, 'finished');
   await denied(bots[1], 'game:next_round');
+});
+
+for (const index of [0, 1]) {
+  test(`temporary ${index ? 'polling' : 'websocket'} interruption restores identity, scores and missed choices`, async (t) => {
+    const { bots, room } = await roomWith(t, 4);
+    const subject = bots[index];
+    const observer = bots[1 - index];
+    await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 1 });
+    await event(bots[0], 'round:synopsis_fetched');
+    await confirmCpuAndStart(bots[0], bots);
+    await ok(subject, 'round:submit_fake', { title: '通信を戻す人の案' });
+    const socketId = subject.socket.id;
+    rooms.get(room.code).players[index].score = 7;
+    const serverSocket = io.sockets.sockets.get(socketId);
+    const disconnected = once(serverSocket, 'disconnect', { signal: AbortSignal.timeout(3000) });
+    subject.socket.io.engine.close();
+    await disconnected;
+    assert.equal(rooms.get(room.code).players[index].is_connected, true);
+    assert.equal(observer.events.some((e) => e.name === 'room:player_disconnected'), false);
+    for (const [i, b] of bots.entries()) {
+      if (b !== subject) await ok(b, 'round:submit_fake', { title: `通信中の案${i}` });
+    }
+    const expected = await event(observer, 'round:choices_presented');
+    const reconnected = once(subject.socket, 'connect', { signal: AbortSignal.timeout(3000) });
+    subject.socket.connect();
+    await reconnected;
+    assert.equal(subject.socket.recovered, true);
+    assert.equal(subject.socket.id, socketId);
+    const replayed = await event(subject, 'round:choices_presented');
+    assert.deepEqual(replayed.choices, expected.choices);
+    assert.ok(replayed.ownAnswerId);
+    const state = await ok(subject, 'room:get_state');
+    assert.equal(state.room.players.find((p) => p.id === subject.player.id).score, 7);
+    const real = replayed.choices.find((c) => c.title.startsWith('正解'));
+    for (const b of bots) await ok(b, 'round:submit_vote', { answerId: real.id });
+    await event(subject, 'round:revealed');
+    await ok(bots[0], 'game:next_round');
+    await event(subject, 'game:finished');
+  });
+}
+
+test('a lone lobby host recovers without losing the room or host role', async (t) => {
+  const { bots: [host], room } = await roomWith(t, 1);
+  await event(host, 'room:session_ready');
+  const socketId = host.socket.id;
+  const disconnected = once(io.sockets.sockets.get(socketId), 'disconnect', { signal: AbortSignal.timeout(3000) });
+  host.socket.io.engine.close();
+  await disconnected;
+  assert.equal(rooms.has(room.code), true);
+  const reconnected = once(host.socket, 'connect', { signal: AbortSignal.timeout(3000) });
+  host.socket.connect();
+  await reconnected;
+  assert.equal(host.socket.recovered, true);
+  const state = await ok(host, 'room:get_state');
+  assert.equal(state.room.players.length, 1);
+  assert.equal(state.room.players[0].is_host, true);
+});
+
+test('expired packet replay reserves the room and rejects unauthenticated fresh membership', async (t) => {
+  const { bots: [host], room } = await roomWith(t, 1);
+  await event(host, 'room:session_ready');
+  const duration = io.opts.connectionStateRecovery.maxDisconnectionDuration;
+  t.after(() => { io.opts.connectionStateRecovery.maxDisconnectionDuration = duration; });
+  io.opts.connectionStateRecovery.maxDisconnectionDuration = 30;
+  const disconnected = once(io.sockets.sockets.get(host.socket.id), 'disconnect', { signal: AbortSignal.timeout(3000) });
+  host.socket.io.engine.close();
+  await disconnected;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(rooms.has(room.code), true);
+  assert.equal(rooms.get(room.code).players[0].is_online, false);
+  const currentTime = Date.now();
+  const now = t.mock.method(Date, 'now', () => currentTime + duration + 1000);
+  const reconnected = once(host.socket, 'connect', { signal: AbortSignal.timeout(3000) });
+  host.socket.connect();
+  await reconnected;
+  now.mock.restore();
+  assert.equal(host.socket.recovered, false);
+  await denied(host, 'room:get_state');
+  await denied(host, 'game:start', { mode: 'player' });
+});
+
+test('replayed transport state cannot restore a removed game membership', async (t) => {
+  const { bots: [host], room } = await roomWith(t, 1);
+  await event(host, 'room:session_ready');
+  const socketId = host.socket.id;
+  const disconnected = once(io.sockets.sockets.get(socketId), 'disconnect', { signal: AbortSignal.timeout(3000) });
+  host.socket.io.engine.close();
+  await disconnected;
+  rooms.delete(room.code);
+  const rejected = once(host.socket, 'disconnect', { signal: AbortSignal.timeout(3000) });
+  host.socket.connect();
+  assert.equal((await rejected)[0], 'io server disconnect');
+  assert.equal(host.socket.connected, false);
+  assert.equal(io.sockets.sockets.has(socketId), false);
+});
+
+test('a snapshot write failure leaves no orphan seat and returns no storage path', async (t) => {
+  const host = await bot(t);
+  const count = rooms.size;
+  const before = readFileSync(process.env.ROOM_STATE_PATH, 'utf8');
+  t.mock.method(require('node:fs'), 'renameSync', () => { throw new Error('private-storage-path'); });
+  const result = await ack(host, 'room:create', { nickname: '保存障害の確認' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /部屋を保存できません/);
+  assert(!JSON.stringify(result).includes('private-storage-path'));
+  assert.equal(rooms.size, count);
+  assert.equal(readFileSync(process.env.ROOM_STATE_PATH, 'utf8'), before);
+});
+
+test('browser room bookmarks survive reload, observe deletion and tolerate unavailable storage', () => {
+  const source = readFileSync(join(__dirname, '../client/src/utils/roomSession.js'), 'utf8')
+    .replaceAll('export function ', 'function ') + '\n({ getRoomSession, saveRoomSession, clearRoomSession })';
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
+  const api = runInNewContext(source, { localStorage: storage });
+  const saved = { code: '000123', playerId: 'own-seat', token: 'x'.repeat(43), nickname: '本人', serverUrl: 'https://game.example' };
+  api.saveRoomSession(saved);
+  const reloaded = runInNewContext(source, { localStorage: storage });
+  assert.equal(reloaded.getRoomSession().token, saved.token);
+  api.clearRoomSession();
+  assert.equal(reloaded.getRoomSession(), null, 'another tab must observe explicit exit');
+  api.saveRoomSession(saved);
+  values.set([...values.keys()][0], JSON.stringify({ ...saved, token: 'invalid' }));
+  assert.equal(reloaded.getRoomSession(), null);
+  const unavailable = runInNewContext(source, { localStorage: {
+    getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); },
+  } });
+  unavailable.saveRoomSession(saved);
+  assert.equal(unavailable.getRoomSession().code, saved.code);
+  unavailable.clearRoomSession();
+  assert.equal(unavailable.getRoomSession(), null);
+});
+
+test('a transport lost during the resume reply keeps recovery active; an unavailable seat still returns home', { timeout: 10000 }, async (t) => {
+  const host = await bot(t);
+  const entry = await ok(host, 'room:create', { nickname: '復帰中に再切断' });
+  let markPending;
+  const pending = new Promise((resolve) => { markPending = resolve; });
+  let delayed;
+  const holdOneReply = (socket) => socket.use((packet, next) => {
+    if (packet[0] === 'room:resume' && !delayed) { delayed = next; markPending(); }
+    else next();
+  });
+  io.on('connection', holdOneReply);
+  t.after(() => { io.off('connection', holdOneReply); delayed?.(); });
+  const home = [];
+  const alerts = [];
+  const leaving = { current: false };
+  let cleared = false;
+  let restored;
+  let markRestored;
+  const returned = new Promise((resolve) => { markRestored = resolve; });
+  let markUnavailable;
+  const unavailable = new Promise((resolve) => { markUnavailable = resolve; });
+  let cleanup;
+  const source = readFileSync(join(__dirname, '../client/src/hooks/useRoomRecovery.js'), 'utf8')
+    .replace(/^import .*;\r?\n/gmu, '').replace('export default function ', 'function ');
+  const useRecovery = runInNewContext(`${source}\nuseRoomRecovery;`, {
+    useState: (value) => [value, () => {}], useEffect: (effect) => { cleanup = effect(); },
+    getSocket: () => host.socket,
+    getRoomSession: () => ({ code: entry.room.code, playerId: entry.player.id, token: entry.token }),
+    clearRoomSession: () => { cleared = true; },
+    disconnectSocket: () => host.socket.disconnect(),
+    showRoom: (_, result) => { restored = result; markRestored(); },
+    Alert: { alert: (...args) => { alerts.push(args); markUnavailable(); } },
+  });
+  useRecovery({ replace: (screen) => home.push(screen) }, leaving);
+  t.after(() => cleanup());
+  async function interrupt() {
+    const disconnected = once(host.socket, 'disconnect', { signal: AbortSignal.timeout(3000) });
+    const serverDisconnected = once(io.sockets.sockets.get(host.socket.id), 'disconnect', { signal: AbortSignal.timeout(3000) });
+    host.socket.io.engine.close();
+    await Promise.all([disconnected, serverDisconnected]);
+  }
+  await interrupt();
+  host.socket.connect();
+  await pending;
+  await interrupt();
+  assert.deepEqual(home, [], 'a failed transport must not cancel automatic recovery');
+  assert.deepEqual(alerts, []);
+  assert.equal(cleared, false);
+  assert.equal(leaving.current, false);
+  assert.equal(host.socket.active, true);
+  host.socket.connect();
+  await returned;
+  assert.equal(restored.room.code, entry.room.code);
+  assert.equal(restored.player.id, entry.player.id);
+  await ok(host, 'room:leave');
+  await interrupt();
+  const currentTime = Date.now();
+  const clock = t.mock.method(Date, 'now', () => currentTime + io.opts.connectionStateRecovery.maxDisconnectionDuration + 1000);
+  host.socket.connect();
+  await unavailable;
+  clock.mock.restore();
+  assert.deepEqual(home, ['Home']);
+  assert.equal(cleared, true, 'a genuinely unavailable seat must revoke the bookmark');
+  assert.equal(leaving.current, true);
+});
+
+test('failed start, introduction, reselection, profile and explicit leave preserve authoritative state', async (t) => {
+  const { bots, room: entry } = await roomWith(t, 4);
+  const room = rooms.get(entry.code);
+  const fs = require('node:fs');
+  const fail = () => t.mock.method(fs, 'renameSync', () => { throw new Error('private-storage-failure'); });
+  fail();
+  await denied(bots[0], 'game:start', { mode: 'player' });
+  assert.equal(room.status, 'waiting');
+  assert.equal(room.rounds.length, 0);
+  t.mock.restoreAll();
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const round = room.rounds[0];
+  const questioner = bots.find((b) => b.player.id === round.questioner_id);
+  fail();
+  await denied(questioner, 'round:submit_synopsis', { synopsis: '保存対象の紹介文', realTitle: '保存対象の答え' });
+  assert.equal(room.rounds[0], round);
+  assert.equal(round.synopsis, null);
+  const oldName = room.players[0].nickname;
+  await denied(bots[0], 'room:update_profile', { nickname: '未保存の変更', icon: '🐧' });
+  assert.equal(room.players[0].nickname, oldName);
+  await denied(bots[0], 'room:leave');
+  assert.equal(room.players[0].is_connected, true);
+  assert(room.players[0].resume_hash);
+  t.mock.restoreAll();
+  await ok(questioner, 'round:submit_synopsis', { synopsis: '保存対象の紹介文', realTitle: '保存対象の答え' });
+  fail();
+  await denied(questioner, 'round:reselect');
+  assert.equal(round.synopsis, '保存対象の紹介文');
+  t.mock.restoreAll();
+});
+
+test('password admission precedes profile entry; renaming preserves UUID declarations and private credentials', async (t) => {
+  const host = await bot(t);
+  const entry = await ok(host, 'room:create', { password: '鍵付きの部屋' });
+  assert.equal(entry.player.profile_ready, false);
+  assert.equal(entry.room.password_hash, undefined);
+  const guest = await bot(t);
+  await denied(guest, 'room:join', { code: entry.room.code, password: '違う鍵' });
+  const joined = await ok(guest, 'room:join', { code: entry.room.code, password: '鍵付きの部屋' });
+  assert.equal(joined.player.profile_ready, false);
+  await ok(host, 'room:update_profile', { nickname: '名前を決めたホスト', icon: '🐈' });
+  await denied(guest, 'room:update_profile', { nickname: '名前を決めたホスト', icon: '🐧' });
+  await denied(guest, 'room:update_profile', { nickname: 'ゲスト', icon: '<script>' });
+  await ok(guest, 'room:update_profile', { nickname: 'ゲスト', icon: '🐧' });
+  await ok(host, 'room:set_computers', { count: 2 });
+  await ok(host, 'game:start', { mode: 'cpu', totalRounds: 1 });
+  const room = rooms.get(entry.room.code);
+  const round = room.rounds[0];
+  room.rounds[0].synopsis = '手動の検証用紹介';
+  room.rounds[0].real_title = '正解';
+  await ok(host, 'round:confirm_synopsis');
+  await ok(guest, 'round:declare_known');
+  await ok(guest, 'room:update_profile', { nickname: '変更後', icon: '🦊' });
+  assert.equal(round.declarations.get(joined.player.id), 'known');
+  const resumed = await ok(guest, 'room:resume', { code: entry.room.code, playerId: joined.player.id, token: joined.token });
+  assert.equal(resumed.player.nickname, '変更後');
+  assert.equal(resumed.player.icon, '🦊');
+  assert.deepEqual(resumed.gameData.resumeState.knownPlayerIds, [joined.player.id]);
+  assert.deepEqual(resumed.gameData.resumeState.knownDeclarations, ['変更後']);
+});
+
+test('resuming a seat during password admission cannot attach one socket to two rooms', async (t) => {
+  for (const admission of ['room:create', 'room:join']) {
+    const owner = await bot(t);
+    const original = await ok(owner, 'room:create', { nickname: `元の席${admission}`.slice(0, 12) });
+    const targetOwner = await bot(t);
+    const target = await ok(targetOwner, 'room:create', { password: '照合を待つ鍵' });
+    const returning = await bot(t);
+    const serverSocket = io.sockets.sockets.get(returning.socket.id);
+    let reply;
+    // Run both real handlers in one turn to hold the async password boundary.
+    const pending = serverSocket.listeners(admission)[0]({
+      password: '照合を待つ鍵', code: target.room.code,
+    }, (result) => { reply = result; });
+    let resumed;
+    serverSocket.listeners('room:resume')[0]({ code: original.room.code,
+      playerId: original.player.id, token: original.token }, (result) => { resumed = result; });
+    assert.equal(resumed.ok, true);
+    await pending;
+    assert.equal(reply.ok, false);
+    assert.match(reply.error, /すでにルーム/);
+    assert.equal(serverSocket.data.roomCode, original.room.code);
+    assert.equal(serverSocket.rooms.has(target.room.code), false);
+    assert.equal(rooms.get(target.room.code).players.length, 1);
+    assert.equal([...rooms.values()].flatMap((room) => room.players)
+      .filter((player) => player.socket_id === serverSocket.id).length, 1);
+  }
+});
+
+test('CPU snapshot failures produce a retry screen instead of an unhandled asynchronous error', async (t) => {
+  const { bots } = await roomWith(t, 4);
+  const delayed = delayNextQuestionSelection(t);
+  await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 1 });
+  await delayed.started;
+  t.mock.method(require('node:fs'), 'renameSync', () => { throw new Error('private-storage-path'); });
+  delayed.release();
+  const failure = await event(bots[0], 'round:synopsis_fetch_failed');
+  assert.match(failure.error, /部屋を保存できません/);
+  assert(!JSON.stringify(failure).includes('private-storage-path'));
+  assert.equal(bots[0].events.some((e) => e.name === 'round:synopsis_fetched'), false);
+});
+
+test('only the questioner receives the real title and submitted titles; host chooses MVP after departure', async (t) => {
+  const { bots, room } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find((b) => b.player.id === started.questioner.id);
+  const answerers = bots.filter((b) => b !== questioner);
+  await ok(questioner, 'round:submit_synopsis', { synopsis: '手紙を探して旅をする紹介文。', realTitle: '出題者だけが知る本物' });
+  const privateView = await event(questioner, 'round:questioner_view');
+  assert.equal(privateView.realTitle, '出題者だけが知る本物');
+  assert.deepEqual(privateView.answers, []);
+  for (const b of answerers) await ok(b, 'round:declare_unknown');
+  await ok(questioner, 'round:start_submitting');
+  await event(questioner, 'round:questioner_view');
+  await ok(answerers[0], 'round:submit_fake', { title: '出題者が見られる回答' });
+  const submission = await event(questioner, 'round:questioner_view');
+  assert.deepEqual(submission.answers.map((a) => a.title), ['出題者が見られる回答']);
+  for (const b of answerers) {
+    assert.equal(b.events.some((e) => e.name === 'round:questioner_view'), false);
+    assert.ok(!JSON.stringify(b.events).includes('出題者だけが知る本物'));
+    assert.ok(!JSON.stringify(await ok(b, 'room:get_state')).includes('出題者だけが知る本物'));
+  }
+  for (const [i, b] of answerers.slice(1).entries()) await ok(b, 'round:submit_fake', { title: `ほかの案${i}` });
+  const { choices } = await event(questioner, 'round:choices_presented');
+  const real = choices.find((c) => c.title === privateView.realTitle);
+  for (const b of answerers) await ok(b, 'round:submit_vote', { answerId: real.id });
+  await event(questioner, 'round:revealed');
+  questioner.socket.disconnect();
+  const departure = await event(answerers[0], 'game:questioner_disconnected');
+  const host = answerers.find((b) => b.player.id === departure.fallbackHostId);
+  const fake = choices.find((c) => c.id !== real.id);
+  await denied(host, 'game:next_round');
+  await denied(answerers.find((b) => b !== host), 'round:submit_mvp', { answerId: fake.id });
+  await denied(host, 'round:submit_mvp', { answerId: real.id });
+  await ok(host, 'round:submit_mvp', { answerId: fake.id });
+  await denied(host, 'round:submit_mvp', { answerId: fake.id });
+  await ok(host, 'game:next_round');
+  assert.equal((await event(host, 'game:round_started')).currentRound, 2);
 });

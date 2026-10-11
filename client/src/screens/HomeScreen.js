@@ -6,6 +6,7 @@ import {
 import { Text, TextInput } from '../components/ui/GameText';
 import { getCurrentUrl } from '../hooks/useSocket';
 import useRoomEntry from '../hooks/useRoomEntry';
+import { getRoomSession } from '../utils/roomSession';
 import { DEFAULT_SERVER_URL } from '../config';
 import { colors } from '../theme';
 import { brandAssets, GAME_NAME } from '../theme/brand';
@@ -14,7 +15,7 @@ import HomeDemo from '../components/home/HomeDemo';
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 
 export default function HomeScreen({ navigation }) {
-  const [nickname, setNickname] = useState('');
+  const [password, setPassword] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [mode, setMode] = useState('home');
   const [showSettings, setShowSettings] = useState(false);
@@ -23,21 +24,22 @@ export default function HomeScreen({ navigation }) {
   const wide = width >= 1200;
   const entry = useRoomEntry(navigation);
   const joining = mode === 'join';
+  const previousRoom = getRoomSession();
 
   const openRules = () => navigation.navigate('Rules');
   const toggleSettings = () => setShowSettings((value) => !value);
-  const start = () => entry.enterRoom({ nickname, code: roomCode, serverUrl, joining });
+  const start = () => entry.enterRoom({ password, code: roomCode, serverUrl, joining });
 
   const form = <View style={[styles.formArea, wide && styles.formAreaWide]}>
     <Text style={[styles.formHeading, wide && styles.formHeadingWide]}>
       {joining ? '部屋に入る' : 'ゲームをはじめる'}
     </Text>
 
-    <Text style={styles.fieldLabel}>ニックネーム</Text>
+    <Text style={styles.fieldLabel}>{joining ? '部屋のパスワード' : '部屋のパスワード（任意）'}</Text>
     <TextInput style={[styles.input, wide && styles.inputWide]}
-      placeholder="例：たろう" placeholderTextColor={colors.muted}
-      value={nickname} onChangeText={(value) => { setNickname(value); entry.clearError(); }}
-      maxLength={12} editable={!entry.busy} accessibilityLabel="ニックネーム入力欄"
+      placeholder={joining ? 'ホストから教えてもらったパスワード' : '空欄ならパスワードなし'} placeholderTextColor={colors.muted}
+      value={password} onChangeText={(value) => { setPassword(value); entry.clearError(); }}
+      maxLength={64} secureTextEntry editable={!entry.busy} accessibilityLabel="部屋のパスワード入力欄"
       autoComplete="off" autoCorrect={false} />
 
     {joining ? <>
@@ -71,6 +73,10 @@ export default function HomeScreen({ navigation }) {
         {joining ? '← 戻る' : '部屋に入る'}
       </StationeryButton>
     </View>}
+
+    {previousRoom && !entry.busy ? <StationeryButton variant="neutral"
+      onPress={() => entry.enterRoom({ ...previousRoom, code: previousRoom.code, joining: true, resuming: true })}
+      accessibilityLabel="前の部屋に戻る">前の部屋に戻る（{previousRoom.code}）</StationeryButton> : null}
 
     <TouchableOpacity style={styles.rulesLink} onPress={openRules} disabled={entry.busy}
       accessibilityRole="button" accessibilityLabel="遊び方を見る">

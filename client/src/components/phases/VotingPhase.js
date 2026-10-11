@@ -15,23 +15,38 @@ import {
   PopBackdrop,
 } from '../ui';
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../../hooks/useResponsiveLayout';
+import { useSocketListeners } from '../../hooks/useSocket';
 
 export default function VotingPhase({
+  round,
   currentRound,
   totalRounds,
   questioner,
   synopsis,
+  workKindLabel,
+  realTitle,
   choices,
   ownAnswerId,
   isQuestioner,
   voteProgress,
+  consent = false,
+  initialVoted = false,
+  initialAnswerId = null,
   socket,
 }) {
-  const [selectedId, setSelectedId] = useState(null);
-  const [voted, setVoted] = useState(false);
+  const [selectedId, setSelectedId] = useState(initialAnswerId);
+  const [voted, setVoted] = useState(initialVoted);
   const [submitting, setSubmitting] = useState(false);
   const [voteError, setVoteError] = useState(null);
   const { isPC, contentPadding } = useResponsiveLayout();
+  useSocketListeners({
+    'round:vote_saved': ({ roundId }) => {
+      if (roundId === round.id) {
+        setVoted(true);
+        setVoteError(null);
+      }
+    },
+  });
 
   function handleVote() {
     if (!selectedId || selectedId === ownAnswerId || voted || submitting) return;
@@ -76,9 +91,12 @@ export default function VotingPhase({
                 </View>
                 <View style={styles.synopsisHeadingBody}>
                   <Text style={styles.kicker}>WORK</Text>
-                  <Text style={styles.synopsisTitle}>この作品の紹介文</Text>
+                  <Text style={styles.synopsisTitle}>この作品の紹介文{workKindLabel ? `・${workKindLabel}` : ''}</Text>
                 </View>
               </View>
+              {isQuestioner ? (
+                <Text testID="questioner-real-title" style={styles.synopsisTitle}>本物のタイトル：{realTitle}</Text>
+              ) : null}
               <Text style={styles.synopsisText}>{synopsis}</Text>
             </PaperPanel>
 
@@ -155,8 +173,12 @@ export default function VotingPhase({
                 <Text style={styles.questionerKicker}>QUESTIONER VIEW</Text>
                 <Text style={styles.questionerTitle}>投票を見守っています</Text>
                 <Text style={styles.questionerBody}>
-                  出題者は投票しません。全員の投票が終わると、自動的に結果が発表されます。
+                  出題者は投票しません。{consent ? '投票が揃うか制限時間が終わると、出題者が正解を発表できます。' : '投票が揃うか制限時間が終わると、結果が発表されます。'}
                 </Text>
+                <Text style={styles.questionerTitle}>みんなのタイトル案</Text>
+                {choices.map((choice, index) => (
+                  <Text key={choice.id} testID="questioner-answer" style={styles.questionerBody}>{index + 1}. {choice.title}</Text>
+                ))}
               </PaperPanel>
             )}
           </View>

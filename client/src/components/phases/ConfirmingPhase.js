@@ -20,6 +20,7 @@ export default function ConfirmingPhase({
   currentRound,
   totalRounds,
   fetchedSynopsis,
+  workKindLabel,
   synopsisError,
   isHost,
   canUseManual = true,
@@ -133,7 +134,7 @@ export default function ConfirmingPhase({
 
                 <View style={styles.synopsisBox}>
                   <View style={styles.synopsisTab}>
-                    <Text style={styles.synopsisTabText}>作品の紹介文</Text>
+                    <Text style={styles.synopsisTabText}>作品の紹介文{workKindLabel ? `・${workKindLabel}` : ''}</Text>
                   </View>
                   <Text style={styles.synopsisText}>{fetchedSynopsis}</Text>
                 </View>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { connectSocket, disconnectSocket } from './useSocket';
 import { DEFAULT_SERVER_URL } from '../config';
+import { getRoomSession, saveRoomSession, clearRoomSession, showRoom } from '../utils/roomSession';
 
 // Every entry attempt owns its timers and listeners. A cancelled/old attempt
 // cannot navigate or leave the form waiting forever for an acknowledgement.
@@ -40,7 +41,10 @@ function requestEntry(socket, event, payload, signal) {
     signal.addEventListener('abort', onAbort, { once: true });
     if (signal.aborted) return onAbort();
     socket.emit(event, payload, (response) => {
-      if (!response?.ok) return finish(new Error(response?.error || '部屋を用意できませんでした。'));
+      if (!response?.ok) {
+        if (response?.rejoinUnavailable) clearRoomSession();
+        return finish(new Error(response?.error || '部屋を用意できませんでした。'));
+      }
       finish(null, response);
     });
   });
@@ -58,12 +62,11 @@ export default function useRoomEntry(navigation) {
     return () => { mounted.current = false; active.current?.abort(); };
   }, []);
 
-  async function enterRoom({ nickname, code, serverUrl, joining = false }) {
+  async function enterRoom({ nickname = '', code, password = '', serverUrl, joining = false, resuming = false }) {
     if (active.current) return;
     const nick = nickname.trim();
     const roomCode = (code || '').trim();
     const targetUrl = (serverUrl.trim() || DEFAULT_SERVER_URL).replace(/\/+$/, '');
-    if (!nick) return setError('名前を入れてね。');
     if (joining && !/^\d{6}$/.test(roomCode)) return setError('6けたの部屋のコードを入れてね。');
     if (!/^https?:\/\/[^\s/]+/i.test(targetUrl)) return setError('つなぐ先は http:// か https:// から入れてね。');
 
@@ -89,15 +92,18 @@ export default function useRoomEntry(navigation) {
       setMessage('部屋を用意しています…');
       const socket = connectSocket(targetUrl);
       await waitForConnection(socket, controller.signal);
-      const result = await requestEntry(socket, joining ? 'room:join' : 'room:create',
-        joining ? { nickname: nick, code: roomCode } : { nickname: nick }, controller.signal);
+      const saved = getRoomSession();
+      const resume = saved && saved.serverUrl === targetUrl && saved.code === roomCode &&
+        (resuming || joining && saved.nickname === nick);
+      if (resuming && !resume) throw new Error('前の部屋へ戻るための情報が見つかりません。');
+      const result = await requestEntry(socket, resume ? 'room:resume' : joining ? 'room:join' : 'room:create',
+        resume ? { code: saved.code, playerId: saved.playerId, token: saved.token }
+          : { ...(nick && { nickname: nick }), ...(joining && { code: roomCode }), password }, controller.signal);
       if (controller.signal.aborted || !mounted.current) return;
       entered = true;
-      navigation.replace('Lobby', {
-        room: result.room,
-        player: result.player,
-        allPlayers: result.allPlayers || [{ id: result.player.id, nickname: nick, isHost: true, score: 0 }],
-      });
+      saveRoomSession({ serverUrl: targetUrl, nickname: result.player.nickname, code: result.room.code,
+        playerId: result.player.id, token: result.token || saved?.token });
+      showRoom(navigation, result);
     } catch (failure) {
       if (mounted.current && (timedOut || !controller.signal.aborted)) {
         const failureMessage = failure instanceof TypeError || failure instanceof SyntaxError
