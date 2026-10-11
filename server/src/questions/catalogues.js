@@ -1,6 +1,7 @@
 const { searchQuery, searchUrl, parseResults } = require('./web-search');
 const { text, attributes, hash } = require('./web-source');
 const { publicUrl } = require('./web-fetch');
+const { isbnIsValid } = require('./distribution-policy');
 
 const LIVE_KINDS = ['novel', 'film', 'game', 'manga'];
 const LIVE_ENGINES = ['yahoo', 'bing', 'duckduckgo'];
@@ -44,16 +45,32 @@ async function discoverLiveCandidates({ kind, pass = 0, page = 0, fetchImpl, sig
     { url: catalogue, parse: html => catalogueLinks(html, catalogue, kind) },
   ];
   if (['novel', 'short-story', 'literary-work', 'manga'].includes(kind)) {
-    // Search current publisher records too; a slow store must not be the only
-    // route to book ISBN, publication and introduction evidence.
-    const label = kind === 'manga' ? '漫画 短編集' : kind === 'short-story' ? '小説 短編集' : '小説 物語';
-    routes.push({ url: searchUrl(engine, `site:www.hanmoto.com/bd/isbn ${label}`, page % 4),
-      parse: html => parseResults(html, engine, kind) });
+    // Use the publisher's current public search protocol, independent of the
+    // engine/store. The ISBN page still supplies all work and story evidence.
+    const year = new Date().getUTCFullYear() - 1 - Math.floor(page / 3) % 3;
+    routes.push({ url: 'https://www.hanmoto.com/bd/search/query.json', request: { method: 'POST', body: JSON.stringify({
+      categoryname: 'search/top', part: year, offset: page % 3 * 20, rowmax: 20,
+      conds: { keyword: { search: ['manga', 'short-story'].includes(kind) ? '短編' : '物語' },
+        genre: { checked: [kind === 'manga' ? '43' : '01'] }, salesdate: { from: `${year}-01-01`, to: `${year}-12-31` } },
+    }) }, parse: json => {
+      const result = JSON.parse(json);
+      if (result.result !== true || !Array.isArray(result.data?.list)) throw new Error('書籍検索の応答が不正です');
+      const seen = new Set(), candidates = [];
+      for (const item of result.data.list.slice(0, 60)) {
+        if (typeof item?.isbn !== 'string' || !/^(978|979)\d{10}$/u.test(item.isbn) || !isbnIsValid(item.isbn) || seen.has(item.isbn) ||
+          !/^[A-Za-z0-9_-]{8}$/u.test(item.uniq || '') || !/^\d{8,14}$/u.test(item.lastupdated || '')) continue;
+        seen.add(item.isbn);
+        const reversed = [...item.uniq].reverse().join('');
+        const url = `https://www.hanmoto.com/bd/book/uniqs/${reversed.slice(0,2)}/${reversed.slice(2,4)}/${reversed.slice(4,6)}/book.${item.uniq}.${item.lastupdated}.json`;
+        candidates.push({ id: `web-${hash(url)}`, provider: 'web', kind, isbn: item.isbn, url });
+      }
+      return candidates;
+    } });
   }
   const results = Array(routes.length);
   const tasks = routes.map(async (route, index) => {
     try {
-      const response = await fetchImpl(route.url, { signal });
+      const response = await fetchImpl(route.url, { ...route.request, signal });
       if (!response.ok || response.status === 202) throw new Error('作品検索先が応答しません');
       const html = await response.text();
       if (/anomaly-modal|verify you are human|<title[^>]*>[^<]*(?:captcha|access denied)/iu.test(html)) throw new Error('検索先が自動取得を制限しています');

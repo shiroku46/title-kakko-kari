@@ -238,8 +238,30 @@ function linkedCandidates(html, baseUrl, kind, { onlyStory = false } = {}) {
   return [...candidates.values()].sort((a,b) => b.score-a.score).slice(0,8).map(({ score, ...candidate }) => candidate);
 }
 
-function publisherBookWork(html, url) {
+const PUBLISHER_RECORD_PATH = /^\/bd\/book\/uniqs\/([A-Za-z0-9_-]{2})\/([A-Za-z0-9_-]{2})\/([A-Za-z0-9_-]{2})\/book\.([A-Za-z0-9_-]{8})\.(\d{8,14})\.json$/u;
+function publisherBookWork(html, url, expectedIsbn) {
   const source = new URL(url);
+  const recordPath = source.hostname === 'www.hanmoto.com' && source.pathname.match(PUBLISHER_RECORD_PATH);
+  if (recordPath) {
+    const result = JSON.parse(html), record = result.data?.book;
+    const reversed = [...recordPath[4]].reverse().join('');
+    if (result.result !== true || record?.uniq !== recordPath[4] || recordPath.slice(1,4).join('') !== reversed.slice(0,6) ||
+      record.isbn13 !== expectedIsbn || record.codes?.isbn13 !== expectedIsbn || !require('./distribution-policy').isbnIsValid(expectedIsbn)) {
+      throw new Error('当該書籍の識別情報とISBNを照合できません');
+    }
+    const title = record.titles?.title;
+    if (typeof title?.text !== 'string' || title.suffix || title.gou || record.titles?.eachtitle?.suffix) throw new Error('単独書籍の作品名を確認できません');
+    const classification = /^\d{4}$/u.test(record.genres?.ccode || '') ? record.genres.ccode.slice(-2) : null;
+    const kind = classification === '79' ? 'manga' : ['93','97'].includes(classification) ? 'novel' : null;
+    if (!kind || !Array.isArray(record.desc) || record.desc.some(value => typeof value !== 'string')) throw new Error('書籍の分類と紹介欄を確認できません');
+    // The public UI uses these same original introduction fragments. Do not
+    // borrow the table of contents, author notes, reviews or other records.
+    const introduction = '<h2>作品紹介</h2>' + record.desc.join('\n');
+    return { name: text(title.text), workType: 'Book', kind, genre: kind === 'manga' ? '漫画' : '文芸 小説',
+      isbn: record.isbn13, author: Object.values(record.authors || {}).map(author => text(author?.name)).filter(Boolean),
+      publisher: text(record.hakkou?.hatsubai || record.hakkou?.hakkou || record.hakkou?.dokuji),
+      datePublished: record.dates?.sales, markup: introduction, introduction };
+  }
   const isbn = source.hostname === 'www.hanmoto.com' && source.pathname.match(/^\/bd\/isbn\/((?:978|979)\d{10})\/?$/u)?.[1];
   if (!isbn) return null;
   const identity = attributes(html.match(/<body\b[^>]*>/iu)?.[0] || '');
@@ -268,22 +290,23 @@ function publisherBookWork(html, url) {
     introduction: intro.replace(/(<h[1-6]\b[^>]*>)\s*紹介\s*(<\/h[1-6]>)/iu, '$1作品紹介$2') };
 }
 
-function extractWebWork(html, url, hintKind) {
+function extractWebWork(html, url, hintKind, expectedIsbn) {
   if (new URL(url).hostname === 'store.steampowered.com' && /class="[^"]*\bgame_area_dlc_bubble\b/iu.test(html)) {
     throw new Error('本編を必要とする追加コンテンツは独立した作品として採用しません');
   }
-  const meta = metadata(html);
+  const book = publisherBookWork(html, url, expectedIsbn);
+  const record = new URL(url).pathname.match(PUBLISHER_RECORD_PATH) && book;
+  const meta = record ? {} : metadata(html);
   if (/nosnippet|noarchive|noai|none|max-snippet\s*:\s*0/iu.test(meta.robots || '') ||
     /captcha|verify you are human|アクセスが集中|ログインが必要|robot check/iu.test(text(html).slice(0,1000))) {
     throw new Error('公開の作品紹介を取得できません');
   }
-  const headings = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/giu)].map((m) => headingText(m[1])).filter(Boolean);
-  const pageTitle = text(meta['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1]);
+  const headings = record ? [book.name] : [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/giu)].map((m) => headingText(m[1])).filter(Boolean);
+  const pageTitle = record ? book.name : text(meta['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1]);
   if (NON_WORK_PATH.test(new URL(url).pathname) || /^(?:profile|article)$/iu.test(meta['og:type'] || '') && /プロフィール|ライター|著者一覧/u.test(pageTitle) ||
       LIST_TITLE.test(pageTitle) || ARTICLE_TITLE.test(pageTitle)) throw new Error('記事・一覧・人物ページは作品として採用しません');
   const posted = postedWork(html, url, { text, metadata });
   const creator = creatorWork(html, url, { text, metadata, attributes, introductionMarkup });
-  const book = publisherBookWork(html, url);
   if (new URL(url).hostname === 'booth.pm' && /^\/ja\/items\/\d+$/u.test(new URL(url).pathname) && !creator) {
     throw new Error('当該商品のオリジナル漫画・作者情報を確認できません');
   }
@@ -417,13 +440,14 @@ async function generateWebQuestion(candidate, { fetchImpl, now = () => new Date(
   const response = await fetchImpl(requested.href, { signal: AbortSignal.timeout(15000) });
   if (!response.ok || response.status === 202) throw new Error(`Web作品資料を取得できません (${response.status})`);
   const type = response.headers.get('content-type') || '';
-  if (type && !/text\/html|application\/xhtml\+xml/iu.test(type)) throw new Error('作品資料がHTMLではありません');
   const url = publicUrl(response.url || requested.href).href;
+  const record = new URL(url).hostname === 'www.hanmoto.com' && PUBLISHER_RECORD_PATH.test(new URL(url).pathname);
+  if (type && !/text\/html|application\/xhtml\+xml/iu.test(type) && !(record && /application\/json/iu.test(type))) throw new Error('作品資料がHTMLではありません');
   const html = await response.text();
   let work;
-  try { work = extractWebWork(html, url, candidate.kind); }
+  try { work = extractWebWork(html, url, candidate.kind, candidate.isbn); }
   catch (error) {
-    if ((candidate.webDepth || 0) < 2 && !/再利用|取得できません/u.test(error.message)) error.additionalCandidates = linkedCandidates(html, url, candidate.kind, { onlyStory: new URL(url).pathname !== '/' &&
+    if (!record && (candidate.webDepth || 0) < 2 && !/再利用|取得できません/u.test(error.message)) error.additionalCandidates = linkedCandidates(html, url, candidate.kind, { onlyStory: new URL(url).pathname !== '/' &&
       !LIST_TITLE.test(text(metadata(html)['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1])) &&
       !EDITORIAL_TITLE.test(text(metadata(html)['og:title'] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1])) });
     throw error;

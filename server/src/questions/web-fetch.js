@@ -47,7 +47,7 @@ async function resolvePublic(value, lookup = dns.lookup) {
   return { url, address: addresses.find((item) => item.family === 4) || addresses[0] };
 }
 
-async function requestPage(url, address, signal) {
+async function requestPage(url, address, signal, { method, body }) {
   const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
   if (proxy) {
     const marker = '\n__TITLE_WEB_RESPONSE__:';
@@ -57,6 +57,7 @@ async function requestPage(url, address, signal) {
       '--max-redirs', '0', '--max-filesize', String(MAX_BYTES), '--user-agent', AGENT,
       '--connect-to', `${url.hostname}:443:${destination}:443`,
       '--write-out', `${marker}%{http_code}\n%header{location}\n%header{content-type}\n%header{retry-after}\n%header{x-robots-tag}`,
+      ...(method === 'POST' ? ['--request', 'POST', '--header', 'Content-Type: application/json', '--data-binary', body] : []),
       url.href,
     ], { encoding: 'buffer', maxBuffer: MAX_BYTES + 4096, signal });
     const index = stdout.lastIndexOf(Buffer.from(marker));
@@ -69,8 +70,9 @@ async function requestPage(url, address, signal) {
     return new Response(stdout.subarray(0, index), { status: Number(status), headers });
   }
   return new Promise((resolve, reject) => {
-    const request = https.get(url, {
-      agent: false, signal, headers: { 'User-Agent': AGENT, Accept: 'text/html,application/rss+xml' },
+    const request = https.request(url, {
+      agent: false, signal, method, headers: { 'User-Agent': AGENT, Accept: 'text/html,application/rss+xml,application/json',
+        ...(method === 'POST' && { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }) },
       // Pin the validated address; do not resolve again between validation and use.
       lookup: (_host, options, callback) => callback(null, options.all ? [address] : address.address, address.family),
     }, (response) => {
@@ -89,18 +91,25 @@ async function requestPage(url, address, signal) {
       });
     });
     request.on('error', reject);
+    request.end(body);
   });
 }
 
 function createPublicFetch({ lookup = dns.lookup, requestImpl = requestPage } = {}) {
   return async (value, options = {}) => {
+    const method = options.method || 'GET';
+    const body = options.body;
+    if (!['GET', 'POST'].includes(method) || (method === 'GET' && body !== undefined) ||
+      (method === 'POST' && (typeof body !== 'string' || Buffer.byteLength(body) > 8192))) throw new Error('資料検索のリクエストが不正です');
+    if (method === 'POST') JSON.parse(body);
     const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000);
     let destination = value;
     for (let redirect = 0; redirect <= 3; redirect++) {
       signal.throwIfAborted();
       const { url, address } = await resolvePublic(destination, lookup);
-      const response = await requestImpl(url, address, signal);
+      const response = await requestImpl(url, address, signal, { method, body });
       if (response.status >= 300 && response.status < 400) {
+        if (method === 'POST') throw new Error('資料検索の転送はできません');
         const location = response.headers.get('location');
         if (!location || redirect === 3) throw new Error('Web資料の転送先を確認できません');
         destination = new URL(location, url).href;
