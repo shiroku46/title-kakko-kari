@@ -58,6 +58,36 @@ test('publisher book records bind ruby titles, genre and official distribution t
   }
 });
 
+const publisherRecordUrl='https://www.hanmoto.com/bd/book/uniqs/HG/FE/DC/book.ABCDEFGH.202601010000.json';
+const publisherRecord=extra=>({result:true,data:{book:{uniq:'ABCDEFGH',isbn13:'9784065373262',codes:{isbn13:'9784065373262'},
+  titles:{title:{text:'港の約束',yomi:'ミナトノヤクソク'}},genres:{ccode:'0093'},desc:[story],hakkou:{hatsubai:'海辺出版'},
+  dates:{sales:'2026-01-01'},authors:{a:{name:'書く人',note:'著者プロフィール。'+story}},toc:story,...extra}}});
+const recordPage=record=>new Response(JSON.stringify(record),{headers:{'content-type':'application/json'}});
+test('public publisher JSON binds record identity and ISBN before reusing own introduction and publication checks',async()=>{
+  const {hasOfficialDistribution}=require('../server/src/questions/distribution-policy');
+  const generate=(extra={},kind='novel',isbn='9784065373262',url=publisherRecordUrl)=>generateWebQuestion({url,kind,isbn},
+    {fetchImpl:async()=>recordPage(publisherRecord(extra))});
+  for(const [kind,ccode,desc] of [['novel','0093',story],['short-story','0093','短編小説。'+story],
+    ['literary-work','0093',story],['manga','0079','小説を執筆する主人公の物語。'+story]]){
+    const q=await generate({genres:{ccode},desc:[desc]},kind);
+    assert.equal(q.kind,kind); assert.equal(q.realTitle,'港の約束'); assert(questionIsValid(q)); assert(hasOfficialDistribution(q));
+    assert.equal(q.sources[0].url,publisherRecordUrl); assert(!q.synopsis.includes('ミナトノヤクソク'));
+    assert(!q.synopsis.includes('著者プロフィール'));
+  }
+  assert.equal((await generate({genres:{ccode:'0079'},desc:['小説を執筆する主人公の物語。'+story]})).kind,'manga');
+  const wide=await generate({desc:['本書はベストセラー。'+story]});
+  assert.equal(require('../server/src/questions/selection-policy').createSelectionPolicy().isEligible(wide),false);
+  for(const extra of [{uniq:'DIFFERENT'}, {isbn13:'9784065373261'}, {codes:{isbn13:'9784120060243'}},
+    {genres:{ccode:'0040'}},{genres:{ccode:'fake79'}},{titles:{title:{text:'港の約束',suffix:'1'}}},{desc:[]},{desc:['短い紹介。']},{desc:[{}]}]) await assert.rejects(generate(extra));
+  await assert.rejects(generate({},'novel','9784120060243'));
+  await assert.rejects(generate({},'novel',null));
+  await assert.rejects(generate({},'novel','9784065373262',publisherRecordUrl.replace('/HG/','/XX/')));
+  await assert.rejects(generate({},'novel','9784065373262',publisherRecordUrl.replace('www.hanmoto.com','evil.example.org')));
+  for(const extra of [{hakkou:{}},{hakkou:{hatsubai:'書く人'}},{dates:{}},{dates:{sales:'2099-01-01'}}]){
+    assert.equal(hasOfficialDistribution(await generate(extra)),false);
+  }
+});
+
 test('web URL and every resolved address must be public HTTPS', async () => {
   for (const url of ['http://publisher.example.org', 'https://localhost/', 'https://127.0.0.1', 'https://2130706433', 'https://[::1]', 'https://x.internal', 'https://x.local', 'https://user:pass@publisher.example.org', 'https://publisher.example.org:8443']) assert.throws(() => publicUrl(url));
   for (const address of ['127.0.0.1','10.1.1.1','172.31.0.1','169.254.169.254','100.64.0.1','192.168.0.1','198.18.0.1','192.0.2.1','::1','::ffff:8.8.8.8','fe80::1','fc00::1','2001:db8::1','2001:10::1','2002:7f00::1','3fff::1']) assert.equal(publicAddress(address),false,address);
@@ -81,6 +111,55 @@ test('redirect targets are revalidated, pinned and bounded', async () => {
   await assert.rejects(loop(base)); assert.equal(count,4);
   const ok = createPublicFetch({ lookup, requestImpl: async (url) => url.pathname === '/book/1' ? new Response(null,{status:302,headers:{location:'/book/2'}}) : page(book()) });
   assert.equal((await ok(base)).url,'https://publisher.example.org/book/2');
+});
+
+test('read-only JSON POSTs are bounded, use the verified address and never follow redirects', async () => {
+  const seen=[];
+  const lookup=async()=>[{address:'8.8.8.8',family:4}];
+  const fetch=createPublicFetch({lookup,requestImpl:async(url,address,signal,request)=>{
+    seen.push({url:url.href,address,request}); return page('{"result":true}');
+  }});
+  const body=JSON.stringify({categoryname:'search/top',conds:{keyword:{search:'物語'}}});
+  await fetch(base,{method:'POST',body,headers:{Authorization:'must not be forwarded'}});
+  assert.deepEqual(seen[0],{url:base,address:{address:'8.8.8.8',family:4},request:{method:'POST',body}});
+  for (const options of [{method:'DELETE'}, {method:'GET',body}, {method:'POST'},
+    {method:'POST',body:'not JSON'}, {method:'POST',body:JSON.stringify('あ'.repeat(3000))}]) await assert.rejects(fetch(base,options));
+  assert.equal(seen.length,1);
+  const redirected=createPublicFetch({lookup,requestImpl:async()=>{
+    seen.push('redirect'); return new Response(null,{status:307,headers:{location:'https://other.example.org/search'}});
+  }});
+  await assert.rejects(redirected(base,{method:'POST',body}),/転送/); assert.equal(seen.length,2);
+  const unsafe=createPublicFetch({lookup:async()=>[{address:'10.0.0.1',family:4}],requestImpl:()=>assert.fail('must not send')});
+  await assert.rejects(unsafe(base,{method:'POST',body}));
+});
+
+test('native HTTPS sends the JSON body and headers while retaining address pinning and GET completion', async t => {
+  const https=require('node:https'), {EventEmitter}=require('node:events');
+  const proxyKeys=['HTTPS_PROXY','https_proxy','HTTP_PROXY','http_proxy'];
+  const saved=proxyKeys.map(key=>[key,process.env[key]]);
+  for (const key of proxyKeys) delete process.env[key];
+  t.after(()=>{for(const [key,value] of saved) if(value===undefined) delete process.env[key]; else process.env[key]=value;});
+  const sent=[];
+  t.mock.method(https,'request',(url,options,callback)=>{
+    const request=new EventEmitter();
+    request.end=body=>{
+      sent.push({options,body});
+      options.lookup(url.hostname,{all:true},(error,addresses)=>{
+        assert.equal(error,null); assert.deepEqual(addresses,[{address:'8.8.8.8',family:4}]);
+      });
+      const response=new EventEmitter(); response.statusCode=200; response.headers={'content-type':'application/json'};
+      callback(response); queueMicrotask(()=>{response.emit('data',Buffer.from('{"result":true}'));response.emit('end');});
+    };
+    return request;
+  });
+  const fetch=createPublicFetch({lookup:async()=>[{address:'8.8.8.8',family:4}]});
+  const body=JSON.stringify({keyword:'物語'});
+  assert.equal(await (await fetch(base,{method:'POST',body})).text(),'{"result":true}');
+  assert.equal(sent[0].body,body); assert.equal(sent[0].options.method,'POST');
+  assert.equal(sent[0].options.headers['Content-Type'],'application/json');
+  assert.equal(sent[0].options.headers['Content-Length'],Buffer.byteLength(body));
+  await fetch(base); assert.equal(sent[1].options.method,'GET'); assert.equal(sent[1].body,undefined);
+  assert.equal(sent[1].options.headers['Content-Length'],undefined);
 });
 
 test('restricted, oversized, non-HTML and short material is not a question', async () => {

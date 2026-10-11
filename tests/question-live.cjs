@@ -134,19 +134,33 @@ test('fresh discovery continues through a blocked engine to links from a live ca
   assert.deepEqual(result.candidates.map(c => c.url), ['https://books.rakuten.co.jp/rb/123/']);
 });
 
-test('book discovery keeps unrestricted search and independently searches current publisher ISBN pages', async t => {
+test('book discovery keeps unrestricted search and obtains current ISBN links without engine or store results', async t => {
   const pages = [];
-  const source = createLiveQuestionSource({ deadlineMilliseconds: 500, fetchImpl: async (url, {signal}) => {
+  const source = createLiveQuestionSource({ deadlineMilliseconds: 500, fetchImpl: async (url, {signal, method, body}) => {
     pages.push(url);
     const location = new URL(url);
     if (location.hostname === 'books.rakuten.co.jp') {
       return new Promise((resolve,reject) => signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
     }
     if (location.hostname === 'search.yahoo.co.jp') {
-      if (!location.searchParams.get('p').startsWith('site:www.hanmoto.com/bd/isbn')) return response('<a ping="/xts/list" href="https://article.example.org/">作品リスト</a>');
-      return response('<a ping="/xts/work" href="https://publisher.example.org/book/letter">港の便り</a>');
+      return response('<a ping="/xts/list" href="https://article.example.org/">作品リスト</a>');
     }
-    if (location.pathname === '/book/letter') return response(commercialBook());
+    if (location.pathname === '/bd/search/query.json') {
+      assert.equal(method, 'POST');
+      const query = JSON.parse(body);
+      assert.equal(query.categoryname, 'search/top'); assert.deepEqual(query.conds.genre.checked, ['01']);
+      assert.equal(query.conds.keyword.search, '物語'); assert.equal(query.rowmax, 20);
+      assert.equal(query.conds.salesdate.from, `${query.part}-01-01`);
+      return response(JSON.stringify({result: true, data: {list: [
+        {isbn: '9784065373261'}, {isbn: '9784065373262',uniq:'ABCDEFGH',lastupdated:'202601010000'},
+        {isbn:'9784065373262',uniq:'ABCDEFGH',lastupdated:'202601010000'},
+        {isbn:'https://169.254.169.254/metadata'}, {url:'https://evil.example.org/'}
+      ]}}));
+    }
+    if (location.pathname === '/bd/book/uniqs/HG/FE/DC/book.ABCDEFGH.202601010000.json') return response(JSON.stringify({result:true,data:{book:{
+      uniq:'ABCDEFGH',isbn13:'9784065373262',codes:{isbn13:'9784065373262'},titles:{title:{text:'港の便り'}},
+      genres:{ccode:'0093'},hakkou:{hatsubai:'海辺出版'},dates:{sales:'2026-01-01'},desc:[story]
+    }}}));
     return response('<title>一般記事</title>');
   }});
   t.after(()=>source.stop());
@@ -154,7 +168,41 @@ test('book discovery keeps unrestricted search and independently searches curren
   assert.equal(selected.kind,'novel'); assert.equal(selected.realTitle,'港の便り');
   const queries=pages.filter(url=>new URL(url).hostname==='search.yahoo.co.jp').map(url=>new URL(url).searchParams.get('p'));
   assert(queries.some(query=>!query.startsWith('site:')));
-  assert(queries.some(query=>query.startsWith('site:www.hanmoto.com/bd/isbn')));
+  assert.equal(pages.filter(url=>new URL(url).pathname==='/bd/book/uniqs/HG/FE/DC/book.ABCDEFGH.202601010000.json').length,1);
+  assert(!pages.some(url=>url.includes('169.254') || url.includes('/evil.')));
+});
+
+test('publisher catalogue queries preserve every book genre and reject malformed ISBN lists', async () => {
+  for (const kind of ['novel', 'short-story', 'literary-work', 'manga']) {
+    let query;
+    const result = await discoverLiveCandidates({ kind, page: 4, fetchImpl: async (url, options) => {
+      if (!url.includes('hanmoto')) return new Response('', {status:503});
+      query = JSON.parse(options.body);
+      return response(JSON.stringify({result:true,data:{list:[{isbn:'9784065373262',uniq:'ABCDEFGH',lastupdated:'202601010000'}]}}));
+    }});
+    assert.deepEqual(result.candidates.map(c=>c.kind),[kind]);
+    assert.deepEqual(query.conds.genre.checked,[kind==='manga'?'43':'01']);
+    assert.equal(query.conds.keyword.search,['manga','short-story'].includes(kind)?'短編':'物語');
+    assert.equal(query.part,new Date().getUTCFullYear()-2); assert.equal(query.offset,20);
+  }
+  for (const body of ['not JSON','{}','{"result":true,"data":{"list":null}}']) {
+    const result=await discoverLiveCandidates({kind:'novel',fetchImpl:async()=>response(body)});
+    assert.equal(result.candidates.length,0); assert.equal(result.errors,1);
+  }
+});
+
+test('live failure diagnosis exposes only bounded counts and fixed network codes, with an independent snapshot', async t => {
+  const source=createLiveQuestionSource({maxRequests:4,discoverImpl:discovery([work(1)]),fetchImpl:async()=>{
+    const error=Error('private title https://secret.example.org/?token=private');
+    error.code='private-token'; throw error;
+  }});
+  t.after(()=>source.stop());
+  await assert.rejects(source.selectQuestion());
+  const status=source.getStatus();
+  assert.equal(status.failure.details.fetchErrors,1); assert.equal(status.failure.details.workErrors,1);
+  assert.equal(status.failure.details.requests,1); assert.equal(status.failure.details.networkCode,'FETCH_ERROR');
+  assert(!JSON.stringify(status).includes('private')); assert(!JSON.stringify(status).includes(work(1).url));
+  status.failure.details.fetchErrors=999; assert.equal(source.getStatus().failure.details.fetchErrors,1);
 });
 
 test('catalogues yield current exact work links, not episodes, reviews, other hosts or a fixed title stock', () => {

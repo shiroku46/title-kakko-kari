@@ -45,6 +45,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     lastStartedAt = new Date(now()).toISOString();
     const timeout = setTimeout(() => controller.abort(), deadlineMilliseconds);
     let requests = 0;
+    const details = { responses: 0, httpErrors: 0, fetchErrors: 0, candidates: 0, workErrors: 0, rejectedWorks: 0, networkCode: null };
     const fetchPage = async (url, options = {}) => {
       controller.signal.throwIfAborted();
       const host = new URL(url).hostname;
@@ -58,8 +59,16 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
       });
       let response;
       try { response = await Promise.race([fetchImpl(url, { ...options, signal }), aborted]); }
+      catch (error) {
+        details.fetchErrors++;
+        const code = error.code || error.cause?.code;
+        details.networkCode = signal.aborted ? 'ABORTED' :
+          ['ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'].includes(code) ? code : 'FETCH_ERROR';
+        throw error;
+      }
       finally { signal.removeEventListener('abort', onAbort); }
       signal.throwIfAborted();
+      details.responses++; if (!response.ok || response.status === 202) details.httpErrors++;
       if (response.status === 429 || response.status === 503) {
         const raw = response.headers.get('retry-after');
         const delay = /^\d+$/u.test(raw || '') ? Number(raw) * 1000 : Date.parse(raw) - now();
@@ -83,9 +92,11 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
           } else {
             const discovery = await discoverImpl({ kind, pass, page: (page+pass)%20, fetchImpl: fetchPage, signal: controller.signal });
             search.queue = [...discovery.candidates];
+            details.candidates += search.queue.length;
             if (discovery.remaining) search.remaining = discovery.remaining.then(result => {
               const queued = new Set(search.queue.map(c => c.url));
-              search.queue.unshift(...result.candidates.filter(c => !attempted.has(c.url) && !queued.has(c.url)));
+              const late = result.candidates.filter(c => !attempted.has(c.url) && !queued.has(c.url));
+              details.candidates += late.length; search.queue.unshift(...late);
               search.remaining = null;
             }, () => { search.remaining = null; });
           }
@@ -111,6 +122,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
                   ...options, signal: AbortSignal.any([batchController.signal, ...(options.signal ? [options.signal] : [])]),
                 }) });
               } catch (error) {
+                details.workErrors++;
                 if ((candidate.webDepth || 0) < 2 && Array.isArray(error.additionalCandidates)) {
                   for (const linked of error.additionalCandidates.slice(0, 8)) if (!attempted.has(linked.url) && !excluded.has(linked.id)) {
                     queue.push({ ...linked, webDepth: (candidate.webDepth || 0) + 1 });
@@ -118,7 +130,9 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
                 }
                 throw error;
               }
-              if ((requestedKind === undefined ? mediaKind(q.kind) : q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || !selection.isEligible(q)) throw new Error('作品条件を満たしません');
+              if ((requestedKind === undefined ? mediaKind(q.kind) : q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || !selection.isEligible(q)) {
+                details.rejectedWorks++; throw new Error('作品条件を満たしません');
+              }
               return q;
             }));
           } catch { /* Try the next source batch when every work is invalid. */ }
@@ -145,7 +159,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
       throw new Error('紹介文を確認できる作品が見つかりませんでした。もう一度ネット検索してください。');
     } catch {
       const message = stopped ? 'ネット検索を停止しました。' : 'ネット検索先から紹介文を取得できませんでした。もう一度検索してください。';
-      failure = { code: controller.signal.aborted ? 'search_timeout' : 'search_failed', message, at: new Date(now()).toISOString() };
+      failure = { code: controller.signal.aborted ? 'search_timeout' : 'search_failed', message, at: new Date(now()).toISOString(), details: { requests, ...details } };
       throw new Error(message);
     } finally {
       clearTimeout(timeout); active.delete(controller); completed++; lastCompletedAt = new Date(now()).toISOString();
@@ -158,7 +172,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
   function getStatus() {
     return { enabled: true, mode: 'live', running: active.size > 0, scheduled: false,
       activeRequests: active.size, completedRequests: completed, successfulRequests: succeeded,
-      lastStartedAt, lastCompletedAt, lastSuccessfulAt, failure: failure ? { ...failure } : null };
+      lastStartedAt, lastCompletedAt, lastSuccessfulAt, failure: failure ? { ...failure, details: { ...failure.details } } : null };
   }
   return { selectQuestion, getStatus, start: () => { stopped = false; },
     stop: () => { stopped = true; for (const c of active) c.abort(); },
