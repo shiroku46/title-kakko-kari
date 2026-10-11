@@ -115,3 +115,55 @@ test('account name autofill never replaces a name already edited in the entry sc
     cleanup.forEach(fn => fn?.());
   }
 });
+
+test('lobby genre selection overrides prior settings and keeps progression settings', () => {
+  const state = [], requests = [];
+  let cursor = 0, listeners, reply, tree;
+  const screen = loadScreen('screens/LobbyScreen.js', {
+    react: { ...React, useState(initial) {
+      const index = cursor++;
+      if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial;
+      return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value; }];
+    }, useRef(initial) { return state[cursor++] ||= { current: initial }; }, useEffect() {} },
+    'react-native': { ...mocks['react-native'], Pressable: Box },
+    '../theme/typography': { fontFamilies: {} },
+    '../components/ui': { ...ui, PlayerCard: Box },
+    '../hooks/useSocket': { useSocketListeners(value) { listeners = value; }, getSocket: () => ({
+      connected: true, timeout: () => ({ emit(name, payload, callback) {
+        assert.equal(name, 'room:update_settings');
+        requests.push(payload); reply = callback;
+      } }),
+    }) },
+  });
+  const settings = { genreDisclosure: false, advanceMode: 'consent', timeLimitSeconds: 60 };
+  const props = { navigation: {}, route: { params: {
+    room: { code: '123456', settings }, player: { id: 'host', is_host: true },
+    allPlayers: [{ id: 'host', nickname: 'ホスト', isHost: true, profileReady: true }],
+  } } };
+  const render = () => { cursor = 0; tree = screen(props); };
+  function button(label, node = tree) {
+    if (!node || typeof node !== 'object') return;
+    if (node.props?.accessibilityLabel === label) return node;
+    for (const child of React.Children.toArray(node.props?.children)) {
+      const found = button(label, child);
+      if (found) return found;
+    }
+  }
+  render();
+  listeners['room:settings_updated']({ settings });
+  for (const enabled of [true, false, true]) {
+    render();
+    const label = `ジャンル指定${enabled ? 'あり' : 'なし'}`;
+    button(label).props.onPress();
+    assert.deepEqual({ ...requests.at(-1) }, { ...settings, genreDisclosure: enabled });
+    render();
+    assert.equal(button(label).props.disabled, true);
+    listeners['room:settings_updated']({ settings: requests.at(-1) });
+    reply(null, { ok: true, settings: requests.at(-1) });
+    render();
+    assert.equal(button(label).props.variant, 'yellow');
+    assert.equal(button(label).props.disabled, false);
+  }
+  button('自動送り').props.onPress();
+  assert.deepEqual({ ...requests.at(-1) }, { ...settings, genreDisclosure: true, advanceMode: 'auto' });
+});
