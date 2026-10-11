@@ -75,9 +75,12 @@ export default function HomeScreen({ navigation }) {
       </StationeryButton>
     </View>}
 
-    {previousRoom && !entry.busy ? <StationeryButton variant="neutral"
-      onPress={() => entry.enterRoom({ ...previousRoom, code: previousRoom.code, joining: true, resuming: true })}
-      accessibilityLabel="前の部屋に戻る">前の部屋に戻る（{previousRoom.code}）</StationeryButton> : null}
+    <StationeryButton variant="neutral" disabled={entry.busy} style={{ marginTop: 14 }}
+      onPress={() => entry.enterRoom({ ...previousRoom, serverUrl: previousRoom?.serverUrl || serverUrl, joining: true, resuming: true })}
+      accessibilityLabel="落ち戻り">落ち戻り{previousRoom ? `（${previousRoom.code}）` : ''}</StationeryButton>
+    <Text style={styles.settingsNote}>{previousRoom
+      ? `「${previousRoom.nickname}」の席に戻ります。名前やコードの入力は不要です。`
+      : '通信が切れたときや画面を閉じた後、同じ部屋・同じ席に戻れます。'}</Text>
 
     <TouchableOpacity style={styles.rulesLink} onPress={openRules} disabled={entry.busy}
       accessibilityRole="button" accessibilityLabel="遊び方を見る">
