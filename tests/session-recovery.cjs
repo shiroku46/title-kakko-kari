@@ -10,7 +10,9 @@ const directory = mkdtempSync(join(tmpdir(), 'title-session-recovery-'));
 const statePath = join(directory, 'rooms.json');
 let child;
 let url;
-const childCode = `const {server}=require('./server/src/index');
+const childCode = `require('./server/node_modules/dotenv').config=()=>({parsed:{}});
+delete process.env.DATABASE_URL;
+const {server}=require('./server/src/index');
 server.listen(0,'127.0.0.1',()=>process.send(server.address().port));`;
 async function startServer() {
   child = spawn(process.execPath, ['-e', childCode], { cwd: join(__dirname, '..'),

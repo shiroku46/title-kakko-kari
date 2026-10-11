@@ -49,3 +49,5 @@ Vercel は `/api/auth/:path*` を既存 Render の同パスへ転送する実装
 復帰 ACK 10秒超過の実 Socket.IO 再試行、保存失敗の巻戻し、非同期保存中の順序、古い writer の拒否、コミット後の応答消失・結果不明をローカル回帰で確認。短い断線中の送信待ち操作はラウンド UUID の照合で拒否する。初期投票人数も適格な人間回答者数で通知する。
 
 実 Better Auth の署名 Cookie、メール確認 API、ハッシュ化パスワード、記憶セッション、プロフィール変更、他 origin 拒否をローカル DB と試験メール送信先で検証。実 SMTP 配信、所有者 Discord OAuth、公開 URL のアカウントログインは設定待ちであり未完了。Managed Neon Auth を設定する必要はない。
+
+試験では本番/開発の `DATABASE_URL` と `.env` をファイル保存用の隔離プロセスへ渡さない。Node20もサーバーの対応範囲に含む。`node:sqlite` のないNodeでは認証の実DB試験だけを明示的に skip し、Node22.5以上（今回Node24）で必ず実行する。Neon adapter試験と認証設定試験はNode20でも実行する。

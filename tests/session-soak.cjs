@@ -8,6 +8,8 @@ const directory = mkdtempSync(join(tmpdir(), 'title-session-soak-'));
 process.env.ROOM_STATE_PATH = join(directory, 'rooms.json');
 process.env.QUESTION_COLLECTION_ENABLED = 'false';
 process.env.NODE_ENV = 'production';
+require('../server/node_modules/dotenv').config = () => ({ parsed: {} });
+delete process.env.DATABASE_URL;
 const { server, io } = require('../server/src/index');
 const { rooms } = require('../server/src/gameState');
 const { io: connect } = require('../client/node_modules/socket.io-client');

@@ -1,6 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { DatabaseSync } = require('node:sqlite');
+let DatabaseSync;
+try { ({ DatabaseSync } = require('node:sqlite')); }
+catch (error) { if (error.code !== 'ERR_UNKNOWN_BUILTIN_MODULE') throw error; }
 const { authOptions, accountConfiguration } = require('../server/src/accountAuth');
 const { createRequire } = require('node:module');
 const requireServer = createRequire(require.resolve('../server/package.json'));
@@ -16,7 +18,8 @@ test('missing/invalid provider configuration never advertises a usable login', (
   assert.equal(accountConfiguration({ ...env, DISCORD_CLIENT_ID: 'test-app', DISCORD_CLIENT_SECRET: 'synthetic' }).discord, true);
 });
 
-test('real Better Auth handlers verify email, hash password, persist cookie session and reject unauthorized update', async () => {
+test('real Better Auth handlers verify email, hash password, persist cookie session and reject unauthorized update',
+  { skip: !DatabaseSync && 'node:sqlite requires Node22.5+; config tests still run on Node20' }, async () => {
   const database = new DatabaseSync(':memory:');
   const mailbox = [];
   const options = await authOptions(env, database, async (message) => mailbox.push(message));

@@ -116,6 +116,9 @@ process.env.ROOM_STATE_PATH = join(fixtureDirectory, 'rooms.json');
 // Keep these socket-level tests independent from remote discovery. Dedicated
 // question-service tests exercise on-demand collection with controlled sources.
 process.env.QUESTION_COLLECTION_ENABLED = 'false';
+// File-store fixtures must not read a developer's private database configuration.
+require('../server/node_modules/dotenv').config = () => ({ parsed: {} });
+delete process.env.DATABASE_URL;
 delete process.env.SUPABASE_URL;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 const questionApi = require('../server/src/questions');

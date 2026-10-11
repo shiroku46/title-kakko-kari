@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { runInNewContext } = require('node:vm');
+delete process.env.DATABASE_URL;
 const { commitGameAction, runStateOperation } = require('../server/src/socket/commitGameAction');
 
 function loadSource(path, mocks) {
