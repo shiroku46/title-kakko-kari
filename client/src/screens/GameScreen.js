@@ -24,6 +24,7 @@ export default function GameScreen({ navigation, route }) {
   const saved = gameData.resumeState || {};
   const socket = getSocket();
   const genreDisclosure = Boolean(gameData.settings?.genreDisclosure);
+  const [workKind, setWorkKind] = useState(saved.workKind || gameData.round?.workKind || null);
   const [workKindLabel, setWorkKindLabel] = useState(gameData.round?.workKindLabel || null);
   const [isHost, setIsHost] = useState(player.is_host);
   const [humanCount, setHumanCount] = useState(gameData.humanCount ?? 4);
@@ -124,6 +125,7 @@ export default function GameScreen({ navigation, route }) {
       setPhase(data.mode === 'cpu' ? 'confirming' : 'selecting');
       setSynopsis(null);
       setQuestionerView(null);
+      setWorkKind(null);
       setWorkKindLabel(null);
       setFetchedSynopsis(null);
       setSynopsisError(null);
@@ -143,6 +145,7 @@ export default function GameScreen({ navigation, route }) {
       if (data.roundId !== round.id) return;
       previewRevision.current++;
       setFetchedSynopsis(null);
+      setWorkKind(data.workKind || null);
       setWorkKindLabel(null);
       setContentType('synopsis');
       setSynopsisError(null);
@@ -159,12 +162,14 @@ export default function GameScreen({ navigation, route }) {
       previewRevision.current++;
       setSynopsisError(null);
       setFetchedSynopsis(data.synopsis);
+      setWorkKind(data.workKind || null);
       setWorkKindLabel(data.workKindLabel || null);
       setContentType(normalizeContentType(data.contentType));
     },
     'round:synopsis_presented': (data) => {
       if (data.roundId !== round.id) return;
       setSynopsis(data.synopsis);
+      setWorkKind(data.workKind || null);
       setWorkKindLabel(data.workKindLabel || null);
       setContentType(normalizeContentType(data.contentType));
     },
@@ -272,6 +277,7 @@ export default function GameScreen({ navigation, route }) {
         return;
       }
       setFetchedSynopsis(response.synopsis);
+      setWorkKind(response.workKind || null);
       setWorkKindLabel(response.workKindLabel || null);
       setContentType(normalizeContentType(response.contentType));
       setSynopsisError(null);
@@ -290,18 +296,22 @@ export default function GameScreen({ navigation, route }) {
       case 'confirming':
         return (
           <ConfirmingPhase
+            key={round.id}
             round={round}
             currentRound={currentRound}
             totalRounds={totalRounds}
             fetchedSynopsis={fetchedSynopsis}
+            genreDisclosure={genreDisclosure}
+            workKind={workKind}
             workKindLabel={genreDisclosure ? workKindLabel : null}
             synopsisError={synopsisError}
             isHost={isHost}
             canUseManual={humanCount >= 2}
             socket={socket}
-            onRerollStart={() => {
+            onRerollStart={(kind) => {
               previewRevision.current++;
               setFetchedSynopsis(null);
+              setWorkKind(genreDisclosure ? kind : null);
               setWorkKindLabel(null);
               setSynopsisError(null);
             }}
@@ -316,6 +326,7 @@ export default function GameScreen({ navigation, route }) {
             totalRounds={totalRounds}
             questioner={questioner}
             synopsis={synopsis}
+            workKind={workKind}
             workKindLabel={genreDisclosure ? workKindLabel : null}
             isQuestioner={isQuestioner}
             isHost={isHost}

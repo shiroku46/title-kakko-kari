@@ -126,12 +126,12 @@ const originalQuestionSelection = questionApi.selectQuestionAsync;
 let nextQuestionDeferral = null;
 // Preserve the real selector and validator, but let selected socket tests hold
 // one completion to reproduce a slow source collection deterministically.
-questionApi.selectQuestionAsync = async (excludedIds) => {
+questionApi.selectQuestionAsync = async (excludedIds, options) => {
   const deferral = nextQuestionDeferral;
   nextQuestionDeferral = null;
   let selected;
   let failure;
-  try { selected = await originalQuestionSelection(excludedIds); }
+  try { selected = await originalQuestionSelection(excludedIds, options); }
   catch (error) { failure = error; }
   if (deferral) {
     deferral.markStarted();
@@ -214,6 +214,7 @@ async function bot(t, transport = 'websocket') {
     reconnection: false,
   });
   const events = [];
+  const client = { socket, events };
   socket.onAny((name, data) => {
     if (data?.round?.id) socket.currentRoundId = data.round.id;
     events.push({ name, data });
@@ -221,11 +222,14 @@ async function bot(t, transport = 'websocket') {
   t.after(() => {
     socket.disconnect();
     for (const entry of events) {
-      if (entry.name !== 'round:revealed') assertNoSources(entry.data);
+      if (client.allowGenre && ['round:synopsis_loading', 'round:synopsis_fetched', 'round:synopsis_presented'].includes(entry.name)) {
+        const { workKind, workKindLabel, ...safe } = entry.data;
+        assertNoSources(safe);
+      } else if (entry.name !== 'round:revealed') assertNoSources(entry.data);
     }
   });
   await once(socket, 'connect', { signal: AbortSignal.timeout(3000) });
-  return { socket, events };
+  return client;
 }
 async function ack(b, event, payload = null) {
   await new Promise(resolve => setTimeout(resolve, 10));
@@ -240,6 +244,11 @@ async function ack(b, event, payload = null) {
         const { questionId, ...publicResponse } = response || {};
         if (event === 'round:prepare_question' && response?.ok) assertNoSources(publicResponse);
         else if (event === 'round:get_synopsis' && b.allowGenre) { const {workKind,workKindLabel,...safe}=response;assertNoSources(safe); }
+        else if (event === 'room:resume' && b.allowGenre && response?.gameData) {
+          const { workKind, workKindLabel, ...round } = response.gameData.round;
+          const { workKind: selectedGenre, ...resumeState } = response.gameData.resumeState;
+          assertNoSources({ ...response, gameData: { ...response.gameData, round, resumeState } });
+        }
         else assertNoSources(response);
         resolve(response);
       } catch (failure) {
@@ -291,7 +300,7 @@ async function roomWith(t, count) {
     bots[i].player = joined.player;
     assert.equal(joined.allPlayers.length, i + 1);
   }
-  return { bots, room: created.room };
+  return { bots, room: created.room, entry: created };
 }
 
 test('human questioner never declares known/unknown and answerers alone unlock submission', async t => {
@@ -1229,7 +1238,9 @@ for(const disclosure of [false,true])test(`manual genre disclosure ${disclosure}
 });
 for(const disclosure of [false,true])test(`CPU genre disclosure ${disclosure} keeps title and provenance private in preview and declaration`,async t=>{
   writeBank();const {bots}=await roomWith(t,4);for(const b of bots)b.allowGenre=disclosure;await ok(bots[0],'game:start',{mode:'cpu',totalRounds:1,genreDisclosure:disclosure});
-  const start=await event(bots[0],'game:started'),preview=await event(bots[0],'round:synopsis_fetched',disclosure),work=questionForSynopsis(preview.synopsis);
+  const start=await event(bots[0],'game:started');
+  if(disclosure)await ok(bots[0],'round:reroll_synopsis',{workKind:'novel'});
+  const preview=await event(bots[0],'round:synopsis_fetched',disclosure),work=questionForSynopsis(preview.synopsis);
   assert.equal(preview.workKind,disclosure?work.kind:undefined);assert.equal(bots[1].events.some(e=>e.name==='round:synopsis_fetched'),false);
   const recovered=await ok(bots[0],'round:get_synopsis',{roomId:bots[0].player.room_id,roundId:start.round.id});assert.equal(recovered.workKind,disclosure?work.kind:undefined);assert(!JSON.stringify(recovered).includes(work.realTitle));
   await ok(bots[0],'round:confirm_synopsis');for(const b of bots){const shown=await event(b,'round:synopsis_presented',disclosure);assert.equal(shown.workKind,disclosure?work.kind:undefined);assert(!JSON.stringify(shown).includes(work.realTitle));}
@@ -1240,11 +1251,100 @@ for(const disclosure of [false,true])test(`CPU genre disclosure ${disclosure} ke
 test('editing the helper genre keeps the declared medium and drops incompatible automatic attribution',async t=>{
   writeBank();const {bots,room}=await roomWith(t,4);await ok(bots[0],'game:start',{mode:'player',genreDisclosure:true});
   const start=await event(bots[0],'game:started'),q=bots.find(b=>b.player.id===start.questioner.id);
-  const helper=await ok(q,'round:prepare_question',{roomId:room.id,roundId:start.round.id});assert.equal(helper.kind,'novel');
+  const helper=await ok(q,'round:prepare_question',{roomId:room.id,roundId:start.round.id,workKind:'novel'});assert.equal(helper.kind,'novel');
   await ok(q,'round:submit_synopsis',{realTitle:helper.title,synopsis:helper.synopsis,questionId:helper.questionId,workKind:'film'});
   const shown=await event(q,'round:synopsis_presented',true);assert.equal(shown.workKind,'film');
   const round=rooms.get(room.code).rounds.at(-1);assert.equal(round.workKind,'film');assert.equal(round.sourceQuestion,null);
   for(const b of bots){while(b.events.some(e=>e.name==='round:synopsis_presented'))await event(b,'round:synopsis_presented',true);}
+});
+
+test('genre-enabled CPU waits for its host and keeps the chosen genre across retry and recovery', async t => {
+  writeBank(allFixtureQuestions);
+  const { bots, room, entry } = await roomWith(t, 4);
+  for (const b of bots) b.allowGenre = true;
+  await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 2, genreDisclosure: true });
+  const start = await event(bots[0], 'game:started');
+  const request = { roomId: room.id, roundId: start.round.id };
+  const waiting = await ok(bots[0], 'round:get_synopsis', request);
+  assert.equal(waiting.synopsis, null);
+  assert.equal(waiting.loading, false);
+  assert.equal(bots[0].events.some(e => e.name === 'round:synopsis_fetched'), false);
+  await denied(bots[1], 'round:reroll_synopsis', { workKind: 'manga' });
+  await denied(bots[0], 'round:reroll_synopsis');
+  for (const workKind of ['INVALID', ['manga'], null]) await denied(bots[0], 'round:reroll_synopsis', { workKind });
+  await ok(bots[0], 'round:reroll_synopsis', { workKind: 'manga' });
+  const preview = await event(bots[0], 'round:synopsis_fetched', true);
+  assert.equal(preview.workKind, 'manga');
+  assert.equal(bots[1].events.some(e => e.name === 'round:synopsis_fetched'), false);
+  const restored = await bot(t);
+  restored.allowGenre = true;
+  const resume = await ok(restored, 'room:resume', { code: room.code, playerId: entry.player.id, token: entry.token });
+  assert.equal(resume.gameData.resumeState.workKind, 'manga');
+  assert.equal(resume.gameData.resumeState.fetchedSynopsis, preview.synopsis);
+  await ok(restored, 'round:reroll_synopsis');
+  assert.equal((await event(restored, 'round:synopsis_fetched', true)).workKind, 'manga');
+  await ok(restored, 'round:reroll_synopsis', { workKind: 'novel' });
+  assert.equal((await event(restored, 'round:synopsis_fetched', true)).workKind, 'novel');
+  await ok(restored, 'round:confirm_synopsis');
+  const answerers = [restored, ...bots.slice(1)];
+  for (const b of answerers) assert.equal((await event(b, 'round:synopsis_presented', true)).workKind, 'novel');
+  await ok(bots[1], 'round:declare_known');
+  await ok(restored, 'round:reselect');
+  assert.equal((await event(restored, 'round:synopsis_fetched', true)).workKind, 'novel');
+  writeBank();
+});
+
+test('genre-enabled human helper validates and filters the genre before selecting a question', async t => {
+  writeBank(allFixtureQuestions);
+  const { bots, room } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player', genreDisclosure: true });
+  const start = await event(bots[0], 'game:started'), q = bots.find(b => b.player.id === start.questioner.id);
+  const request = { roomId: room.id, roundId: start.round.id };
+  await denied(q, 'round:prepare_question', request);
+  for (const workKind of ['INVALID', ['manga'], null]) await denied(q, 'round:prepare_question', { ...request, workKind });
+  await denied(bots.find(b => b !== q), 'round:prepare_question', { ...request, workKind: 'manga' });
+  const helper = await ok(q, 'round:prepare_question', { ...request, workKind: 'manga' });
+  assert.equal(helper.kind, 'manga');
+  await denied(q, 'round:prepare_question', { ...request, workKind: 'film' });
+  await ok(q, 'round:submit_synopsis', { synopsis: helper.synopsis, realTitle: helper.title,
+    questionId: helper.questionId, workKind: 'manga' });
+  for (const b of bots) {
+    const shown = await event(b, 'round:synopsis_presented', true);
+    assert.equal(shown.workKind, 'manga');
+    assert.equal(JSON.stringify(shown).includes(helper.title), false);
+  }
+  assert.equal(rooms.get(room.code).rounds.at(-1).sourceQuestion.id, helper.questionId);
+  writeBank();
+});
+
+test('changing a CPU genre cancels a late old selection and the next round waits for a new genre', async t => {
+  writeBank(allFixtureQuestions);
+  const { bots, room } = await roomWith(t, 4);
+  for (const b of bots) b.allowGenre = true;
+  await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 2, genreDisclosure: true });
+  await event(bots[0], 'game:started');
+  const delayed = delayNextQuestionSelection(t);
+  await ok(bots[0], 'round:reroll_synopsis', { workKind: 'manga' });
+  await delayed.started;
+  await ok(bots[0], 'round:reroll_synopsis', { workKind: 'novel' });
+  const preview = await event(bots[0], 'round:synopsis_fetched', true);
+  assert.equal(preview.workKind, 'novel');
+  delayed.release();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(rooms.get(room.code).rounds.at(-1).workKind, 'novel');
+  assert.equal(bots[0].events.some(e => e.name === 'round:synopsis_fetched'), false);
+  await confirmCpuAndStart(bots[0], bots);
+  for (const b of bots) await ok(b, 'round:submit_fake', { title: `検証用の案${b.player.id}` });
+  const choices = await event(bots[0], 'round:choices_presented');
+  for (const b of bots) await ok(b, 'round:submit_vote', { answerId: choices.choices.find(c => c.id !== rooms.get(room.code).rounds.at(-1).answers.find(a => a.player_id === b.player.id)?.id).id });
+  await event(bots[0], 'round:revealed');
+  await ok(bots[0], 'game:next_round');
+  const next = await event(bots[0], 'game:round_started');
+  const waiting = await ok(bots[0], 'round:get_synopsis', { roomId: room.id, roundId: next.round.id });
+  assert.equal(waiting.synopsis, null);
+  assert.equal(waiting.loading, false);
+  assert.equal(waiting.workKind, undefined);
+  writeBank();
 });
 
 test('computer titles follow the supplied synopsis, stay distinct and handle a short introduction', () => {

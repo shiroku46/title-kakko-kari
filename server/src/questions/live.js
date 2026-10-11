@@ -3,6 +3,7 @@ const { discoverLiveCandidates, LIVE_KINDS } = require('./catalogues');
 const { generateWebQuestion } = require('./web-source');
 const { createSelectionPolicy } = require('./selection-policy');
 const { questionIsValid } = require('./validation');
+const { getKind } = require('./kinds');
 
 function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImpl = discoverLiveCandidates,
   generateImpl = generateWebQuestion, deadlineMilliseconds = 60000, maxRequests = 64,
@@ -14,7 +15,8 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
   let sequence = initialKind, stopped = false, completed = 0, succeeded = 0;
   let lastStartedAt = null, lastCompletedAt = null, lastSuccessfulAt = null, failure = null;
 
-  async function selectQuestion(excludedIds = [], { signal } = {}) {
+  async function selectQuestion(excludedIds = [], { signal, kind: requestedKind } = {}) {
+    if (requestedKind !== undefined && (typeof requestedKind !== 'string' || !getKind(requestedKind))) throw new Error('作品のジャンルが不正です');
     if (stopped) throw new Error('ネット検索を停止しました。');
     if (active.size >= 8) throw new Error('ネット検索が混み合っています。少し待ってもう一度検索してください。');
     const controller = new AbortController(); active.add(controller);
@@ -27,7 +29,8 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     const page = Math.floor(sequence / LIVE_KINDS.length) % 20;
     const counts = Object.fromEntries(LIVE_KINDS.map(kind => [kind, 0]));
     for (const q of history) if (Object.hasOwn(counts, q.kind)) counts[q.kind]++;
-    const orderedKinds = LIVE_KINDS.map((_, offset) => LIVE_KINDS[(startKind + offset) % LIVE_KINDS.length])
+    if (requestedKind !== undefined) counts[requestedKind] ??= 0;
+    const orderedKinds = (requestedKind === undefined ? LIVE_KINDS.map((_, offset) => LIVE_KINDS[(startKind + offset) % LIVE_KINDS.length]) : [requestedKind])
       .sort((a,b) => counts[a] - counts[b]);
     const lowest = counts[orderedKinds[0]];
     const priority = orderedKinds.filter(kind => counts[kind] === lowest);
@@ -91,7 +94,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
         const queue = search.queue;
         for (let i = queue.length - 1; i >= 0; i--) {
           const c = queue[i];
-          if ((c.kind && mediaKind(c.kind) !== kind) || excluded.has(c.id) || attempted.has(c.url)) queue.splice(i, 1);
+          if ((c.kind && (requestedKind === undefined ? mediaKind(c.kind) : c.kind) !== kind) || excluded.has(c.id) || attempted.has(c.url)) queue.splice(i, 1);
         }
         // Examine several different work pages concurrently within the shared
         // request/deadline budget. Slow or invalid pages cannot block another.
@@ -115,7 +118,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
                 }
                 throw error;
               }
-              if (mediaKind(q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || !selection.isEligible(q)) throw new Error('作品条件を満たしません');
+              if ((requestedKind === undefined ? mediaKind(q.kind) : q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || !selection.isEligible(q)) throw new Error('作品条件を満たしません');
               return q;
             }));
           } catch { /* Try the next source batch when every work is invalid. */ }

@@ -1,5 +1,6 @@
 import WorkIntroduction from '../ui/WorkIntroduction';
-import React, { useRef, useState } from 'react';
+import GenreSelector from '../ui/GenreSelector';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -22,6 +23,8 @@ export default function ConfirmingPhase({
   currentRound,
   totalRounds,
   fetchedSynopsis,
+  genreDisclosure = false,
+  workKind,
   workKindLabel,
   synopsisError,
   isHost,
@@ -32,8 +35,12 @@ export default function ConfirmingPhase({
   const { contentPadding } = useResponsiveLayout();
   const [pendingAction, setPendingAction] = useState(null);
   const [requestError, setRequestError] = useState(null);
+  const [selectedKind, setSelectedKind] = useState(workKind || null);
   const requestPendingRef = useRef(false);
   const displayError = requestError || synopsisError;
+  useEffect(() => { if (workKind) setSelectedKind(workKind); }, [workKind]);
+  const preview = !genreDisclosure || selectedKind === workKind ? fetchedSynopsis : null;
+  const choosingGenre = genreDisclosure && (!workKind || selectedKind !== workKind);
 
   function requestAction(event, action) {
     if (!isHost || requestPendingRef.current) return;
@@ -44,8 +51,9 @@ export default function ConfirmingPhase({
     requestPendingRef.current = true;
     setPendingAction(action);
     setRequestError(null);
-    if (action === 'reroll') onRerollStart?.();
-    socket.timeout(10000).emit(event, { roundId: round?.id }, (error, res) => {
+    if (action === 'reroll') onRerollStart?.(selectedKind);
+    socket.timeout(10000).emit(event, { roundId: round?.id,
+      ...(action === 'reroll' && genreDisclosure && { workKind: selectedKind }) }, (error, res) => {
       requestPendingRef.current = false;
       setPendingAction(null);
       if (error) {
@@ -57,11 +65,15 @@ export default function ConfirmingPhase({
   }
 
   function handleConfirm() {
-    if (!fetchedSynopsis) return;
+    if (!preview) return;
     requestAction('round:confirm_synopsis', 'confirm');
   }
 
   function handleReroll() {
+    if (genreDisclosure && !selectedKind) {
+      setRequestError('先に作品のジャンルを選択してください');
+      return;
+    }
     requestAction('round:reroll_synopsis', 'reroll');
   }
 
@@ -78,40 +90,43 @@ export default function ConfirmingPhase({
           currentRound={currentRound}
           totalRounds={totalRounds}
           questioner={null}
-          phase="CPUが選んだ作品を確認"
+          phase={choosingGenre ? 'ジャンルを選んでCPUに出題してもらう' : 'CPUが選んだ作品を確認'}
         />
 
         {isHost ? (
           <PaperPanel tone="cream" variant="elevated" style={styles.panel}>
-            {!fetchedSynopsis ? (
+            {genreDisclosure ? <GenreSelector workKind={selectedKind} onSelect={(kind) => {
+              setSelectedKind(kind); setRequestError(null);
+            }} disabled={Boolean(pendingAction)} /> : null}
+            {!preview ? (
               <View style={styles.loadingBox}>
                 <View style={styles.loadingIcon}>
-                  {!displayError ? (
+                  {!displayError && !choosingGenre ? (
                     <ActivityIndicator color={colors.red} size="large" />
-                  ) : (
+                  ) : displayError ? (
                     <Text style={styles.loadingErrorIcon}>!</Text>
-                  )}
+                  ) : null}
                 </View>
                 <Text style={styles.loadingTitle}>
-                  {displayError ? '作品を取得できませんでした' : '作品を探しています…'}
+                  {displayError ? '作品を取得できませんでした' : choosingGenre ? 'ジャンルを選んで問題を用意しましょう' : '作品を探しています…'}
                 </Text>
                 <Text
                   accessibilityRole={displayError ? 'alert' : undefined}
                   accessibilityLiveRegion="polite"
                   style={[styles.loadingText, displayError && styles.errorText]}
                 >
-                  {displayError || 'ネットで作品を検索し、元のページから紹介文を取得しています。'}
+                  {displayError || (choosingGenre ? 'ジャンルを選択してから、下のボタンで問題を選びます。' : 'ネットで作品を検索し、元のページから紹介文を取得しています。')}
                 </Text>
-                {displayError && (
+                {(displayError || genreDisclosure) && (
                   <StationeryButton
                     variant="secondary"
                     onPress={handleReroll}
                     loading={pendingAction === 'reroll'}
-                    disabled={Boolean(pendingAction)}
-                    accessibilityLabel="作品の紹介文を再取得"
+                    disabled={Boolean(pendingAction) || (genreDisclosure && !selectedKind)}
+                    accessibilityLabel={genreDisclosure ? '選んだジャンルで問題を選ぶ' : '作品の紹介文を再取得'}
                     style={styles.loadingButton}
                   >
-                    もう一度検索する
+                    {genreDisclosure ? '選んだジャンルで問題を選ぶ' : 'もう一度検索する'}
                   </StationeryButton>
                 )}
                 {canUseManual && <StationeryButton variant="neutral"
@@ -135,7 +150,7 @@ export default function ConfirmingPhase({
                 </View>
 
                 <View style={styles.synopsisBox}>
-                  <WorkIntroduction synopsis={fetchedSynopsis} workKindLabel={workKindLabel} />
+                  <WorkIntroduction synopsis={preview} workKindLabel={workKindLabel} />
                 </View>
 
                 <Text style={styles.note}>

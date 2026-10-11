@@ -1,6 +1,7 @@
 const { readBankSync, readStore, saveStore, defaultPaths, withStoreLock } = require('./store');
 const { questionIsValid, prepareQuestion } = require('./validation');
 const { createSelectionPolicy } = require('./selection-policy');
+const { getKind } = require('./kinds');
 
 const STATUS_FAILURE_MESSAGES = Object.freeze({
   failed: '作品の自動収集に失敗しました。保存済みの問題は引き続き使用できます。',
@@ -41,9 +42,9 @@ function createQuestionService({
     };
   }
 
-  function available(excludedIds = []) {
+  function available(excludedIds = [], kind) {
     const excluded = new Set(excludedIds);
-    return readBankSync(paths).questions.map(prepareSavedQuestion).filter((q) => q && validateQuestion(q) && !excluded.has(q.id));
+    return readBankSync(paths).questions.map(prepareSavedQuestion).filter((q) => q && validateQuestion(q) && !excluded.has(q.id) && (kind === undefined || q.kind === kind));
   }
 
   function collectNow() {
@@ -137,11 +138,12 @@ function createQuestionService({
     return pending;
   }
 
-  async function selectQuestion(excludedIds = []) {
-    let choices = selection.eligible(available(excludedIds));
+  async function selectQuestion(excludedIds = [], { kind } = {}) {
+    if (kind !== undefined && (typeof kind !== 'string' || !getKind(kind))) throw new Error('作品のジャンルが不正です');
+    let choices = selection.eligible(available(excludedIds, kind));
     if (enabled && !choices.length) {
       await collectNow();
-      choices = selection.eligible(available(excludedIds));
+      choices = selection.eligible(available(excludedIds, kind));
     }
     if (!choices.length) {
       throw new Error('公式流通を確認できる未使用問題をまだ用意できません。収集を再試行するか、手動で出題してください。');
