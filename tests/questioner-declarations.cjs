@@ -79,7 +79,7 @@ test('human questioner has no known/unknown choices, including a restored seat w
 });
 
 test('human and CPU controls select a genre before requesting a question and discard a mismatched preview', async () => {
-  for (const cpu of [false, true]) {
+  for (const cpu of [false, true]) for (const [firstKind, firstLabel] of [['film', '映画'], ['any', 'ノンジャンル'], ['novel', '小説']]) {
     const state = [], requests = [];
     let cursor = 0, tree;
     const screen = loadScreen(`components/phases/${cpu ? 'Confirming' : 'Selecting'}Phase.js`, {
@@ -105,23 +105,26 @@ test('human and CPU controls select a genre before requesting a question and dis
     }
     const action = cpu ? '選んだジャンルで問題を選ぶ' : '出題の補助を使う';
     render();
+    for (const label of ['ノンジャンル', '小説', '映画', '漫画', 'ゲーム']) assert.ok(find(`出題ジャンルを${label}にする`));
+    for (const label of ['短編小説', '文学作品']) assert.equal(find(`出題ジャンルを${label}にする`), undefined);
     assert.equal(find(action).props.disabled, true);
     await find(action).props.onPress();
     assert.equal(requests.length, 0);
-    find('出題ジャンルを映画にする').props.onPress();
+    find(`出題ジャンルを${firstLabel}にする`).props.onPress();
     render();
     assert.equal(find(action).props.disabled, false);
     const pending = find(action).props.onPress();
     assert.equal(requests[0].name, cpu ? 'round:reroll_synopsis' : 'round:prepare_question');
-    assert.equal(requests[0].payload.workKind, 'film');
+    assert.equal(requests[0].payload.workKind, firstKind);
     assert.equal(requests[0].payload.roundId, 'r');
     render();
     assert.equal(find('出題ジャンルをゲームにする').props.disabled, true);
     requests[0].reply(null, cpu ? { ok: true } : { ok: true, roundId: 'r',
-      kind: 'film', questionId: 'movie', synopsis: '映画の紹介文', title: '映画の秘密の答え' });
+      kind: firstKind, questionId: 'movie', synopsis: '映画の紹介文', title: '映画の秘密の答え' });
     await pending;
     if (cpu) props.fetchedSynopsis = '映画の紹介文';
     render();
+    assert.equal(find(`出題ジャンルを${firstLabel}にする`).props.variant, 'yellow');
     if (cpu) assert.ok(find('この紹介文で進む'));
     else assert.equal(find('作品の紹介文入力欄').props.value, '映画の紹介文');
     find('出題ジャンルをゲームにする').props.onPress();

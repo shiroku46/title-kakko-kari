@@ -71,6 +71,7 @@ const openResourceQuestion = {
 };
 const genreQuestions = [
   ['manga', 'synopsis'], ['anime', 'synopsis'], ['song', 'description'], ['artwork', 'description'],
+  ['short-story', 'synopsis'], ['literary-work', 'synopsis'],
 ].map(([kind, contentType], index) => {
   const realTitle = `ジャンル検証作品${index + 1}のお話`;
   const text = '作品の内容と表現には作者の工夫が込められている。制作の背景や特徴を資料で確かめながら、作品に込められた思いとその表現を紹介する。'.repeat(3);
@@ -646,8 +647,9 @@ for (const question of [...genreQuestions, directNDLQuestion]) {
     assert.ok(real);
     await Promise.all(bots.map((b) => ok(b, 'round:submit_vote', { answerId: real.id })));
     const revealed = await event(bots[0], 'round:revealed');
-    assert.equal(revealed.workKind, question.kind);
-    assert.equal(revealed.workKindLabel, require('../server/src/questions/kinds').getKind(question.kind).label);
+    const genre = require('../server/src/questions/kinds').getGameGenre(question.kind);
+    assert.equal(revealed.workKind, genre.id);
+    assert.equal(revealed.workKindLabel, genre.label);
     assert.equal(revealed.contentType, question.contentType);
     assert.deepEqual(revealed.sources, question.sources);
     assert.equal(revealed.evidence, undefined);
@@ -1258,7 +1260,7 @@ test('editing the helper genre keeps the declared medium and drops incompatible 
   for(const b of bots){while(b.events.some(e=>e.name==='round:synopsis_presented'))await event(b,'round:synopsis_presented',true);}
 });
 
-test('genre-enabled CPU waits for its host and keeps the chosen genre across retry and recovery', async t => {
+for (const chosenKind of ['manga', 'any']) test(`genre-enabled CPU ${chosenKind} waits for its host and keeps its choice across retry and recovery`, async t => {
   writeBank(allFixtureQuestions);
   const { bots, room, entry } = await roomWith(t, 4);
   for (const b of bots) b.allowGenre = true;
@@ -1272,17 +1274,18 @@ test('genre-enabled CPU waits for its host and keeps the chosen genre across ret
   await denied(bots[1], 'round:reroll_synopsis', { workKind: 'manga' });
   await denied(bots[0], 'round:reroll_synopsis');
   for (const workKind of ['INVALID', ['manga'], null]) await denied(bots[0], 'round:reroll_synopsis', { workKind });
-  await ok(bots[0], 'round:reroll_synopsis', { workKind: 'manga' });
+  await ok(bots[0], 'round:reroll_synopsis', { workKind: chosenKind });
   const preview = await event(bots[0], 'round:synopsis_fetched', true);
-  assert.equal(preview.workKind, 'manga');
+  assert.equal(preview.workKind, chosenKind);
+  assert.equal(preview.workKindLabel, chosenKind === 'any' ? 'ノンジャンル' : '漫画');
   assert.equal(bots[1].events.some(e => e.name === 'round:synopsis_fetched'), false);
   const restored = await bot(t);
   restored.allowGenre = true;
   const resume = await ok(restored, 'room:resume', { code: room.code, playerId: entry.player.id, token: entry.token });
-  assert.equal(resume.gameData.resumeState.workKind, 'manga');
+  assert.equal(resume.gameData.resumeState.workKind, chosenKind);
   assert.equal(resume.gameData.resumeState.fetchedSynopsis, preview.synopsis);
   await ok(restored, 'round:reroll_synopsis');
-  assert.equal((await event(restored, 'round:synopsis_fetched', true)).workKind, 'manga');
+  assert.equal((await event(restored, 'round:synopsis_fetched', true)).workKind, chosenKind);
   await ok(restored, 'round:reroll_synopsis', { workKind: 'novel' });
   assert.equal((await event(restored, 'round:synopsis_fetched', true)).workKind, 'novel');
   await ok(restored, 'round:confirm_synopsis');
@@ -1294,7 +1297,7 @@ test('genre-enabled CPU waits for its host and keeps the chosen genre across ret
   writeBank();
 });
 
-test('genre-enabled human helper validates and filters the genre before selecting a question', async t => {
+for (const chosenKind of ['manga', 'any']) test(`genre-enabled human helper ${chosenKind} validates the choice and keeps attribution`, async t => {
   writeBank(allFixtureQuestions);
   const { bots, room } = await roomWith(t, 4);
   await ok(bots[0], 'game:start', { mode: 'player', genreDisclosure: true });
@@ -1303,18 +1306,37 @@ test('genre-enabled human helper validates and filters the genre before selectin
   await denied(q, 'round:prepare_question', request);
   for (const workKind of ['INVALID', ['manga'], null]) await denied(q, 'round:prepare_question', { ...request, workKind });
   await denied(bots.find(b => b !== q), 'round:prepare_question', { ...request, workKind: 'manga' });
-  const helper = await ok(q, 'round:prepare_question', { ...request, workKind: 'manga' });
-  assert.equal(helper.kind, 'manga');
+  const helper = await ok(q, 'round:prepare_question', { ...request, workKind: chosenKind });
+  assert.equal(helper.kind, chosenKind);
   await denied(q, 'round:prepare_question', { ...request, workKind: 'film' });
   await ok(q, 'round:submit_synopsis', { synopsis: helper.synopsis, realTitle: helper.title,
-    questionId: helper.questionId, workKind: 'manga' });
+    questionId: helper.questionId, workKind: chosenKind });
   for (const b of bots) {
     const shown = await event(b, 'round:synopsis_presented', true);
-    assert.equal(shown.workKind, 'manga');
+    assert.equal(shown.workKind, chosenKind);
     assert.equal(JSON.stringify(shown).includes(helper.title), false);
   }
   assert.equal(rooms.get(room.code).rounds.at(-1).sourceQuestion.id, helper.questionId);
   writeBank();
+});
+
+for (const kind of ['short-story', 'literary-work']) test(`human novel helper includes ${kind} and retains original verified classification`, async t => {
+  t.after(() => writeBank());
+  const question = genreQuestions.find(q => q.kind === kind);
+  writeBank([question, genreQuestions[0]]);
+  const { bots, room } = await roomWith(t, 4);
+  for (const b of bots) b.allowGenre = true;
+  await ok(bots[0], 'game:start', { mode: 'player', genreDisclosure: true });
+  const start = await event(bots[0], 'game:started'), q = bots.find(b => b.player.id === start.questioner.id);
+  const helper = await ok(q, 'round:prepare_question', { roomId: room.id, roundId: start.round.id, workKind: 'novel' });
+  assert.equal(helper.kind, 'novel');
+  assert.equal(helper.questionId, question.id);
+  await ok(q, 'round:submit_synopsis', { synopsis: helper.synopsis, realTitle: helper.title, questionId: helper.questionId, workKind: 'novel' });
+  const stored = rooms.get(room.code).rounds.at(-1);
+  assert.equal(stored.workKind, 'novel');
+  assert.equal(stored.sourceQuestion.kind, kind);
+  assert.deepEqual(stored.sourceQuestion.evidence, question.evidence);
+  assert.equal((await event(bots.find(b => b !== q), 'round:synopsis_presented', true)).workKindLabel, '小説');
 });
 
 test('changing a CPU genre cancels a late old selection and the next round waits for a new genre', async t => {

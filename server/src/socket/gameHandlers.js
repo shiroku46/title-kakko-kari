@@ -1,7 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { shuffle } = require('../utils/shuffle');
 const { selectQuestionAsync } = require('../questions');
-const { getKind } = require('../questions/kinds');
+const { getKind, getGameGenre } = require('../questions/kinds');
 const { MAX_LENGTH } = require('../questions/quality');
 const { generateComputerTitles } = require('../computerTitles');
 const { commitGameAction, runStateOperation } = require('./commitGameAction');
@@ -33,8 +33,8 @@ function isRoundController(round, player) {
 }
 
 function publicGenre(room, round) {
-  const kind = room.settings.genreDisclosure && getKind(round.workKind);
-  return kind ? { workKind: round.workKind, workKindLabel: kind.label } : {};
+  const kind = room.settings.genreDisclosure && getGameGenre(round.workKind);
+  return kind ? { workKind: kind.id, workKindLabel: kind.label } : {};
 }
 
 function sendQuestionerView(io, room, round) {
@@ -69,7 +69,7 @@ async function loadCpuSynopsis(io, room, round) {
   let failure;
   try {
     work = await selectQuestionAsync(room.usedQuestionIds, { signal: controller.signal,
-      ...(room.settings.genreDisclosure && { kind: round.workKind }) });
+      ...(room.settings.genreDisclosure && round.workKind !== 'any' && { kind: getGameGenre(round.workKind)?.id }) });
   } catch (error) {
     failure = error.message;
   } finally {
@@ -88,7 +88,7 @@ async function loadCpuSynopsis(io, room, round) {
         round.synopsis = work.synopsis;
         round.real_title = work.realTitle;
         round.sourceQuestion = work;
-        round.workKind = work.kind;
+        round.workKind = round.workKind === 'any' ? 'any' : getGameGenre(work.kind)?.id;
         round.contentType = work.contentType || (getKind(work.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
         room.usedQuestionIds.push(work.id);
       }
@@ -187,8 +187,8 @@ function registerGameHandlers(io, socket) {
         if (round.synopsis) throw new Error('作品を選び直してから補助を使ってください');
       };
       check();
-      const workKind = room.settings.genreDisclosure ? payload?.workKind : undefined;
-      if (room.settings.genreDisclosure && (typeof workKind !== 'string' || !getKind(workKind))) throw new Error('先に作品のジャンルを選択してください');
+      const workKind = room.settings.genreDisclosure ? getGameGenre(payload?.workKind)?.id : undefined;
+      if (room.settings.genreDisclosure && !workKind) throw new Error('先に作品のジャンルを選択してください');
       state = helperStates.get(round) || { version: 0, loading: false, question: null };
       if (state.loading) throw new Error('問題の補助を取得中です');
       helperStates.set(round, state);
@@ -197,14 +197,14 @@ function registerGameHandlers(io, socket) {
       state.controller = new AbortController();
       return { room, round, check, usedQuestionIds: [...room.usedQuestionIds], workKind };
       });
-      const work = await selectQuestionAsync(usedQuestionIds, { signal: state.controller.signal, kind: workKind });
+      const work = await selectQuestionAsync(usedQuestionIds, { signal: state.controller.signal, kind: workKind === 'any' ? undefined : workKind });
       await runStateOperation(async () => {
       check();
       if (state.version !== version) throw new Error('取得中に出題内容が変更されました。もう一度お試しください');
       await commitGameAction(io, room, persistRooms, () => room.usedQuestionIds.push(work.id));
       state.question = work;
       callback({ ok: true, roundId: round.id, questionId: work.id, title: work.realTitle,
-        synopsis: work.synopsis, kind: work.kind, contentType: work.contentType || 'synopsis' });
+        synopsis: work.synopsis, kind: workKind === 'any' ? 'any' : getGameGenre(work.kind)?.id, contentType: work.contentType || 'synopsis' });
       });
     } catch (error) {
       callback({ ok: false, error: error.message });
@@ -274,9 +274,9 @@ function registerGameHandlers(io, socket) {
     if (round.questioner_id !== null) throw new Error('CPUモード以外では操作できません');
     if (round.previewConfirmed) throw new Error('提示した作品は確認画面から選び直してください');
     const workKind = room.settings.genreDisclosure ? (payload?.workKind === undefined ? round.workKind : payload.workKind) : null;
-    if (room.settings.genreDisclosure && (typeof workKind !== 'string' || !getKind(workKind))) throw new Error('先に作品のジャンルを選択してください');
+    if (room.settings.genreDisclosure && !getGameGenre(workKind)) throw new Error('先に作品のジャンルを選択してください');
     discardQuestion(io, room, round);
-    resetCpuSynopsis(round, workKind);
+    resetCpuSynopsis(round, getGameGenre(workKind)?.id ?? null);
     defer(() => loadCpuSynopsis(io, room, round));
   });
 
@@ -316,10 +316,12 @@ function registerGameHandlers(io, socket) {
       const original = helperStates.get(round)?.question;
       if (original?.id === payload.questionId && original.realTitle === title && original.synopsis === synopsis) sourceQuestion = original;
     }
-    const workKind = payload?.workKind ?? sourceQuestion?.kind ?? null;
-    if (sourceQuestion && workKind !== sourceQuestion.kind) sourceQuestion = null;
-    if (room.settings.genreDisclosure && !getKind(workKind)) throw new Error('作品のジャンルを選択してください');
-    if (workKind !== null && !getKind(workKind)) throw new Error('作品のジャンルが不正です');
+    const requestedKind = payload?.workKind ?? sourceQuestion?.kind ?? null;
+    const genre = getGameGenre(requestedKind);
+    if (room.settings.genreDisclosure && !genre) throw new Error('作品のジャンルを選択してください');
+    if (requestedKind !== null && !genre) throw new Error('作品のジャンルが不正です');
+    const workKind = genre?.id ?? null;
+    if (sourceQuestion && workKind !== 'any' && workKind !== getGameGenre(sourceQuestion.kind)?.id) sourceQuestion = null;
     defer(() => invalidateHelper(round));
     round.workKind = workKind;
     round.synopsis = synopsis;
@@ -554,11 +556,12 @@ function revealRound(io, room, round) {
 }
 
 function getRevealedRound(room, round) {
+  const genre = getGameGenre(round.workKind || round.sourceQuestion?.kind);
   return {
     roundId: round.id, realTitle: round.real_title,
     contentType: round.contentType || 'synopsis',
-    workKind: round.workKind || round.sourceQuestion?.kind || null,
-    workKindLabel: getKind(round.workKind || round.sourceQuestion?.kind)?.label || null,
+    workKind: genre?.id || null,
+    workKindLabel: genre?.label || null,
     sources: round.sourceQuestion?.sources || [],
     answers: round.answers.map((a) => {
       const author = room.players.find((p) => p.id === a.player_id);
@@ -589,7 +592,7 @@ function getResumeGame(room, player) {
       synopsis: synopsisPublic ? round.synopsis : null,
       fetchedSynopsis: mode === 'cpu' && player.is_host ? round.synopsis : null,
       synopsisError: mode === 'cpu' && player.is_host ? round.fetchError : null,
-      ...(room.settings.genreDisclosure && (isQuestioner || player.is_host) && { workKind: round.workKind }),
+      ...(room.settings.genreDisclosure && (isQuestioner || player.is_host) && { workKind: getGameGenre(round.workKind)?.id ?? null }),
       questionerView: isQuestioner ? { roundId: round.id, realTitle: round.real_title,
         answers: round.answers.filter((a) => !a.is_real).map(({ id, title }) => ({ id, title })) } : null,
       choices: round.status === 'voting' ? round.answers.map((a) => ({ id: a.id, title: a.title, displayOrder: a.display_order })) : [],

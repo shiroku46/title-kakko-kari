@@ -94,8 +94,16 @@ function getKind(kind) {
   return Object.hasOwn(WORK_KINDS, kind) ? WORK_KINDS[kind] : null;
 }
 
+function getGameGenre(kind) {
+  if (typeof kind !== 'string') return null;
+  const id = ['short-story', 'literary-work'].includes(kind) ? 'novel' : kind;
+  if (id === 'any') return { id, label: 'ノンジャンル' };
+  const definition = getKind(id);
+  return definition ? { id, label: definition.label } : null;
+}
+
 function getDefaultRoots() {
   return KIND_IDS.flatMap((kind) => WORK_KINDS[kind].roots.map((category) => ({ category, kind })));
 }
 
-module.exports = { WORK_KINDS, KIND_IDS, getKind, getDefaultRoots };
+module.exports = { WORK_KINDS, KIND_IDS, getKind, getGameGenre, getDefaultRoots };

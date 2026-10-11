@@ -6,12 +6,12 @@ const { join } = require('node:path');
 const { createHash } = require('node:crypto');
 const { createQuestionService } = require('../server/src/questions/service');
 
-function question(number) {
+function question(number, kind = 'novel') {
   const realTitle = `収集作品${number}の物語`;
   const sourceText =
     '海辺に暮らす青年は、届いた手紙をきっかけに故郷を離れる。友人とともに旅を続け、街に隠された家族の秘密を知る。二人は住民たちと助け合いながら新たな道を探す。'.repeat(2);
   return {
-    id: `service-work-${number}`, realTitle, aliases: [], kind: 'novel',
+    id: `service-work-${number}`, realTitle, aliases: [], kind,
     synopsis: sourceText.replaceAll(realTitle, '■■■'),
     sources: [{
       label: `Wikipedia：${realTitle}`,
@@ -24,8 +24,8 @@ function question(number) {
       sourceId: `wikipedia-ja-${number + 1000}-${number + 100}`, section: 'あらすじ',
       sourceTextSha256: createHash('sha256').update(sourceText).digest('hex'),
       excerpts: sourceText.match(/[^。]+。/gu),
-      distribution: require('../server/src/questions/distribution-policy').distributionEvidence({title:realTitle,kind:'novel',sourceUrl:`https://ja.wikipedia.org/wiki/${encodeURIComponent(realTitle)}?oldid=${number + 100}`,publisher:'検証出版社',date:'2026-01-01',identifier:'9784065373262'}),
-      visibility: require('../server/src/questions/selection-policy').visibilityEvidence({title:realTitle,kind:'novel',
+      distribution: require('../server/src/questions/distribution-policy').distributionEvidence({title:realTitle,kind,sourceUrl:`https://ja.wikipedia.org/wiki/${encodeURIComponent(realTitle)}?oldid=${number + 100}`,publisher:'検証出版社',date:'2026-01-01',identifier:'9784065373262'}),
+      visibility: require('../server/src/questions/selection-policy').visibilityEvidence({title:realTitle,kind,
         sourceUrl:`https://ja.wikipedia.org/wiki/${encodeURIComponent(realTitle)}?oldid=${number + 100}`,genres:['小規模出版']}),
     },
   };
@@ -83,6 +83,31 @@ test('saved and fixture selectors require the requested genre and respect used I
   const collecting = files.service({ collectImpl: async () => { collections++; return collected([novel, film]); } });
   assert.equal((await collecting.selectQuestion([], { kind: 'film' })).id, film.id);
   assert.equal(collections, 1);
+});
+
+test('novel selection includes short stories and literature without changing source evidence', async t => {
+  const books = ['novel', 'short-story', 'literary-work'].map((kind, i) => question(90 + i, kind));
+  const manga = question(93, 'manga'), files = fixture(t, [...books, manga]);
+  const service = files.service({ enabled: false }), excluded = [];
+  for (let i = 0; i < books.length; i++) {
+    const selected = await service.selectQuestion(excluded, { kind: 'novel' });
+    const original = books.find(q => q.id === selected.id);
+    assert.ok(original);
+    assert.equal(selected.kind, original.kind);
+    assert.deepEqual(selected.evidence, original.evidence);
+    excluded.push(selected.id);
+  }
+  await assert.rejects(service.selectQuestion(excluded, { kind: 'novel' }));
+  assert.equal((await service.selectQuestion(excluded, { kind: 'manga' })).id, manga.id);
+  const { execFileSync } = require('node:child_process');
+  execFileSync(process.execPath, ['-e', `
+    const api=require(${JSON.stringify(join(__dirname, '../server/src/questions/index.js'))});
+    const assert=require('node:assert/strict');
+    for(const kind of ['short-story','literary-work']){
+      const excluded=${JSON.stringify([...books, manga])}.filter(q=>q.kind!==kind).map(q=>q.id);
+      assert.equal(api.selectQuestion(excluded,{kind:'novel'}).kind,kind);
+    }
+  `], { env: { ...process.env, QUESTION_BANK_PATH: files.bankPath, QUESTION_SEED_PATH: files.seedPath, QUESTION_COLLECTION_ENABLED: 'false' } });
 });
 
 test('a populated store selects an unused verified question without requesting remote sources', async (t) => {

@@ -124,12 +124,12 @@ function publicRoom(room) {
 
 function publicRound(round, room) {
   const kind = room?.settings.genreDisclosure && round.synopsis
-    ? require('./questions/kinds').getKind(round.workKind) : null;
+    ? require('./questions/kinds').getGameGenre(round.workKind) : null;
   return {
     id: round.id, room_id: round.room_id, round_number: round.round_number,
     questioner_id: round.questioner_id, status: round.status,
     synopsis: round.synopsis, contentType: round.contentType ?? null,
-    real_title: null, ...(kind && { workKind: round.workKind, workKindLabel: kind.label }),
+    real_title: null, ...(kind && { workKind: kind.id, workKindLabel: kind.label }),
     deadlineAt: round.deadline_at || null, phaseReady: Boolean(round.phase_ready),
   };
 }

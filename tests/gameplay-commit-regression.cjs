@@ -125,7 +125,7 @@ function fixture(phase = 'revealed') {
   const { io, events } = recorder(order);
   const dto = loadSource('server/src/gameState.js', {
     './roomStore': { loadRooms: () => new Map(), saveRooms() {}, REJOIN_WINDOW_MS: 86400000 },
-    './questions/kinds': { getKind: (kind) => kind === 'novel' ? { label: '小説' } : null },
+    './questions/kinds': require('../server/src/questions/kinds'),
   });
   const state = { ...dto, rooms: new Map([[room.code, room]]),
     getRoom: () => room, getCurrentRound: () => room.rounds[0],
@@ -141,7 +141,7 @@ function fixture(phase = 'revealed') {
   const game = loadSource('server/src/socket/gameHandlers.js', {
     '../utils/shuffle': { shuffle: (array) => array },
     '../questions': { selectQuestionAsync: async () => { throw new Error('unexpected fetch'); } },
-    '../questions/kinds': { getKind: () => null }, '../questions/quality': { MAX_LENGTH: 1500 },
+    '../questions/kinds': require('../server/src/questions/kinds'), '../questions/quality': { MAX_LENGTH: 1500 },
     '../computerTitles': { generateComputerTitles: () => [] },
     './commitGameAction': { commitGameAction, runStateOperation }, '../gameState': state,
   });
@@ -196,6 +196,18 @@ test('real last vote: failed reveal save remains voting; retry scores once after
   assert.equal(f.order[0], 'persist');
   assert.equal((await command('round:submit_vote', { answerId: 'real' })).ok, false);
   assert.equal(f.events.filter((e) => e.event === 'round:revealed').length, 1);
+});
+
+test('legacy short-story/literature snapshots display novel without rewriting stored classification', () => {
+  for (const kind of ['short-story', 'literary-work']) {
+    const f = fixture('selecting'), round = f.room.rounds[0];
+    f.room.settings.genreDisclosure = true; round.workKind = kind;
+    const restored = f.game.getResumeGame(f.room, f.room.players[0]);
+    assert.equal(restored.round.workKind, 'novel');
+    assert.equal(restored.round.workKindLabel, '小説');
+    assert.equal(restored.resumeState.workKind, 'novel');
+    assert.equal(round.workKind, kind);
+  }
 });
 
 test('resume declaration uses UUID and retains legacy names; unknown clears that UUID', async () => {
