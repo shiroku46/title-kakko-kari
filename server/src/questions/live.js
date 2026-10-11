@@ -79,7 +79,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
             if (!search.queue.length && search.remaining) await search.remaining;
           } else {
             const discovery = await discoverImpl({ kind, pass, page: (page+pass)%20, fetchImpl: fetchPage, signal: controller.signal });
-            search.queue = discovery.candidates;
+            search.queue = [...discovery.candidates];
             if (discovery.remaining) search.remaining = discovery.remaining.then(result => {
               const queued = new Set(search.queue.map(c => c.url));
               search.queue.unshift(...result.candidates.filter(c => !attempted.has(c.url) && !queued.has(c.url)));

@@ -6,9 +6,11 @@ import { colors, radii } from '../../theme';
 import PaperPanel from './PaperPanel';
 import StationeryButton from './StationeryButton';
 import Stamp from './Stamp';
+import WorkIntroduction from './WorkIntroduction';
 
 export default function TitleInputSheet({
   synopsis,
+  workKindLabel,
   value,
   onChangeText,
   onSubmit,
@@ -50,8 +52,7 @@ export default function TitleInputSheet({
 
       {synopsis ? (
         <View style={styles.synopsisBox}>
-          <Text style={styles.fieldLabel}>お題の作品紹介</Text>
-          <Text style={styles.synopsis}>{synopsis}</Text>
+          <WorkIntroduction synopsis={synopsis} workKindLabel={workKindLabel} />
         </View>
       ) : null}
 

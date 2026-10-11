@@ -200,20 +200,17 @@ function registerGameHandlers(io, socket) {
   on('game:start', (payload, room, player, io, defer) => {
     if (!player.is_host) throw new Error('ゲーム開始はホストのみ操作できます');
     if (room.status !== 'waiting') throw new Error('すでにゲームが開始しています');
-    const mode = payload?.mode ?? 'player';
+    let mode = payload?.mode ?? 'player';
     if (!['player', 'cpu'].includes(mode)) throw new Error('出題形式が不正です');
     if (payload?.genreDisclosure !== undefined && typeof payload.genreDisclosure !== 'boolean') throw new Error('ジャンル指定の設定が不正です');
     const requestedRounds = payload?.totalRounds ?? 5;
-    if (mode === 'cpu' && !Number.isInteger(requestedRounds)) throw new Error('ラウンド数が不正です');
     const connectedPlayers = room.players.filter((p) => p.is_connected);
-    const _isDev = process.env.NODE_ENV === 'development';
-    const _allowThree = process.env.ALLOW_THREE_PLAYER_DEV === 'true';
-    const minPlayers = (_isDev && _allowThree) ? 3 : 4;
-    if (connectedPlayers.length < minPlayers) throw new Error(`最低${minPlayers}人が必要です（推奨4〜6人）`);
+    if (connectedPlayers.length < 2) throw new Error('人間またはコンピュータを追加して、2人以上で開始してください');
     if (connectedPlayers.length > 6) throw new Error('最大6人です');
     const humans = connectedPlayers.filter((p) => !p.is_computer);
-    if (humans.some((p) => p.profile_ready === false)) throw new Error('全員の名前とアイコンの入力を待ってください');
-    if (mode === 'player' && humans.length < 2) throw new Error('プレイヤー出題には人間が2人以上必要です。1人で遊ぶ場合はCPU出題を選んでください');
+    if (humans.some((p) => p.profile_ready === false)) throw new Error('全員の名前の入力を待ってください');
+    if (humans.length === 1) mode = 'cpu';
+    if (mode === 'cpu' && !Number.isInteger(requestedRounds)) throw new Error('ラウンド数が不正です');
     const ordered = mode === 'player' ? shuffle(humans) : [];
     ordered.forEach((p, i) => { p.turn_order = i + 1; });
     room.settings.genreDisclosure = payload?.genreDisclosure ?? room.settings.genreDisclosure;

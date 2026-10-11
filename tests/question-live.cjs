@@ -31,6 +31,25 @@ test('production ignores missing/corrupt/populated banks and freshly fetches on 
   assert.equal(source.getStatus().mode, 'live'); assert.equal(source.getStatus().successfulRequests, 3);
 });
 
+test('twelve consecutive requests keep finding fresh works after other media are exhausted', async t => {
+  const candidates = Array.from({ length: 16 }, (_, index) => work(index + 1));
+  const source = createLiveQuestionSource({ discoverImpl: async ({ kind }) => ({ candidates: kind === 'film' ? candidates : [] }),
+    fetchImpl: async url => response(html(Number(new URL(url).hostname.match(/indie(\d+)/u)[1]))) });
+  t.after(() => source.stop());
+  const used = [], titles = new Set();
+  for (let index = 0; index < 12; index++) {
+    const next = await source.selectQuestion(used);
+    assert.equal(questionIsValid(next), true);
+    assert.equal(used.includes(next.id), false);
+    assert.equal(titles.has(next.realTitle), false);
+    used.push(next.id);
+    titles.add(next.realTitle);
+  }
+  assert.equal(source.getStatus().successfulRequests, 12);
+  assert.equal(source.getStatus().activeRequests, 0);
+  assert.equal(candidates.length, 16, 'a request must not consume a discovery adapter’s reusable results');
+});
+
 test('a failed request creates no inventory cooldown and the next request searches again', async t => {
   let blocked = true, calls = 0;
   const source = createLiveQuestionSource({ maxRequests: 4, discoverImpl: discovery([work(1)]),

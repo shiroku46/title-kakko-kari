@@ -1,3 +1,4 @@
+import WorkIntroduction from '../ui/WorkIntroduction';
 import React, { useState } from 'react';
 import {
   View,
@@ -85,19 +86,7 @@ export default function VotingPhase({
         <View style={[styles.layout, isPC && styles.layoutPC]}>
           <View style={[styles.mainColumn, isPC && styles.mainColumnPC]}>
             <PaperPanel tone="cream" style={styles.synopsisPanel}>
-              <View style={styles.synopsisHeading}>
-                <View style={styles.synopsisIcon}>
-                  <Text style={styles.synopsisIconText}>文</Text>
-                </View>
-                <View style={styles.synopsisHeadingBody}>
-                  <Text style={styles.kicker}>WORK</Text>
-                  <Text style={styles.synopsisTitle}>この作品の紹介文{workKindLabel ? `・${workKindLabel}` : ''}</Text>
-                </View>
-              </View>
-              {isQuestioner ? (
-                <Text testID="questioner-real-title" style={styles.synopsisTitle}>本物のタイトル：{realTitle}</Text>
-              ) : null}
-              <Text style={styles.synopsisText}>{synopsis}</Text>
+              <WorkIntroduction synopsis={synopsis} workKindLabel={workKindLabel} realTitle={isQuestioner ? realTitle : null} />
             </PaperPanel>
 
             {!isQuestioner ? (
