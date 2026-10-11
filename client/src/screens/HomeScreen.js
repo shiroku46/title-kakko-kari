@@ -16,7 +16,7 @@ import HomeDemo from '../components/home/HomeDemo';
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 
 export default function HomeScreen({ navigation }) {
-  const [password, setPassword] = useState('');
+  const [nickname, setNickname] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [mode, setMode] = useState('home');
   const [showSettings, setShowSettings] = useState(false);
@@ -29,18 +29,18 @@ export default function HomeScreen({ navigation }) {
 
   const openRules = () => navigation.navigate('Rules');
   const toggleSettings = () => setShowSettings((value) => !value);
-  const start = () => entry.enterRoom({ password, code: roomCode, serverUrl, joining });
+  const start = () => entry.enterRoom({ nickname, code: roomCode, serverUrl, joining });
 
   const form = <View style={[styles.formArea, wide && styles.formAreaWide]}>
     <Text style={[styles.formHeading, wide && styles.formHeadingWide]}>
       {joining ? '部屋に入る' : 'ゲームをはじめる'}
     </Text>
 
-    <Text style={styles.fieldLabel}>{joining ? '部屋のパスワード' : '部屋のパスワード（任意）'}</Text>
+    <Text style={styles.fieldLabel}>あなたの名前</Text>
     <TextInput style={[styles.input, wide && styles.inputWide]}
-      placeholder={joining ? 'ホストから教えてもらったパスワード' : '空欄ならパスワードなし'} placeholderTextColor={colors.muted}
-      value={password} onChangeText={(value) => { setPassword(value); entry.clearError(); }}
-      maxLength={64} secureTextEntry editable={!entry.busy} accessibilityLabel="部屋のパスワード入力欄"
+      placeholder="例：しろく" placeholderTextColor={colors.muted}
+      value={nickname} onChangeText={(value) => { setNickname(value); entry.clearError(); }}
+      maxLength={12} editable={!entry.busy} accessibilityLabel="ニックネーム入力欄"
       autoComplete="off" autoCorrect={false} />
 
     {joining ? <>
