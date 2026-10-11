@@ -1528,6 +1528,7 @@ test('a transport lost during the resume reply keeps recovery active; an unavail
     .replace(/^import .*;\r?\n/gmu, '').replace('export default function ', 'function ');
   const useRecovery = runInNewContext(`${source}\nuseRoomRecovery;`, {
     useState: (value) => [value, () => {}], useEffect: (effect) => { cleanup = effect(); },
+    useIsFocused: () => true,
     getSocket: () => host.socket,
     getRoomSession: () => ({ code: entry.room.code, playerId: entry.player.id, token: entry.token }),
     clearRoomSession: () => { cleared = true; },
@@ -1535,7 +1536,7 @@ test('a transport lost during the resume reply keeps recovery active; an unavail
     showRoom: (_, result) => { restored = result; markRestored(); },
     Alert: { alert: (...args) => { alerts.push(args); markUnavailable(); } },
   });
-  useRecovery({ replace: (screen) => home.push(screen) }, leaving);
+  useRecovery({ replace: (screen) => home.push(screen), isFocused: () => true }, leaving);
   t.after(() => cleanup());
   async function interrupt() {
     const disconnected = once(host.socket, 'disconnect', { signal: AbortSignal.timeout(3000) });
@@ -1566,6 +1567,141 @@ test('a transport lost during the resume reply keeps recovery active; an unavail
   assert.deepEqual(home, ['Home']);
   assert.equal(cleared, true, 'a genuinely unavailable seat must revoke the bookmark');
   assert.equal(leaving.current, true);
+});
+
+const recoveryTestModules = new WeakMap();
+function focusedRecovery(socket, session, navigation, leaving, showRoom, onState = () => {}) {
+  let focused = true;
+  let cleanup;
+  navigation.isFocused = () => focused;
+  navigation.onShowRoom = result => showRoom(navigation, result);
+  if (!recoveryTestModules.has(socket)) {
+    const source = readFileSync(join(__dirname, '../client/src/hooks/useRoomRecovery.js'), 'utf8')
+      .replace(/^import .*;\r?\n/gmu, '').replace('export default function ', 'function ');
+    const context = {};
+    recoveryTestModules.set(socket, { context, hook: runInNewContext(`${source}\nuseRoomRecovery;`, context) });
+  }
+  const { context, hook } = recoveryTestModules.get(socket);
+  const globals = {
+    useIsFocused: () => focused, useState: value => [value, onState],
+    useEffect: effect => { cleanup = effect(); },
+    getSocket: () => socket, getRoomSession: () => session,
+    clearRoomSession: () => assert.fail('Focus changes must keep the private seat'),
+    disconnectSocket: () => assert.fail('Focus changes must keep the shared socket'),
+    showRoom: (route, result) => route.onShowRoom(result), Alert: { alert: message => assert.fail(message) },
+  };
+  return {
+    render(value) { cleanup?.(); focused = value; Object.assign(context, globals); hook(navigation, leaving); },
+    close() { cleanup?.(); },
+  };
+}
+
+test('only the focused name editor resumes the shared real transport; blurred routes register no duplicate recovery', { timeout: 10000 }, async t => {
+  let covered;
+  let editor;
+  t.after(() => { covered?.close(); editor?.close(); });
+  const host = await bot(t);
+  const entry = await ok(host, 'room:create', { nickname: '編集復帰検証' });
+  const session = { code: entry.room.code, playerId: entry.player.id, token: entry.token };
+  const calls = [];
+  let resumes = 0;
+  const count = socket => socket.use((packet, next) => { if (packet[0] === 'room:resume') resumes++; next(); });
+  io.on('connection', count); t.after(() => io.off('connection', count));
+  let returned;
+  const done = new Promise(resolve => { returned = resolve; });
+  covered = focusedRecovery(host.socket, session, { route: 'Lobby' }, { current: false }, () => calls.push('covered'));
+  editor = focusedRecovery(host.socket, session, { route: 'NameEntry' }, { current: false }, (_, result) => { calls.push('editor'); returned(result); });
+  covered.render(true); covered.render(false); editor.render(true);
+  assert.equal(host.socket.listeners('connect').length, 1);
+  const gone = once(host.socket, 'disconnect'); host.socket.io.engine.close(); await gone;
+  host.socket.connect(); const restored = await done;
+  assert.equal(resumes, 1); assert.deepEqual(calls, ['editor']);
+  assert.equal(restored.player.id, entry.player.id);
+  assert.equal(restored.room.code, entry.room.code);
+});
+
+test('returning to a covered route catches a reconnect and ignores the editor reply after cancel or leave', { timeout: 10000 }, async t => {
+  let covered;
+  let editor;
+  t.after(() => { covered?.close(); editor?.close(); });
+  const host = await bot(t);
+  const entry = await ok(host, 'room:create', { nickname: '編集キャンセル検証' });
+  const session = { code: entry.room.code, playerId: entry.player.id, token: entry.token };
+  const calls = [];
+  let held;
+  let pending;
+  const wait = new Promise(resolve => { pending = resolve; });
+  const delay = socket => socket.use((packet, next) => {
+    if (packet[0] === 'room:resume' && !held) { held = next; pending(); }
+    else next();
+  });
+  io.on('connection', delay); t.after(() => { io.off('connection', delay); held?.(); });
+  let returned;
+  const done = new Promise(resolve => { returned = resolve; });
+  covered = focusedRecovery(host.socket, session, { route: 'Game' }, { current: false }, (_, result) => { calls.push('covered'); returned(result); });
+  const leaving = { current: false };
+  editor = focusedRecovery(host.socket, session, { route: 'NameEntry' }, leaving, () => calls.push('editor'));
+  covered.render(true); covered.render(false); editor.render(true);
+  const gone = once(host.socket, 'disconnect'); host.socket.io.engine.close(); await gone;
+  host.socket.connect(); await wait;
+  editor.render(false); covered.render(true);
+  const restored = await done; assert.equal(restored.player.id, entry.player.id);
+  leaving.current = true; held();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['covered']);
+  assert.equal(host.socket.connected, true);
+});
+
+test('a name editor mounted while the old route awaits a resume reply takes over recovery on the already-connected transport', { timeout: 10000 }, async t => {
+  let covered;
+  let editor;
+  t.after(() => { covered?.close(); editor?.close(); });
+  const host = await bot(t);
+  const entry = await ok(host, 'room:create', { nickname: '復帰待ち中の編集' });
+  const session = { code: entry.room.code, playerId: entry.player.id, token: entry.token };
+  let held;
+  let pending;
+  const waiting = new Promise(resolve => { pending = resolve; });
+  const delay = socket => socket.use((packet, next) => {
+    if (packet[0] === 'room:resume' && !held) { held = next; pending(); } else next();
+  });
+  io.on('connection', delay); t.after(() => { io.off('connection', delay); held?.(); });
+  const calls = [];
+  covered = focusedRecovery(host.socket, session, { route: 'Lobby' }, { current: false }, () => calls.push('covered'));
+  covered.render(true);
+  const gone = once(host.socket, 'disconnect'); host.socket.io.engine.close(); await gone;
+  host.socket.connect(); await waiting;
+  covered.render(false);
+  let returned;
+  const done = new Promise(resolve => { returned = resolve; });
+  editor = focusedRecovery(host.socket, session, { route: 'NameEntry' }, { current: false }, (_, result) => { calls.push('editor'); returned(result); });
+  editor.render(true);
+  const restored = await done; assert.equal(restored.player.id, entry.player.id);
+  held(); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['editor']);
+});
+
+test('authoritative recovery removes the covered editor route without changing ordinary entry navigation', () => {
+  const source = readFileSync(join(__dirname, '../client/src/utils/roomSession.js'), 'utf8').replace(/export function /gu, 'function ');
+  const { showRoom } = runInNewContext(`${source}\n({ showRoom });`, {});
+  for (const covered of ['Lobby', 'Game']) {
+    for (const target of ['NameEntry', 'Lobby', 'Game', 'Result']) {
+      const result = { player: { id: 'same-seat', profile_ready: target !== 'NameEntry' }, room: { code: '123456', status: target === 'Result' ? 'finished' : 'waiting' },
+        finalScores: [{ id: 'same-seat', score: 9 }], allPlayers: [], ...(target === 'Game' ? { gameData: { round: { id: 'latest-round' } } } : {}) };
+      let restored;
+      const navigation = { getState: () => ({ index: 2, routes: [{ name: 'Home', key: 'home' }, { name: covered, key: 'stale' }, { name: 'NameEntry', params: { editing: true } }] }),
+        reset: state => { restored = state; }, replace: () => assert.fail('Editor recovery must remove the covered screen') };
+      showRoom(navigation, result);
+      assert.equal(restored.index, 1); assert.equal(JSON.stringify(restored.routes.map(r => r.name)), JSON.stringify(['Home', target]));
+      assert.equal(restored.routes[0].key, 'home');
+      assert.equal(restored.routes[1].params.player?.id || restored.routes[1].params.winner.id, 'same-seat');
+    }
+  }
+  let replaced;
+  showRoom({ getState: () => ({ index: 0, routes: [{ name: 'NameEntry', params: { editing: false } }] }),
+    replace: (name, params) => { replaced = { name, params }; }, reset: () => assert.fail('Initial entry keeps its normal replace') },
+    { player: { profile_ready: false }, room: { code: '123456' } });
+  assert.equal(replaced.name, 'NameEntry');
 });
 
 test('failed start, introduction, reselection, profile and explicit leave preserve authoritative state', async (t) => {

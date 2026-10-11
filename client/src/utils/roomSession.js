@@ -24,13 +24,26 @@ export function clearRoomSession() {
 }
 
 export function showRoom(navigation, result) {
+  let name;
+  let params;
   if (result.player.profile_ready === false) {
-    navigation.replace('NameEntry', { room: result.room, player: result.player });
+    name = 'NameEntry';
+    params = { room: result.room, player: result.player };
   } else if (result.room.status === 'finished') {
-    navigation.replace('Result', { finalScores: result.finalScores, winner: result.finalScores[0] });
+    name = 'Result';
+    params = { finalScores: result.finalScores, winner: result.finalScores[0] };
   } else if (result.gameData) {
-    navigation.replace('Game', { room: result.room, player: result.player, gameData: result.gameData });
+    name = 'Game';
+    params = { room: result.room, player: result.player, gameData: result.gameData };
   } else {
-    navigation.replace('Lobby', { room: result.room, player: result.player, allPlayers: result.allPlayers });
+    name = 'Lobby';
+    params = { room: result.room, player: result.player, allPlayers: result.allPlayers };
   }
+  const state = navigation.getState?.();
+  const current = state?.routes[state.index];
+  if (current?.name === 'NameEntry' && current.params?.editing && state.index > 0) {
+    // Recovery replaces both the editor and the covered stale room screen.
+    const routes = state.routes.slice(0, state.index - 1);
+    navigation.reset({ index: routes.length, routes: [...routes, { name, params }] });
+  } else navigation.replace(name, params);
 }
