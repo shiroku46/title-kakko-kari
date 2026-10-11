@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { readAccount } from '../utils/accountAuth';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, TextInput } from './ui/GameText';
 import { PaperPanel, StationeryButton } from './ui';
@@ -19,6 +20,16 @@ export default function PlayerSettings({ player, socket }) {
   const [icon, setIcon] = useState(player.icon || remembered?.icon || ICONS[0]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
+  const edited = useRef(false);
+  useEffect(() => {
+    let active = true;
+    if (player.profile_ready === false) readAccount().then(({ user }) => {
+      if (!active || edited.current || !user) return;
+      setNickname(user.name?.slice(0, 12) || '');
+      if (ICONS.includes(user.icon)) setIcon(user.icon);
+    });
+    return () => { active = false; };
+  }, []);
   function save() {
     if (pending || !socket.connected) return setError('接続を確認して、もう一度お試しください。');
     setPending(true);
@@ -39,10 +50,10 @@ export default function PlayerSettings({ player, socket }) {
     </StationeryButton>
     {open ? <PaperPanel tone="cream">
       <Text style={styles.heading}>この部屋で使う名前</Text>
-      <TextInput accessibilityLabel="ニックネーム入力欄" value={nickname} onChangeText={setNickname}
+      <TextInput accessibilityLabel="ニックネーム入力欄" value={nickname} onChangeText={(value) => { edited.current = true; setNickname(value); }}
         maxLength={12} style={styles.input} placeholder="例：たろう" editable={!pending} />
       <View style={styles.icons}>{ICONS.map((value) => <StationeryButton key={value}
-        variant={value === icon ? 'yellow' : 'neutral'} onPress={() => setIcon(value)} disabled={pending}
+        variant={value === icon ? 'yellow' : 'neutral'} onPress={() => { edited.current = true; setIcon(value); }} disabled={pending}
         accessibilityLabel={`アイコン ${value}`} accessibilityState={{ selected: value === icon }}>{value}</StationeryButton>)}</View>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       <StationeryButton onPress={save} loading={pending} disabled={!nickname.trim()} accessibilityLabel="名前とアイコンを保存する">保存して参加する</StationeryButton>

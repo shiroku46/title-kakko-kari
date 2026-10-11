@@ -1,3 +1,4 @@
+import AccountSettings from '../components/AccountSettings';
 import React, { useState } from 'react';
 import {
   View, Image, StyleSheet, ActivityIndicator, KeyboardAvoidingView,
@@ -82,6 +83,7 @@ export default function HomeScreen({ navigation }) {
       accessibilityRole="button" accessibilityLabel="遊び方を見る">
       <Text style={styles.rulesText}>遊び方を見る</Text><Chevron />
     </TouchableOpacity>
+    <AccountSettings />
     <View style={styles.settingsArea}>
       <TouchableOpacity style={styles.settingsToggle} onPress={toggleSettings}
         disabled={entry.busy} accessibilityRole="button" accessibilityLabel="接続設定を開く"

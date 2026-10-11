@@ -1,61 +1,71 @@
-const { rooms, getCurrentRound, getMember, persistRooms, updateRoomExpiry } = require('../gameState');
-const { commitGameAction } = require('./commitGameAction');
+const { rooms, getCurrentRound, getMember, persistRooms, updateRoomExpiry, roomStorageStatus } = require('../gameState');
+const { commitGameAction, runStateOperation } = require('./commitGameAction');
 const { registerRoomHandlers } = require('./roomHandlers');
 const { registerGameHandlers, checkRoundProgress, checkRoundTimers } = require('./gameHandlers');
 
 function registerSocketHandlers(io, instanceId) {
-  const timer = setInterval(() => checkRoundTimers(io), 1000);
+  const timer = setInterval(() => {
+    if (roomStorageStatus().ready) runStateOperation(() => checkRoundTimers(io)).catch(() => {});
+  }, 1000);
   timer.unref();
   io.engine.on('close', () => clearInterval(timer));
   io.on('connection', (socket) => {
     const connectedAt = process.uptime();
     if (socket.recovered) {
+      runStateOperation(async () => {
       try {
         const { room, player } = getMember(socket);
-        player.is_online = true;
-        updateRoomExpiry(room);
-        persistRooms();
+        await commitGameAction(io, room, persistRooms, () => {
+          player.is_online = true;
+          updateRoomExpiry(room);
+        });
       }
-      catch (_) { socket.disconnect(true); return; }
+      catch (error) {
+        if (error.code !== 'ROOM_STORE_UNAVAILABLE') socket.disconnect(true);
+      }
+      });
     }
     registerRoomHandlers(io, socket);
     registerGameHandlers(io, socket);
-    socket.on('room:leave', (_, callback) => {
+    socket.on('room:leave', (_, callback) => runStateOperation(async () => {
       try {
-        handleDisconnect(io, socket);
+        await handleDisconnect(io, socket);
         socket.leave(socket.data.roomCode);
         socket.data = {};
         if (typeof callback === 'function') callback({ ok: true });
       } catch (error) {
         if (typeof callback === 'function') callback({ ok: false, error: error.message });
       }
-    });
+    }));
     socket.on('disconnect', (reason) => {
       // Reasons and elapsed times identify transport loss without logging a seat or credential.
       console.info('[Session]', JSON.stringify({ instanceId, reason, connectedSeconds: Math.floor(process.uptime() - connectedAt) }));
+      runStateOperation(async () => {
       try {
-        if (reason === 'client namespace disconnect') return handleDisconnect(io, socket);
+        if (reason === 'client namespace disconnect') return await handleDisconnect(io, socket);
         const room = rooms.get(socket.data.roomCode);
         const player = room?.players.find((p) => p.id === socket.data.playerId && p.socket_id === socket.id);
         if (!player) return;
         // Losing a transport reserves the seat; it never acts as a voluntary exit.
-        player.is_online = false;
-        updateRoomExpiry(room);
-        persistRooms();
+        await commitGameAction(io, room, persistRooms, () => {
+          player.is_online = false;
+          updateRoomExpiry(room);
+        });
       } catch (_) {
         console.error('[Session] 部屋の保存に失敗しました');
       }
+      });
     });
   });
 }
 
-function handleDisconnect(io, socket) {
+async function handleDisconnect(io, socket) {
   const { playerId, roomCode, nickname } = socket.data ?? {};
   const room = rooms.get(roomCode);
   if (!room) return;
   const player = room.players.find((p) => p.id === playerId);
   if (!player || player.socket_id !== socket.id) return;
-  commitGameAction(io, room, persistRooms, (io) => {
+  await commitGameAction(io, room, persistRooms, (io) => {
     player.is_connected = false;
     player.is_online = false;
     player.resume_hash = null;

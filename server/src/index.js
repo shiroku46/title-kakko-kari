@@ -11,12 +11,20 @@ const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const { randomUUID } = require('node:crypto');
+const { initializeRooms, roomStorageStatus } = require('./gameState');
+const { initializeAccountAuth } = require('./accountAuth');
 const { registerSocketHandlers } = require('./socket');
 const { startQuestionCollection, stopQuestionCollection,
   getQuestionCollectionStatus } = require('./questions');
 
 const app = express();
 const server = http.createServer(app);
+let accountAuth = { configuration: { ready: false, email: false, discord: false } };
+app.get('/api/auth/status', (_req, res) => res.json(accountAuth.configuration));
+app.all('/api/auth/*', (req, res) => {
+  if (!accountAuth.handler) return res.status(503).json({ error: 'ログインの設定がまだ完了していません。' });
+  return accountAuth.handler(req, res);
+});
 
 const release = (process.env.RENDER_GIT_COMMIT || 'local').slice(0, 12);
 const instanceId = randomUUID();
@@ -66,9 +74,13 @@ const io = new Server(server, {
 });
 
 // 作品名・資料URL・Secretを含めず、自動収集の稼働状態も確認できる。
-app.get('/health', (req, res) => res.json({
-  status: 'ok', ...runtimeInfo(), questionCollection: getQuestionCollectionStatus(),
-}));
+app.get('/health', (req, res) => {
+  const storage = roomStorageStatus();
+  res.status(storage.ready ? 200 : 503).json({
+    status: storage.ready ? 'ok' : 'unavailable', ...runtimeInfo(), storage, accountAuth: accountAuth.configuration,
+    questionCollection: getQuestionCollectionStatus(),
+  });
+});
 
 // Render上のoutbound HTTPSを安全に診断する。URL、header、raw message、stack、
 // 環境変数値は返さず、HTTP statusまたは標準化されたerror名/codeだけを返す。
@@ -115,11 +127,19 @@ registerSocketHandlers(io, instanceId);
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
-  server.listen(PORT, () => {
+  initializeRooms(instanceId).then(async () => {
+    try { accountAuth = await initializeAccountAuth(); }
+    catch (_) { console.error('[Auth] 認証の設定を確認してください。ゲームはゲスト参加できます。'); }
+    server.listen(PORT, () => {
     console.log(`[Server] ポート ${PORT} で起動しました`);
     startQuestionCollection();
+    });
+  }).catch(() => {
+    console.error('[Server] 部屋の永続保存先を初期化できません。DATABASE_URL と専用 DB を確認してください。');
+    process.exitCode = 1;
   });
   server.on('close', stopQuestionCollection);
+  server.on('close', () => accountAuth.close?.());
 }
 
 module.exports = { server, io };

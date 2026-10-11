@@ -76,7 +76,7 @@ export default function SelectingPhase({
     requestPendingRef.current = true;
     setPendingAction(event);
     setRequestError(null);
-    socket.timeout(10000).emit(event, payload, (error, res) => {
+    socket.timeout(10000).emit(event, { ...payload, roundId: round?.id }, (error, res) => {
       requestPendingRef.current = false;
       setPendingAction(null);
       if (error) {

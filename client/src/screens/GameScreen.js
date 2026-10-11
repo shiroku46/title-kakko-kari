@@ -287,6 +287,7 @@ export default function GameScreen({ navigation, route }) {
       case 'confirming':
         return (
           <ConfirmingPhase
+            round={round}
             currentRound={currentRound}
             totalRounds={totalRounds}
             fetchedSynopsis={fetchedSynopsis}
@@ -431,10 +432,12 @@ export default function GameScreen({ navigation, route }) {
               <Text style={styles.discardedTitle}>{discardedTitle}</Text>
             </View>
           ) : null}
-          <RoundProgress phase={phase} deadlineAt={deadlineAt} ready={phaseReady}
+          <RoundProgress roundId={round?.id} phase={phase} deadlineAt={deadlineAt} ready={phaseReady}
             consent={gameData.settings?.advanceMode === 'consent'}
             canAdvance={isQuestioner || isHost && (!questioner?.id || questionerDisconnected)} socket={socket} />
-          {renderPhase()}
+          <View style={{ flex: 1 }} pointerEvents={reconnecting ? 'none' : 'auto'}>
+            {renderPhase()}
+          </View>
         </>
       )}
     </View>

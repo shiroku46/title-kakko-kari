@@ -211,7 +211,10 @@ async function bot(t, transport = 'websocket') {
     reconnection: false,
   });
   const events = [];
-  socket.onAny((name, data) => events.push({ name, data }));
+  socket.onAny((name, data) => {
+    if (data?.round?.id) socket.currentRoundId = data.round.id;
+    events.push({ name, data });
+  });
   t.after(() => {
     socket.disconnect();
     for (const entry of events) {
@@ -221,10 +224,15 @@ async function bot(t, transport = 'websocket') {
   await once(socket, 'connect', { signal: AbortSignal.timeout(3000) });
   return { socket, events };
 }
-function ack(b, event, payload = null) {
+async function ack(b, event, payload = null) {
+  await new Promise(resolve => setTimeout(resolve, 10));
+  if (event.startsWith('round:') || event === 'game:next_round') {
+    payload = { roundId: b.socket.currentRoundId, ...payload };
+  }
   return new Promise((resolve, reject) => b.socket.timeout(3000).emit(event, payload,
     (error, response) => {
       if (error) return reject(error);
+      if (response?.gameData?.round?.id) b.socket.currentRoundId = response.gameData.round.id;
       try {
         const { questionId, ...publicResponse } = response || {};
         if (event === 'round:prepare_question' && response?.ok) assertNoSources(publicResponse);
@@ -1528,7 +1536,7 @@ test('a transport lost during the resume reply keeps recovery active; an unavail
   const source = readFileSync(join(__dirname, '../client/src/hooks/useRoomRecovery.js'), 'utf8')
     .replace(/^import .*;\r?\n/gmu, '').replace('export default function ', 'function ');
   const useRecovery = runInNewContext(`${source}\nuseRoomRecovery;`, {
-    useState: (value) => [value, () => {}], useEffect: (effect) => { cleanup = effect(); },
+    useState: (value) => [value, () => {}], useEffect: (effect) => { cleanup = effect(); }, setTimeout, clearTimeout,
     getSocket: () => host.socket,
     getRoomSession: () => ({ code: entry.room.code, playerId: entry.player.id, token: entry.token }),
     clearRoomSession: () => { cleared = true; },
@@ -1644,7 +1652,7 @@ test('resuming a seat during password admission cannot attach one socket to two 
       password: '照合を待つ鍵', code: target.room.code,
     }, (result) => { reply = result; });
     let resumed;
-    serverSocket.listeners('room:resume')[0]({ code: original.room.code,
+    await serverSocket.listeners('room:resume')[0]({ code: original.room.code,
       playerId: original.player.id, token: original.token }, (result) => { resumed = result; });
     assert.equal(resumed.ok, true);
     await pending;
@@ -1708,4 +1716,32 @@ test('only the questioner receives the real title and submitted titles; host cho
   await denied(host, 'round:submit_mvp', { answerId: fake.id });
   await ok(host, 'game:next_round');
   assert.equal((await event(host, 'game:round_started')).currentRound, 2);
+});
+
+test('short transport loss delivers buffered former-round submission but cannot mutate the new round', async (t) => {
+  const { bots, room } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find(b => b.player.id === started.questioner.id);
+  const answerers = bots.filter(b => b !== questioner);
+  await ok(questioner, 'round:submit_synopsis', { synopsis: '断線中に進む検証作品', realTitle: '検証の正解' });
+  for (const b of answerers) await ok(b, 'round:declare_unknown');
+  await ok(questioner, 'round:start_submitting');
+  const subject = answerers[0]; const state = rooms.get(room.code); const oldRound = state.rounds[0];
+  const serverSocket = io.sockets.sockets.get(subject.socket.id);
+  const lost = once(serverSocket, 'disconnect'); subject.socket.io.engine.close(); await lost;
+  const buffered = new Promise((resolve, reject) => subject.socket.timeout(10000).emit('round:submit_fake',
+    { roundId: oldRound.id, title: '旧画面からの送信待ちタイトル' }, (error, response) => error ? reject(error) : resolve(response)));
+  assert.equal(subject.socket.sendBuffer.length, 1);
+  // Model an authoritative next round while the old browser is offline. The
+  // protocol under test is actual Socket.IO buffering/delivery, not UI mocking.
+  const nextRound = structuredClone(oldRound); nextRound.id = require('node:crypto').randomUUID();
+  nextRound.round_number = 2; nextRound.answers = nextRound.answers.filter(a => a.is_real); nextRound.votes = [];
+  state.rounds.push(nextRound); state.current_round = 2;
+  const returned = once(subject.socket, 'connect'); subject.socket.connect(); await returned;
+  const response = await buffered;
+  assert.equal(response.ok, false); assert.match(response.error, /古いラウンド/);
+  assert.equal(nextRound.answers.some(a => a.title === '旧画面からの送信待ちタイトル'), false);
+  assert.equal((await ack(subject, 'round:submit_fake', { roundId: nextRound.id, title: '新画面のタイトル' })).ok, true);
+  assert.equal(nextRound.answers.filter(a => a.player_id === subject.player.id).length, 1);
 });

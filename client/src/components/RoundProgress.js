@@ -4,7 +4,7 @@ import { Text } from './ui/GameText';
 import { StationeryButton } from './ui';
 import { colors } from '../theme';
 
-export default function RoundProgress({ phase, deadlineAt, ready, consent, canAdvance, socket }) {
+export default function RoundProgress({ roundId, phase, deadlineAt, ready, consent, canAdvance, socket }) {
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState(null);
   const [pending, setPending] = useState(false);
@@ -16,9 +16,9 @@ export default function RoundProgress({ phase, deadlineAt, ready, consent, canAd
   if (!['submitting', 'voting'].includes(phase) || !deadlineAt && !consent) return null;
   const seconds = Math.max(0, Math.ceil((deadlineAt - now) / 1000));
   const advance = () => {
-    if (pending) return;
+    if (pending || !socket?.connected) return;
     setPending(true);
-    socket.timeout(10000).emit('round:advance_phase', null, (failure, result) => {
+    socket.timeout(10000).emit('round:advance_phase', { roundId }, (failure, result) => {
       setPending(false);
       setError(failure || !result?.ok ? result?.error || '進められませんでした。もう一度お試しください。' : null);
     });

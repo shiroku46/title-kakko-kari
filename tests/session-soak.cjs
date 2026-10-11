@@ -14,6 +14,10 @@ const { io: connect } = require('../client/node_modules/socket.io-client');
 const sockets = [];
 const duration = 25 * 60 * 1000;
 function request(socket, event, payload) {
+  if (event.startsWith('round:') || event === 'game:next_round') {
+    const room = [...rooms.values()].find(r => r.players.some(p => p.socket_id === socket.id));
+    payload = { roundId: room?.rounds.find(r => r.round_number === room.current_round)?.id, ...payload };
+  }
   return new Promise((resolve, reject) => socket.timeout(5000).emit(event, payload, (error, result) => {
     if (error) return reject(error);
     if (!result?.ok) return reject(new Error(result?.error || '応答を確認できません'));
