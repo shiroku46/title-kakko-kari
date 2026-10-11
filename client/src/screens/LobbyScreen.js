@@ -23,12 +23,12 @@ import {
 import { useResponsiveLayout, CONTENT_MAX_WIDTH } from '../hooks/useResponsiveLayout';
 
 const ROUND_OPTIONS = [3, 5, 7, 10];
-const MIN_PLAYERS = (__DEV__ && process.env.EXPO_PUBLIC_ALLOW_THREE_PLAYER_DEV === 'true') ? 3 : 4;
+const MIN_PLAYERS = 2;
 
 export default function LobbyScreen({ navigation, route }) {
   const { room, player } = route.params;
   const [players, setPlayers] = useState(route.params.allPlayers ?? []);
-  const [gameMode, setGameMode] = useState('player');
+  const [gameMode, setGameMode] = useState('cpu');
   const [cpuRounds, setCpuRounds] = useState(5);
   const [starting, setStarting] = useState(false);
   const [genreDisclosure, setGenreDisclosure] = useState(Boolean(room.settings?.genreDisclosure));
@@ -88,9 +88,6 @@ export default function LobbyScreen({ navigation, route }) {
     if (players.length < MIN_PLAYERS) {
       return Alert.alert('まだ開始できません', `あと${MIN_PLAYERS - players.length}人の参加が必要です`);
     }
-    if (gameMode === 'player' && humanCount < 2) {
-      return Alert.alert('出題モードを選んでください', '1人で遊ぶ場合はCPU出題を選んでください。');
-    }
     setStarting(true);
     const timer = setTimeout(() => {
       if (startRequestRef.current !== timer) return;
@@ -100,7 +97,7 @@ export default function LobbyScreen({ navigation, route }) {
     }, 10000);
     startRequestRef.current = timer;
 
-    socket.emit('game:start', { mode: gameMode, totalRounds: cpuRounds, genreDisclosure }, (res) => {
+    socket.emit('game:start', { mode: effectiveGameMode, totalRounds: cpuRounds, genreDisclosure }, (res) => {
       if (startRequestRef.current !== timer) return;
       clearTimeout(timer);
       startRequestRef.current = null;
@@ -163,7 +160,8 @@ export default function LobbyScreen({ navigation, route }) {
   const displaySlots = Array.from({ length: 6 }, (_, index) => players[index] ?? null);
   const computerCount = players.filter((p) => p.isComputer).length;
   const humanCount = players.length - computerCount;
-  const needsHumanQuestioner = gameMode === 'player' && humanCount < 2;
+  const effectiveGameMode = humanCount === 1 ? 'cpu' : gameMode;
+  const waitingForNames = players.some(p => !p.isComputer && p.profileReady === false);
 
   return (
     <PopBackdrop>
@@ -174,7 +172,6 @@ export default function LobbyScreen({ navigation, route }) {
           { paddingHorizontal: contentPadding, maxWidth: CONTENT_MAX_WIDTH },
         ]}
       >
-        <PlayerSettings player={player} socket={socket} />
         {reconnecting ? (
           <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.codeHint}>
             接続を戻しています… この画面のままお待ちください。
@@ -182,6 +179,8 @@ export default function LobbyScreen({ navigation, route }) {
         ) : null}
         <View style={styles.topBar}>
           <GameLogo compact />
+          <View style={styles.topActions}>
+          <PlayerSettings player={players.find(p => p.id === player.id) || player} room={room} navigation={navigation} />
           <StationeryButton
             variant="ghost"
             onPress={() => {
@@ -195,6 +194,7 @@ export default function LobbyScreen({ navigation, route }) {
           >
             ルームを退出
           </StationeryButton>
+          </View>
         </View>
 
         <View style={[styles.lobbyTitleRow, !isPC && styles.lobbyTitleRowStacked]}>
@@ -247,7 +247,7 @@ export default function LobbyScreen({ navigation, route }) {
             <View style={styles.sectionHeader}>
               <View style={styles.sectionMarker} />
               <Text style={styles.sectionTitle}>参加メンバー</Text>
-              <Text style={styles.sectionSub}>合わせて4〜6席</Text>
+              <Text style={styles.sectionSub}>合わせて2〜6席</Text>
             </View>
 
             <View style={[styles.playerGrid, isPC && styles.playerGridPC]}>
@@ -305,21 +305,22 @@ export default function LobbyScreen({ navigation, route }) {
 
                 <Text style={styles.settingsLabel}>出題モード</Text>
                 <View style={styles.modeStack}>
-                  <ModeButton
-                    selected={gameMode === 'player'}
+                  {humanCount > 1 ? <ModeButton
+                    selected={effectiveGameMode === 'player'}
                     title="プレイヤー出題"
-                    note="人間の参加者が順番に作品を出題"
+                    note="参加者が順番に作品を出題"
                     color={colors.red}
                     onPress={() => setGameMode('player')}
-                  />
+                  /> : null}
                   <ModeButton
-                    selected={gameMode === 'cpu'}
+                    selected={effectiveGameMode === 'cpu'}
                     title="CPU出題"
                     note="出典付きの作品から出題"
                     color={colors.blue}
                     onPress={() => setGameMode('cpu')}
                   />
                 </View>
+                {humanCount === 1 ? <Text style={styles.startHint}>ひとりでの対戦はコンピュータが出題します。</Text> : null}
 
                 <Text style={styles.settingsLabel}>ジャンル指定</Text>
                 <View style={styles.roundRow}>
@@ -347,7 +348,7 @@ export default function LobbyScreen({ navigation, route }) {
                     accessibilityLabel={value ? `${value}秒` : '制限なし'}>{value ? `${value}秒` : 'なし'}</StationeryButton>)}</View>
                 <Text style={styles.startHint}>時間が終わると提出済みの回答・投票で進みます。出題者が進める設定では同意を待ちます。タイトル案が一つもなければ提出を待ちます。</Text>
 
-                {gameMode === 'cpu' && (
+                {effectiveGameMode === 'cpu' && (
                   <>
                     <Text style={styles.settingsLabel}>ラウンド数</Text>
                     <View style={styles.roundRow}>
@@ -372,13 +373,13 @@ export default function LobbyScreen({ navigation, route }) {
                     variant="primary"
                     onPress={handleStart}
                     loading={starting}
-                    disabled={starting || settingsPending || players.length < MIN_PLAYERS || needsHumanQuestioner}
+                    disabled={starting || settingsPending || players.length < MIN_PLAYERS || waitingForNames}
                     accessibilityLabel="ゲームを開始する"
                   >
                     ゲームを開始する →
                   </StationeryButton>
-                  {needsHumanQuestioner ? (
-                    <Text style={styles.startHint}>1人で遊ぶ場合はCPU出題を選んでください。人間出題には人間が2人以上必要です。</Text>
+                  {waitingForNames ? (
+                    <Text style={styles.startHint}>参加者の名前の入力を待っています。</Text>
                   ) : players.length < MIN_PLAYERS ? (
                     <Text style={styles.startHint}>
                       あと{MIN_PLAYERS - players.length}席必要です。人間かコンピュータを追加してください。
@@ -445,9 +446,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 12,
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  topActions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 },
   exitButton: { minHeight: 42, paddingHorizontal: 10 },
   exitText: { fontSize: 12, color: colors.muted },
   lobbyTitleRow: {

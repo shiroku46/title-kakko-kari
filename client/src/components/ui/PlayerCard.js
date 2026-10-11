@@ -12,7 +12,7 @@ function colorForName(name = '') {
 
 export default function PlayerCard({ player, isMe = false, isHost = false, status, style }) {
   const nickname = player?.nickname ?? '参加待ち';
-  const initial = player?.icon || (player?.isComputer ? 'PC' : nickname === '参加待ち' ? '?' : nickname.charAt(0));
+  const initial = player?.isComputer ? 'PC' : nickname === '参加待ち' ? '?' : nickname.charAt(0);
   const empty = nickname === '参加待ち' || !player;
 
   return (
@@ -31,7 +31,7 @@ export default function PlayerCard({ player, isMe = false, isHost = false, statu
           {isMe ? '（あなた）' : ''}
         </Text>
         <Text style={styles.meta}>
-          {player?.isComputer ? 'タイトル作成のみ' : isHost ? 'ホスト' : status === 'submitted' ? '提出済み' : empty ? '空席' : '参加中'}
+          {player?.isComputer ? 'コンピュータ' : player?.profileReady === false ? '名前を入力中' : isHost ? 'ホスト' : status === 'submitted' ? '提出済み' : empty ? '空席' : '参加中'}
         </Text>
       </View>
       {status && !empty && (

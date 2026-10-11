@@ -28,6 +28,7 @@ export default function GameScreen({ navigation, route }) {
   const [isHost, setIsHost] = useState(player.is_host);
   const [humanCount, setHumanCount] = useState(gameData.humanCount ?? 4);
   const [synopsisError, setSynopsisError] = useState(saved.synopsisError || null);
+  const previewRevision = useRef(0);
 
   const [mode, setMode] = useState(gameData.mode ?? 'player');
   const [phase, setPhase] = useState(saved.phase || (gameData.mode === 'cpu' ? 'confirming' : 'selecting'));
@@ -57,7 +58,6 @@ export default function GameScreen({ navigation, route }) {
   const [questionerDisconnected, setQuestionerDisconnected] = useState(Boolean(saved.questionerDisconnected));
   const [departureNotice, setDepartureNotice] = useState(null);
   const [stoppedMessage, setStoppedMessage] = useState(null);
-  const [discardedTitle, setDiscardedTitle] = useState(null);
   const leavingRef = useRef(false);
   const reconnecting = useRoomRecovery(navigation, leavingRef);
   const resumed = round.id === gameData.round.id ? saved : {};
@@ -137,10 +137,10 @@ export default function GameScreen({ navigation, route }) {
       setQuestionerDisconnected(false);
       setDepartureNotice(null);
       setStoppedMessage(null);
-      setDiscardedTitle(null);
     },
     'round:synopsis_loading': (data) => {
       if (data.roundId !== round.id) return;
+      previewRevision.current++;
       setFetchedSynopsis(null);
       setWorkKindLabel(null);
       setContentType('synopsis');
@@ -148,11 +148,14 @@ export default function GameScreen({ navigation, route }) {
     },
     'round:synopsis_fetch_failed': (data) => {
       if (data.roundId !== round.id) return;
+      previewRevision.current++;
       setFetchedSynopsis(null);
+      setWorkKindLabel(null);
       setSynopsisError(data.error);
     },
     'round:synopsis_fetched': (data) => {
       if (data.roundId !== round.id) return;
+      previewRevision.current++;
       setSynopsisError(null);
       setFetchedSynopsis(data.synopsis);
       setWorkKindLabel(data.workKindLabel || null);
@@ -179,10 +182,8 @@ export default function GameScreen({ navigation, route }) {
     'round:declaration_started': ({ roundId }) => {
       if (roundId === round.id) setPhase('selecting');
     },
-    'round:question_discarded': ({ roundId, realTitle }) => {
-      if (roundId === round.id) setDiscardedTitle(realTitle);
-    },
     'round:reselect_started': ({ mode: nextMode }) => {
+      previewRevision.current++;
       setSynopsis(null);
       setQuestionerView(null);
       setWorkKindLabel(null);
@@ -257,10 +258,12 @@ export default function GameScreen({ navigation, route }) {
   useEffect(() => {
     if (mode !== 'cpu' || phase !== 'confirming' || !isHost) return;
     let active = true;
+    const revision = previewRevision.current;
     socket.timeout(10000).emit('round:get_synopsis', { roomId: room.id, roundId: round.id }, (error, response) => {
-      if (!active) return;
+      if (!active || revision !== previewRevision.current) return;
       if (error || !response?.ok) {
         setFetchedSynopsis(null);
+        setWorkKindLabel(null);
         setSynopsisError(error
           ? 'サーバーから応答がありません。接続を確認して再取得してください。'
           : response?.error || '紹介文を確認できませんでした。もう一度取得してください。');
@@ -297,6 +300,7 @@ export default function GameScreen({ navigation, route }) {
             socket={socket}
             onRerollStart={() => {
               setFetchedSynopsis(null);
+              setWorkKindLabel(null);
               setSynopsisError(null);
             }}
           />
@@ -391,6 +395,7 @@ export default function GameScreen({ navigation, route }) {
     <View style={styles.container}>
       <View style={styles.gameControls}>
         <Text style={styles.roomLabel}>部屋 {room.code}</Text>
+        <PlayerSettings player={roomPlayers.find(p => p.id === player.id) || player} room={room} navigation={navigation} />
         <StationeryButton
           variant="ghost"
           onPress={confirmLeaveGame}
@@ -400,7 +405,6 @@ export default function GameScreen({ navigation, route }) {
           部屋から出る
         </StationeryButton>
       </View>
-      <PlayerSettings player={roomPlayers.find((p) => p.id === player.id) || player} socket={socket} />
       {reconnecting ? (
         <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.departureNotice}>
           接続を戻しています… この画面のままお待ちください。
@@ -425,12 +429,6 @@ export default function GameScreen({ navigation, route }) {
               {departureNotice}
             </Text>
           ) : null}
-          {discardedTitle ? (
-            <View style={styles.discardedPanel} accessibilityLiveRegion="polite">
-              <Text style={styles.discardedLabel}>変更したお題の答え</Text>
-              <Text style={styles.discardedTitle}>{discardedTitle}</Text>
-            </View>
-          ) : null}
           <RoundProgress phase={phase} deadlineAt={deadlineAt} ready={phaseReady}
             consent={gameData.settings?.advanceMode === 'consent'}
             canAdvance={isQuestioner || isHost && (!questioner?.id || questionerDisconnected)} socket={socket} />
@@ -443,14 +441,10 @@ export default function GameScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.canvas },
-  gameControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'web' ? 0 : 54, backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
+  gameControls: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 4, paddingHorizontal: 16, paddingTop: Platform.OS === 'web' ? 0 : 54, backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
   roomLabel: { fontSize: 12, color: colors.muted },
   exitButton: { minHeight: 44, paddingVertical: 6 },
-  genreNotice: { color: colors.navy, backgroundColor: colors.cream, paddingHorizontal: 20, paddingVertical: 12, fontSize: 16, fontWeight: '700' },
   departureNotice: { color: colors.navy, backgroundColor: colors.cream, paddingHorizontal: 16, paddingVertical: 10, fontSize: 13, lineHeight: 20 },
-  discardedPanel: { backgroundColor: colors.cream, paddingHorizontal: 20, paddingVertical: 12 },
-  discardedLabel: { color: colors.muted, fontSize: 12, lineHeight: 18 },
-  discardedTitle: { color: colors.navy, fontSize: 18, lineHeight: 27, fontWeight: '700' },
   stoppedPanel: { width: '100%', maxWidth: 540, alignSelf: 'center', padding: 24, gap: 18 },
   stoppedTitle: { fontSize: 22, lineHeight: 30, fontWeight: '700', color: colors.navy },
   stoppedBody: { fontSize: 15, lineHeight: 25, color: colors.ink },

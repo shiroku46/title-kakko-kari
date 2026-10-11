@@ -24,7 +24,9 @@ export function clearRoomSession() {
 }
 
 export function showRoom(navigation, result) {
-  if (result.room.status === 'finished') {
+  if (result.player.profile_ready === false) {
+    navigation.replace('NameEntry', { room: result.room, player: result.player });
+  } else if (result.room.status === 'finished') {
     navigation.replace('Result', { finalScores: result.finalScores, winner: result.finalScores[0] });
   } else if (result.gameData) {
     navigation.replace('Game', { room: result.room, player: result.player, gameData: result.gameData });

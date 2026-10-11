@@ -4,7 +4,6 @@ const { rooms, createRoom, getRoom, getMember, publicRoom, publicPlayer, publicS
 const { getResumeGame } = require('./gameHandlers');
 const { commitGameAction } = require('./commitGameAction');
 const { hashRoomPassword, verifyRoomPassword } = require('../roomPassword');
-const PROFILE_ICONS = ['🐈', '🐕', '🦊', '🐼', '🐸', '🐧'];
 
 function tokenHash(token) { return createHash('sha256').update(token).digest('hex'); }
 
@@ -133,12 +132,11 @@ function registerRoomHandlers(io, socket) {
     try {
       const { room, player } = getMember(socket);
       const nickname = textInput(payload?.nickname, 'ニックネーム', 12);
-      if (!PROFILE_ICONS.includes(payload?.icon)) throw new Error('アイコンを選択してください');
       if (room.players.some((p) => p.id !== player.id && p.is_connected && p.nickname === nickname)) {
         throw new Error('そのニックネームはすでに使われています');
       }
       commitGameAction(io, room, persistRooms, (stagedIo) => {
-        Object.assign(player, { nickname, icon: payload.icon, profile_ready: true });
+        Object.assign(player, { nickname, icon: null, profile_ready: true });
         stagedIo.to(room.code).emit('room:players_updated', {
           allPlayers: lobbyPlayers(room), players: room.players.map(publicPlayer),
         });

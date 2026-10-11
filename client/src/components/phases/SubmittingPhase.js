@@ -1,3 +1,4 @@
+import WorkIntroduction from '../ui/WorkIntroduction';
 import { fontFamilies } from '../../theme/typography';
 import React, { useState, useRef } from 'react';
 import {
@@ -89,8 +90,7 @@ export default function SubmittingPhase({
           {isQuestioner ? (
             <View style={styles.questionerLayout}>
               <PaperPanel tone="cream">
-                <Text testID="questioner-real-title" style={styles.tipTitle}>本物のタイトル：{realTitle}</Text>
-                <Text style={styles.tipText}>{workKindLabel ? `【${workKindLabel}】\n` : ''}{synopsis}</Text>
+                <WorkIntroduction synopsis={synopsis} workKindLabel={workKindLabel} realTitle={realTitle} />
               </PaperPanel>
               <PaperPanel tone="navy" variant="elevated" style={styles.progressPanel}>
                 <Text style={styles.kicker}>SUBMISSION STATUS</Text>
@@ -136,7 +136,8 @@ export default function SubmittingPhase({
                 </Text>
               ) : null}
               <TitleInputSheet
-                synopsis={workKindLabel ? `【${workKindLabel}】\n${synopsis}` : synopsis}
+                synopsis={synopsis}
+                workKindLabel={workKindLabel}
                 value={fakeTitle}
                 onChangeText={(value) => {
                   if (pendingRef.current) return;

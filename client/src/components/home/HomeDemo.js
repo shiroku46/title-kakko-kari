@@ -118,7 +118,7 @@ export default function HomeDemo({ horizontal = false }) {
     {feedback ? <Text style={[styles.feedback, selected === 1 && styles.correctFeedback]}
       accessibilityRole="alert" accessibilityLiveRegion="polite">{feedback}</Text> : null}
     <View style={styles.featureRow}>
-      <PeopleIcon /><Text style={styles.featureText}>4〜6人で遊べる　・　知らなくても遊べる</Text>
+      <PeopleIcon /><Text style={styles.featureText}>2〜6人で遊べる　・　ひとり＋コンピュータでも</Text>
     </View>
   </View>;
 }

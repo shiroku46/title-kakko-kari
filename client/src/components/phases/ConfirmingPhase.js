@@ -1,3 +1,4 @@
+import WorkIntroduction from '../ui/WorkIntroduction';
 import React, { useRef, useState } from 'react';
 import {
   View,
@@ -133,10 +134,7 @@ export default function ConfirmingPhase({
                 </View>
 
                 <View style={styles.synopsisBox}>
-                  <View style={styles.synopsisTab}>
-                    <Text style={styles.synopsisTabText}>作品の紹介文{workKindLabel ? `・${workKindLabel}` : ''}</Text>
-                  </View>
-                  <Text style={styles.synopsisText}>{fetchedSynopsis}</Text>
+                  <WorkIntroduction synopsis={fetchedSynopsis} workKindLabel={workKindLabel} />
                 </View>
 
                 <Text style={styles.note}>

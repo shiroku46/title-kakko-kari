@@ -310,9 +310,8 @@ test('health, CORS and both Socket.IO transports without database configuration'
   await denied(b, 'room:create', { nickname: '二部屋目' });
 });
 
-test('production requires 4, concurrent joins stop at 6, duplicate names rejected', async (t) => {
+test('solo needs a second seat, concurrent joins stop at 6, duplicate names rejected', async (t) => {
   const { bots, room } = await roomWith(t, 3);
-  await denied(bots[0], 'game:start', { mode: 'player' });
   const newcomers = await Promise.all(Array.from({ length: 5 }, () => bot(t)));
   const results = await Promise.all(newcomers.map((b, i) => ack(b, 'room:join', { code: room.code, nickname: `追加${i}` })));
   assert.equal(results.filter((r) => r.ok).length, 3);
@@ -320,6 +319,7 @@ test('production requires 4, concurrent joins stop at 6, duplicate names rejecte
   const other = await bot(t);
   await denied(other, 'room:join', { code: 'XXXXXX', nickname: 'なし' });
   const small = await roomWith(t, 1);
+  await denied(small.bots[0], 'game:start', { mode: 'cpu' });
   await denied(other, 'room:join', { code: small.room.code, nickname: '参加者0' });
 });
 
@@ -1253,16 +1253,15 @@ test('computer seats are host-only, bounded, synchronized and cannot be forged b
   await denied(outsider, 'room:join', { code: room.code, nickname: '満員' });
   await ok(host, 'room:set_computers', { count: 0 });
   assert.equal(rooms.get(room.code).players.length, 3);
-  await denied(host, 'game:start', { mode: 'cpu' });
+  await ok(host, 'game:start', { mode: 'cpu' });
 });
 
-for (const [humanCount, computerCount, mode] of [[2, 2, 'player'], [2, 2, 'cpu'], [1, 3, 'cpu'], [1, 5, 'cpu']]) {
+for (const [humanCount, computerCount, mode] of [[2, 2, 'player'], [2, 2, 'cpu'], [1, 1, 'cpu'], [1, 3, 'cpu'], [1, 4, 'cpu'], [1, 5, 'cpu']]) {
   test(`${humanCount} humans + ${computerCount} title-only computers / ${mode}: complete every round without computer votes or questions`, async (t) => {
     writeBank();
     const { bots, room } = await roomWith(t, humanCount);
     const host = bots[0];
     await ok(host, 'room:set_computers', { count: computerCount });
-    if (humanCount === 1) await denied(host, 'game:start', { mode: 'player' });
     await ok(host, 'game:start', { mode, totalRounds: 2 });
     await denied(host, 'room:set_computers', { count: 0 });
     const totalRounds = mode === 'player' ? humanCount : 2;
@@ -1609,10 +1608,10 @@ test('password admission precedes profile entry; renaming preserves UUID declara
   await denied(guest, 'room:join', { code: entry.room.code, password: '違う鍵' });
   const joined = await ok(guest, 'room:join', { code: entry.room.code, password: '鍵付きの部屋' });
   assert.equal(joined.player.profile_ready, false);
-  await ok(host, 'room:update_profile', { nickname: '名前を決めたホスト', icon: '🐈' });
-  await denied(guest, 'room:update_profile', { nickname: '名前を決めたホスト', icon: '🐧' });
-  await denied(guest, 'room:update_profile', { nickname: 'ゲスト', icon: '<script>' });
-  await ok(guest, 'room:update_profile', { nickname: 'ゲスト', icon: '🐧' });
+  await ok(host, 'room:update_profile', { nickname: '名前を決めたホスト' });
+  await denied(guest, 'room:update_profile', { nickname: '名前を決めたホスト' });
+  await denied(guest, 'room:update_profile', { nickname: '   ' });
+  await ok(guest, 'room:update_profile', { nickname: 'ゲスト' });
   await ok(host, 'room:set_computers', { count: 2 });
   await ok(host, 'game:start', { mode: 'cpu', totalRounds: 1 });
   const room = rooms.get(entry.room.code);
@@ -1625,9 +1624,73 @@ test('password admission precedes profile entry; renaming preserves UUID declara
   assert.equal(round.declarations.get(joined.player.id), 'known');
   const resumed = await ok(guest, 'room:resume', { code: entry.room.code, playerId: joined.player.id, token: joined.token });
   assert.equal(resumed.player.nickname, '変更後');
-  assert.equal(resumed.player.icon, '🦊');
+  assert.equal(resumed.player.icon, null);
   assert.deepEqual(resumed.gameData.resumeState.knownPlayerIds, [joined.player.id]);
   assert.deepEqual(resumed.gameData.resumeState.knownDeclarations, ['変更後']);
+});
+
+test('one human and one computer automatically use computer questions even if player mode is requested', async t => {
+  writeBank();
+  const { bots } = await roomWith(t, 1);
+  const host = bots[0];
+  await ok(host, 'room:set_computers', { count: 1 });
+  await ok(host, 'game:start', { mode: 'player', totalRounds: 3 });
+  const start = await event(host, 'game:started');
+  assert.equal(start.mode, 'cpu');
+  assert.equal(start.questioner, null);
+  assert.equal(start.totalRounds, 3);
+  await event(host, 'round:synopsis_fetched');
+});
+
+test('computer preview can recover from a failed search and fetch ten different works in one round', async t => {
+  writeBank([]);
+  const { bots, room } = await roomWith(t, 1);
+  const host = bots[0];
+  await ok(host, 'room:set_computers', { count: 1 });
+  await ok(host, 'game:start', { mode: 'cpu', totalRounds: 3 });
+  const start = await event(host, 'game:started');
+  await event(host, 'round:synopsis_fetch_failed');
+  writeBank(allFixtureQuestions);
+  const seen = new Set();
+  for (let index = 0; index < 10; index++) {
+    await ok(host, 'round:reroll_synopsis');
+    const preview = await event(host, 'round:synopsis_fetched');
+    assert.equal(preview.roundId, start.round.id);
+    const source = rooms.get(room.code).rounds[0].sourceQuestion;
+    assert.equal(source.synopsis, preview.synopsis);
+    assert.equal(seen.has(source.id), false);
+    seen.add(source.id);
+    const state = await ok(host, 'room:get_state');
+    assert.equal(JSON.stringify(state.room).includes(source.realTitle), false);
+    assert.equal(rooms.get(room.code).rounds[0].fetchError, null);
+  }
+  assert.equal(seen.size, 10);
+  writeBank();
+});
+
+test('private question assistance recovers from failure and can be replaced ten times without sharing its answer', async t => {
+  const { bots, room } = await roomWith(t, 2);
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const start = await event(bots[0], 'game:started');
+  const questioner = bots.find(b => b.player.id === start.questioner.id);
+  const other = bots.find(b => b !== questioner);
+  const payload = { roomId: room.id, roundId: start.round.id };
+  writeBank([]);
+  await denied(questioner, 'round:prepare_question', payload);
+  writeBank(allFixtureQuestions);
+  const seen = new Set();
+  let latest;
+  for (let index = 0; index < 10; index++) {
+    latest = await ok(questioner, 'round:prepare_question', payload);
+    assert.equal(seen.has(latest.questionId), false);
+    seen.add(latest.questionId);
+    const state = await ok(other, 'room:get_state');
+    assert.equal(JSON.stringify(state.room).includes(latest.title), false);
+    assert.equal(JSON.stringify(state.room).includes(latest.synopsis), false);
+  }
+  assert.equal(seen.size, 10);
+  await ok(questioner, 'round:submit_synopsis', { synopsis: latest.synopsis, realTitle: latest.title, questionId: latest.questionId });
+  writeBank();
 });
 
 test('resuming a seat during password admission cannot attach one socket to two rooms', async (t) => {

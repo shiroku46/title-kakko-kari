@@ -1,3 +1,4 @@
+import WorkIntroduction from '../ui/WorkIntroduction';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -98,6 +99,10 @@ export default function SelectingPhase({
     requestPendingRef.current = true;
     setPendingAction('fetch');
     setRequestError(null);
+    setSynopsisText('');
+    setRealTitle('');
+    setWorkKind(null);
+    setAutomaticQuestionId(null);
     // An empty bank may discover and verify new source material on demand.
     try {
       const data = await new Promise((resolve, reject) => {
@@ -398,8 +403,7 @@ export default function SelectingPhase({
                   </View>
 
                   <View style={styles.synopsisBox}>
-                    <Text testID="questioner-real-title" style={styles.fieldLabel}>本物のタイトル：{realTitle}</Text>
-                    <Text style={styles.synopsisText}>{workKindLabel ? `【${workKindLabel}】\n` : ''}{synopsis || synopsisText}</Text>
+                    <WorkIntroduction synopsis={synopsis || synopsisText} workKindLabel={workKindLabel} realTitle={realTitle} />
                   </View>
 
                   {hasKnown ? (
@@ -486,7 +490,7 @@ export default function SelectingPhase({
                       </View>
                     </View>
                     <View style={styles.synopsisBox}>
-                      <Text style={styles.synopsisText}>{workKindLabel ? `【${workKindLabel}】\n` : ''}{synopsis}</Text>
+                      <WorkIntroduction synopsis={synopsis} workKindLabel={workKindLabel} />
                     </View>
                   </PaperPanel>
 

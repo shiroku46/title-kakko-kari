@@ -159,7 +159,7 @@ test('fresh browser sockets restore declarations, submissions, private questione
   for (const entry of entries) rejoined.push(await resume(t, entry));
   const renamed = rejoined.find((m) => m.entry.player.id === a.entry.player.id).state.player;
   assert.equal(renamed.nickname, '変更後も同じ席');
-  assert.equal(renamed.icon, '🦊');
+  assert.equal(renamed.icon, null);
   const afterRestart = rejoined.find((m) => m.entry.player.id === q.entry.player.id).state;
   assert.equal(afterRestart.room.code, q.entry.room.code);
   assert.equal(afterRestart.gameData.resumeState.mvpData.answerId, fake.id);
