@@ -243,6 +243,12 @@ test('room/player/settings/round DTOs exclude current and future credentials and
   const resumed = f.game.getResumeGame(f.room, f.room.players[1]);
   assert.equal(Object.hasOwn(resumed.settings, 'oauthSecret'), false);
   assert.equal(resumed.resumeState.questionerView, null);
+  for (const seconds of [30, 120]) {
+    f.room.settings.timeLimitSeconds = seconds;
+    assert.equal(f.dto.publicRoom(f.room).settings.timeLimitSeconds, seconds);
+    assert.equal(f.game.getResumeGame(f.room, f.room.players[1]).settings.timeLimitSeconds, seconds);
+    assert.equal(f.room.settings.timeLimitSeconds, seconds);
+  }
 });
 
 test('lobby CPU/settings failed writes restore previous state and publish nothing', async () => {

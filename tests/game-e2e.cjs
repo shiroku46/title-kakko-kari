@@ -1223,6 +1223,44 @@ test('genre rule is a validated host-only lobby setting, synchronized to guests 
   const start=await event(bots[0],'game:started');assert.equal(start.settings.genreDisclosure,true);assert.equal(start.round.workKind,undefined);
   await denied(bots[0],'room:update_settings',{genreDisclosure:false});
 });
+for (const seconds of [0, 60, 180, 300, 420]) test(`duration ${seconds}s is synchronized and used for both phases and recovery`, async t => {
+  const { bots, room, entry } = await roomWith(t, 4);
+  const settings = { genreDisclosure: false, advanceMode: 'consent', timeLimitSeconds: seconds };
+  await denied(bots[1], 'room:update_settings', settings);
+  assert.deepEqual((await ok(bots[0], 'room:update_settings', settings)).settings, settings);
+  for (const b of bots) assert.deepEqual((await event(b, 'room:settings_updated')).settings, settings);
+  if (seconds === 60) {
+    for (const invalid of [30, 120, 240, 480, '300', {}]) {
+      await denied(bots[0], 'room:update_settings', { ...settings, timeLimitSeconds: invalid });
+      assert.deepEqual((await ok(bots[0], 'room:get_state')).room.settings, settings);
+    }
+  }
+  await ok(bots[0], 'game:start', { mode: 'player' });
+  const started = await event(bots[0], 'game:started');
+  assert.deepEqual(started.settings, settings);
+  await denied(bots[0], 'room:update_settings', { ...settings, timeLimitSeconds: 180 });
+  const q = bots.find(b => b.player.id === started.round.questioner_id);
+  const answerers = bots.filter(b => b !== q);
+  await ok(q, 'round:submit_synopsis', { synopsis: '港町で手紙を探す物語。', realTitle: '秘密の正解' });
+  for (const b of answerers) await ok(b, 'round:declare_unknown');
+  let before = Date.now();
+  await ok(q, 'round:start_submitting');
+  const submitting = await event(bots[0], 'round:submitting_started');
+  if (seconds) assert.ok(submitting.deadlineAt >= before + seconds * 1000 && submitting.deadlineAt <= Date.now() + seconds * 1000);
+  else assert.equal(submitting.deadlineAt, null);
+  for (const [i, b] of answerers.entries()) await ok(b, 'round:submit_fake', { title: `回答案${i}` });
+  before = Date.now();
+  await ok(q, 'round:advance_phase');
+  const voting = await event(bots[0], 'round:choices_presented');
+  if (seconds) assert.ok(voting.deadlineAt >= before + seconds * 1000 && voting.deadlineAt <= Date.now() + seconds * 1000);
+  else assert.equal(voting.deadlineAt, null);
+  const restored = await bot(t);
+  const resume = await ok(restored, 'room:resume', { code: room.code, playerId: entry.player.id, token: entry.token });
+  assert.deepEqual(resume.room.settings, settings);
+  assert.deepEqual(resume.gameData.settings, settings);
+  assert.equal(resume.gameData.round.deadlineAt, voting.deadlineAt);
+  assert.equal(resume.gameData.resumeState.phase, 'voting');
+});
 for(const disclosure of [false,true])test(`manual genre disclosure ${disclosure} follows declaration/title phases and clears on reselection`,async t=>{
   const {bots}=await roomWith(t,4);await ok(bots[0],'game:start',{mode:'player',genreDisclosure:disclosure});
   const start=await event(bots[0],'game:started'),q=bots.find(b=>b.player.id===start.questioner.id),others=bots.filter(b=>b!==q);

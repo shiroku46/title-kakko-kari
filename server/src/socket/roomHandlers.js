@@ -198,7 +198,7 @@ function registerRoomHandlers(io, socket) {
       if (typeof payload?.genreDisclosure !== 'boolean') throw new Error('ジャンル指定の設定が不正です');
       const advanceMode = payload.advanceMode ?? room.settings.advanceMode ?? 'auto';
       const timeLimitSeconds = payload.timeLimitSeconds ?? room.settings.timeLimitSeconds ?? 0;
-      if (!['auto', 'consent'].includes(advanceMode) || ![0, 30, 60, 120, 180].includes(timeLimitSeconds)) {
+      if (!['auto', 'consent'].includes(advanceMode) || ![0, 60, 180, 300, 420].includes(timeLimitSeconds)) {
         throw new Error('進行方法または制限時間が不正です');
       }
       const previousSettings = room.settings;

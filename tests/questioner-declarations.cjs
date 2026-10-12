@@ -185,7 +185,7 @@ test('account name autofill never replaces a name already edited in the entry sc
   }
 });
 
-test('lobby genre selection overrides prior settings and keeps progression settings', () => {
+test('lobby genre and minute choices synchronize without losing progression settings', () => {
   const state = [], requests = [];
   let cursor = 0, listeners, reply, tree;
   const screen = loadScreen('screens/LobbyScreen.js', {
@@ -235,4 +235,20 @@ test('lobby genre selection overrides prior settings and keeps progression setti
   }
   button('自動送り').props.onPress();
   assert.deepEqual({ ...requests.at(-1) }, { ...settings, genreDisclosure: true, advanceMode: 'auto' });
+  reply(null, { ok: true, settings: requests.at(-1) });
+  render();
+  for (const seconds of [30, 60, 120, 180]) assert.equal(button(`${seconds}秒`), undefined);
+  for (const value of [60, 180, 300, 420, 0]) {
+    const label = value ? `${value / 60}分` : '制限なし';
+    assert.equal(button(label).props.children, value ? label : 'なし');
+    button(label).props.onPress();
+    assert.deepEqual({ ...requests.at(-1) }, { genreDisclosure: true, advanceMode: 'auto', timeLimitSeconds: value });
+    render();
+    assert.equal(button(label).props.disabled, true);
+    listeners['room:settings_updated']({ settings: requests.at(-1) });
+    reply(null, { ok: true, settings: requests.at(-1) });
+    render();
+    assert.equal(button(label).props.variant, 'yellow');
+    assert.equal(button(label).props.disabled, false);
+  }
 });
