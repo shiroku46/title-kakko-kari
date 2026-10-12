@@ -10,6 +10,7 @@ export function getSocket() {
   if (!sharedSocket) {
     sharedSocket = io(currentUrl, {
       transports: ['polling', 'websocket'],
+      tryAllTransports: true,
       autoConnect: false,
     });
   }

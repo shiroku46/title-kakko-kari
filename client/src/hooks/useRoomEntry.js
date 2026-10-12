@@ -16,11 +16,12 @@ function waitForConnection(socket, signal) {
       error ? reject(error) : resolve();
     };
     const onConnect = () => finish();
-    const onError = () => finish(new Error('つながりませんでした。少し待って、もう一度試してね。'));
+    const onTimeout = () => finish(new Error('つながりませんでした。少し待って、もう一度試してね。'));
+    const onError = () => { if (!socket.active) onTimeout(); };
     const onAbort = () => finish(new Error('cancelled'));
-    const timer = setTimeout(onError, 10000);
+    const timer = setTimeout(onTimeout, 30000);
     socket.once('connect', onConnect);
-    socket.once('connect_error', onError);
+    socket.on('connect_error', onError);
     signal.addEventListener('abort', onAbort, { once: true });
     if (signal.aborted) onAbort();
   });

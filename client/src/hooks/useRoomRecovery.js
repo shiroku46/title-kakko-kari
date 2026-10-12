@@ -67,6 +67,15 @@ export default function useRoomRecovery(navigation, leavingRef) {
         showRoom(navigation, result);
       });
     };
+    const onWake = () => {
+      if (globalThis.document?.visibilityState === 'hidden') return;
+      if (ownsRecovery() && !socket.connected && socket.active && socket.io.engine?.readyState !== 'opening') {
+        // Only a disconnected socket can reset its retry delay without sending a room exit.
+        socket.disconnect().connect();
+      }
+    };
+    globalThis.addEventListener?.('online', onWake);
+    globalThis.document?.addEventListener('visibilitychange', onWake);
     socket.on('disconnect', onDisconnect);
     socket.on('connect', onConnect);
     setReconnecting(!socket.connected || socket.io.engine !== restoredConnections.get(socket));
@@ -74,6 +83,8 @@ export default function useRoomRecovery(navigation, leavingRef) {
     return () => {
       active = false;
       cancelAttempt();
+      globalThis.removeEventListener?.('online', onWake);
+      globalThis.document?.removeEventListener('visibilitychange', onWake);
       socket.off('disconnect', onDisconnect);
       socket.off('connect', onConnect);
     };

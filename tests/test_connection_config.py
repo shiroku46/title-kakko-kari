@@ -125,11 +125,13 @@ const { EventEmitter, getEventListeners } = require('node:events');
 const { readFileSync } = require('node:fs');
 const { runInNewContext } = require('node:vm');
 const timers = new Set();
+const deadlines = [];
 const source = readFileSync('client/src/hooks/useRoomEntry.js', 'utf8')
   .split('export default function')[0]
   .replace(/^import .*;\r?\n/gm, '');
 const waitForConnection = runInNewContext(source + '\nwaitForConnection;', {
   setTimeout(callback, delay) {
+    deadlines.push({ callback, delay });
     const timer = setTimeout(callback, delay);
     timers.add(timer);
     return timer;
@@ -150,13 +152,49 @@ const waitForConnection = runInNewContext(source + '\nwaitForConnection;', {
         self.run_connection_check(r"""
   const socket = new EventEmitter();
   socket.connected = false;
+  socket.active = false;
   const controller = new AbortController();
   const started = Date.now();
   const pending = waitForConnection(socket, controller.signal);
   socket.emit('connect_error', new Error('test handshake failure'));
   await assert.rejects(pending);
   assert.ok(Date.now() - started < 1000,
-    'A failed handshake must reject promptly instead of waiting ten seconds');
+    'A rejected handshake must fail promptly');
+""")
+
+    def test_transient_connect_errors_keep_waiting_for_automatic_reconnection(self):
+        self.run_connection_check(r"""
+  const socket = new EventEmitter();
+  socket.connected = false;
+  socket.active = true;
+  const controller = new AbortController();
+  let settled = false;
+  const pending = waitForConnection(socket, controller.signal).then(() => { settled = true; });
+  socket.emit('connect_error', new Error('temporary failure'));
+  socket.emit('connect_error', new Error('another temporary failure'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.equal(socket.listenerCount('connect_error'), 1);
+  socket.connected = true;
+  socket.emit('connect');
+  await pending;
+  assert.equal(timers.size, 0);
+  assert.equal(socket.listenerCount('connect_error'), 0);
+""")
+
+    def test_transient_errors_still_have_a_finite_connection_deadline(self):
+        self.run_connection_check(r"""
+  const socket = new EventEmitter();
+  socket.connected = false;
+  socket.active = true;
+  const controller = new AbortController();
+  const pending = waitForConnection(socket, controller.signal);
+  socket.emit('connect_error', new Error('temporary failure'));
+  assert.equal(deadlines[0].delay, 30000);
+  deadlines[0].callback();
+  await assert.rejects(pending);
+  assert.equal(timers.size, 0);
+  assert.equal(socket.listenerCount('connect_error'), 0);
 """)
 
     def test_connection_completion_cleans_up_timer_and_listeners(self):

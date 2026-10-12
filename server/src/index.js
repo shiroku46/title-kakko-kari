@@ -57,6 +57,8 @@ function isAllowedOrigin(origin) {
 app.use(cors({ origin: corsOrigin }));
 
 const io = new Server(server, {
+  // Allow short network stalls without changing the heartbeat frequency.
+  pingTimeout: 30000,
   connectionStateRecovery: {
     maxDisconnectionDuration: 2 * 60 * 1000,
     skipMiddlewares: false,
