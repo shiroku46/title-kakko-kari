@@ -109,9 +109,10 @@ function publicPlayer(player) {
 }
 
 function publicSettings(settings) {
+  // Keep legacy durations readable for rooms whose timers are already running.
   return { genreDisclosure: Boolean(settings.genreDisclosure),
     advanceMode: settings.advanceMode === 'consent' ? 'consent' : 'auto',
-    timeLimitSeconds: [30, 60, 120, 180].includes(settings.timeLimitSeconds) ? settings.timeLimitSeconds : 0 };
+    timeLimitSeconds: [30, 60, 120, 180, 300, 420].includes(settings.timeLimitSeconds) ? settings.timeLimitSeconds : 0 };
 }
 
 function publicRoom(room) {
