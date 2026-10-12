@@ -2,9 +2,12 @@ const { searchQuery, searchUrl, parseResults } = require('./web-search');
 const { text, attributes, hash } = require('./web-source');
 const { publicUrl } = require('./web-fetch');
 const { isbnIsValid } = require('./distribution-policy');
+const { shuffle } = require('../utils/shuffle');
 
 const LIVE_KINDS = ['novel', 'film', 'game', 'manga'];
 const LIVE_ENGINES = ['yahoo', 'bing', 'duckduckgo'];
+const SEARCH_ANGLES = { novel: ['短編集', '中編', '文芸', '翻訳'], film: ['ミニシアター', '少数館', '独立系', '地方上映'],
+  game: ['アドベンチャー', 'ノベルゲーム', '探索', '物語重視'], manga: ['読み切り', '作品集', '短編', '文芸'] };
 
 // Discovery entry points, not a stock of works. Every response is searched for
 // current links, and every chosen work is independently fetched and verified.
@@ -38,7 +41,8 @@ function catalogueLinks(html, base, kind) {
 async function discoverLiveCandidates({ kind, pass = 0, page = 0, fetchImpl, signal }) {
   const engine = LIVE_ENGINES[pass % LIVE_ENGINES.length];
   const angle = pass < 2 ? '小規模' : 'インディー';
-  const query = searchQuery(kind, angle).replace(/(映画 あらすじ)$/u, '$1 -作り方 -方法 -募集');
+  const angles = SEARCH_ANGLES[['short-story', 'literary-work'].includes(kind) ? 'novel' : kind];
+  const query = `${searchQuery(kind, angle)} ${angles[(page + pass) % angles.length]}`;
   const catalogue = catalogueUrl(kind, page);
   const routes = [
     { url: searchUrl(engine, query, page % 4), parse: html => parseResults(html, engine, kind) },
@@ -92,7 +96,7 @@ async function discoverLiveCandidates({ kind, pass = 0, page = 0, fetchImpl, sig
     const candidates = [], seen = new Set();
     // Interleave the whole-web results and the work catalogue, so neither route
     // monopolizes source attempts. Site errors never prevent the other route.
-    const groups = results.filter(r => r.status === 'fulfilled').map(r => [...r.value]);
+    const groups = results.filter(r => r.status === 'fulfilled').map(r => shuffle(r.value));
     while (groups.some(g => g.length)) for (const group of groups) {
       const candidate = group.shift();
       if (candidate && !seen.has(candidate.url)) { seen.add(candidate.url); candidates.push(candidate); }

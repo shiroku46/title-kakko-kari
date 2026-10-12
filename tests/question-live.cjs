@@ -108,6 +108,121 @@ test('a slow source cannot delay a verified source; losing transport receives ca
   assert.equal((await source.selectQuestion()).id, work(2).id); assert.equal(cancelled, true);
 });
 
+test('live searches exclude famous seed titles and aliases at new URLs and across media', async t => {
+  for (const title of ['千と千尋の神隠し', '走れメロス', '坊っちゃん']) {
+    const source = createLiveQuestionSource({ initialKind: 1, discoverImpl: discovery([work(1), work(2)]),
+      fetchImpl: async url => response(url === work(1).url ? mediaPage('film', title) : html(2)) });
+    t.after(() => source.stop());
+    assert.equal((await source.selectQuestion()).id, work(2).id, title);
+  }
+});
+
+test('a slower verified small work outranks a fast unknown work in the same batch', async t => {
+  const source = createLiveQuestionSource({ discoverImpl: discovery([work(1), work(2)]),
+    fetchImpl: async url => {
+      if (url === work(1).url) return response(html(1).replace('自主制作映画', '映画'));
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return response(html(2));
+    } });
+  t.after(() => source.stop());
+  assert.equal((await source.selectQuestion()).id, work(2).id);
+});
+
+test('unknown search results wait for a small work in a later batch', async t => {
+  const source = createLiveQuestionSource({ initialKind: 1,
+    discoverImpl: discovery([work(1), work(2), work(3), work(4)]), fetchImpl: async url => response(
+      url === work(1).url ? html(1).replace('自主制作映画', '映画') : url === work(4).url ? html(4) : '') });
+  t.after(() => source.stop());
+  assert.equal((await source.selectQuestion()).id, work(4).id);
+});
+
+test('a broad catalogue cannot finish before a delayed small-work discovery route', async t => {
+  const source = createLiveQuestionSource({ initialKind: 1, discoverImpl: async ({ kind, pass }) => ({
+    candidates: kind === 'film' && pass === 0 ? [work(1)] : [],
+    ...(kind === 'film' && pass === 0 && { remaining: new Promise(resolve => setTimeout(() => resolve({
+      candidates: [work(2)],
+    }), 20)) }),
+  }), fetchImpl: async url => response(url === work(1).url ? html(1).replace('自主制作映画', '映画') : html(2)) });
+  t.after(() => source.stop());
+  assert.equal((await source.selectQuestion()).id, work(2).id);
+});
+
+test('verified unknown works survive the deadline, but cancellation and stop never deliver them', async t => {
+  let verified;
+  const makeSource = () => createLiveQuestionSource({ deadlineMilliseconds: 40,
+    discoverImpl: async ({ signal }) => ({ candidates: [work(1), work(2)], remaining: new Promise(resolve =>
+      signal.addEventListener('abort', () => resolve({ candidates: [] }), { once: true })),
+    }), fetchImpl: async url => {
+      if (url === work(2).url) return new Promise(() => {});
+      verified(); return response(html(1).replace('自主制作映画', '映画'));
+    } });
+  for (const action of ['deadline', 'cancel', 'stop']) {
+    const source = makeSource(), controller = new AbortController();
+    t.after(() => source.stop());
+    const ready = new Promise(resolve => { verified = resolve; });
+    const pending = source.selectQuestion([], { signal: controller.signal, kind: 'film' });
+    await ready;
+    await new Promise(resolve => setImmediate(resolve));
+    if (action === 'deadline') assert.equal((await pending).id, work(1).id);
+    else {
+      if (action === 'cancel') controller.abort(); else source.stop();
+      await assert.rejects(pending);
+    }
+    assert.equal(source.getStatus().activeRequests, 0);
+  }
+});
+
+test('the request budget retains earlier verified fallbacks while excluding used titles', async t => {
+  const source = createLiveQuestionSource({ initialKind: 1, maxRequests: 4,
+    discoverImpl: discovery([work(1), work(2), work(3), work(4)]), fetchImpl: async url => response(
+      url === work(1).url ? html(1).replace('自主制作映画', '映画') : '') });
+  t.after(() => source.stop());
+  const selected = await source.selectQuestion([], { kind: 'film' });
+  assert.equal(selected.id, work(1).id);
+  await assert.rejects(source.selectQuestion([selected.id], { kind: 'film' }));
+});
+
+test('adaptation and sequel statements identify the actual work without treating actors credits as reach', async () => {
+  const policy = require('../server/src/questions/selection-policy').createSelectionPolicy();
+  const generate = statement => generateWebQuestion(work(1), { fetchImpl: async () => response(
+    html(1).replace(story, `${statement}${story}`)) });
+  for (const statement of ['恋愛小説を実写化したドラマ。', '小説を映画化。', '朝倉かすみの恋愛小説を実写映画化。',
+    '藤まるによるライトノベルを映画化したヒューマンドラマ。', 'ある魔術師を描く映画の続編。',
+    'ヒーローを描くシリーズの第3弾となるヒーローアクション。',
+    'ある映画シリーズの映画に新映像を追加した特別版。', '2部作で描くドラマの第1弾。']) {
+    const q = await generate(statement);
+    assert.equal(evidenceTier(q), 2, statement);
+    assert.equal(policy.isEligible(q), false);
+  }
+  for (const statement of ['主演俳優は以前、小説を実写化したドラマに出演した。', '前作は小説を実写化したドラマ。']) {
+    assert.equal(evidenceTier(await generate(statement)), 0, statement);
+  }
+});
+
+test('live discovery varies search wording and shuffles every current candidate without losing links', async () => {
+  const queries = [];
+  const { shuffle } = require('../server/src/utils/shuffle');
+  const before = Math.random;
+  Math.random = () => 0;
+  try {
+    for (const kind of ['film', 'novel', 'short-story', 'literary-work', 'game', 'manga']) {
+      const pages = [];
+      for (const page of [1, 2]) {
+        const result = await discoverLiveCandidates({ kind, page, fetchImpl: async url => {
+          if (url.includes('yahoo')) { queries.push(new URL(url).searchParams.get('p')); return response(''); }
+          if (url.includes('cinematoday')) return response('<a href="/movie/T001">第一の作品</a><a href="/movie/T002">第二の作品</a><a href="/movie/T003">第三の作品</a>');
+          return response('');
+        } });
+        if (kind === 'film') assert.deepEqual(result.candidates.map(c => c.url),
+          shuffle([1, 2, 3].map(n => `https://www.cinematoday.jp/movie/T00${n}`)));
+        pages.push(queries.at(-1));
+      }
+      assert.notEqual(pages[0], pages[1], kind);
+    }
+  } finally { Math.random = before; }
+  assert.ok(queries.filter(query => /映画/u.test(query)).every(query => /単館公開/u.test(query) && /配給/u.test(query)));
+});
+
 test('hard deadline and stop release active requests even for a transport that ignores abort', async t => {
   const source = createLiveQuestionSource({ deadlineMilliseconds: 25, discoverImpl: discovery([work(1)]), fetchImpl: () => new Promise(() => {}) });
   t.after(() => source.stop());

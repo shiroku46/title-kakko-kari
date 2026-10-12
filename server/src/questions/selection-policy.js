@@ -7,6 +7,8 @@ const { questionTitleAliases } = require('./title-policy');
 const INDEPENDENT = /インディー|\bindie\b|\bindependent\b|自主(?:制作|製作|出版)|自費出版|同人|個人(?:制作|製作|開発)|少人数(?:制作|開発)|小規模出版/iu;
 const DENIAL = /では(?:ない|ありません)|ではなく|非インディー|not\s+(?:an?\s+)?indie/iu;
 const WIDE_REACH = /国民的|社会現象|大ヒット|ベストセラー|ミリオンセラー|世界的(?:な)?(?:人気|ヒット)|アニメ化|映画化|実写化|テレビドラマ化/u;
+const ADAPTED_WORK = /(?:小説|ライトノベル|漫画|コミック|アニメ|ゲーム)を(?:実写(?:映画|ドラマ)?化|映画化|アニメ化|テレビドラマ化)(?:した[^。!?！？]{0,12}(?:映画|ドラマ|作品|アニメ))?(?:[。!?！？]|$)/u;
+const SERIES_WORK = /の続編(?:[。!?！？]|$)|シリーズ(?:の)?第[0-9一二三四五六七八九十]+弾(?:となる[^。!?！？]{0,20})?(?:[。!?！？]|$)|シリーズ[^。!?！？]{0,100}(?:特別版|再上映版)(?:[。!?！？]|$)|[0-9二三四五六七八九十]+部作[^。!?！？]{0,20}第[0-9一二三四五六七八九十]+弾(?:[。!?！？]|$)/u;
 const OWN_WORK = /本(?:作|作品|ゲーム|映画|商品|書|誌|プロジェクト)|この(?:作品|ゲーム|映画|漫画|小説|商品)|原作|シリーズ/u;
 const PRODUCTION = /(?:自主(?:制作|製作|出版)|自費出版|個人開発|少人数開発).{0,50}(?:完成させた|完成した|制作された|製作された|開発した|開発された|制作した|製作した|刊行された|出版した|による(?:映画|ゲーム|小説|漫画))/u;
 const CHARACTER_ACTIVITY = /(?:主人公|登場人物|少年|少女).{0,50}(?:自主(?:制作|製作|出版)|同人|個人開発)/u;
@@ -45,7 +47,8 @@ function classifySignal(signal, title, aliases, kind) {
   const excerpt = signal.excerpt.normalize('NFKC');
   if (signal.type === 'genre') return INDEPENDENT.test(excerpt) && !DENIAL.test(excerpt) ? 'small' : null;
   if (signal.type !== 'introduction') return null;
-  if (substantialSales(excerpt) || WIDE_REACH.test(excerpt) && ownsStatement(excerpt, title, aliases, kind)) return 'wide';
+  if (substantialSales(excerpt) || WIDE_REACH.test(excerpt) && ownsStatement(excerpt, title, aliases, kind) ||
+      (ADAPTED_WORK.test(excerpt) || SERIES_WORK.test(excerpt)) && !/前作|他の作品|別の作品|過去の作品/u.test(excerpt)) return 'wide';
   return INDEPENDENT.test(excerpt) && !DENIAL.test(excerpt) && !CHARACTER_ACTIVITY.test(excerpt) &&
     (ownsStatement(excerpt, title, aliases, kind) || PRODUCTION.test(excerpt)) ? 'small' : null;
 }
@@ -100,11 +103,11 @@ function evidenceTier(question) {
 
 function createSelectionPolicy(seedQuestions = []) {
   const seedIds = new Set(seedQuestions.map(q => q.id));
-  const seedNames = new Set(seedQuestions.flatMap(q => questionTitleAliases(q.realTitle, q.aliases, q.kind).map(name => `${q.kind}:${key(name)}`)));
+  const seedNames = new Set(seedQuestions.flatMap(q => questionTitleAliases(q.realTitle, q.aliases, q.kind).map(key)));
   function tier(question) {
-    // A famous seed re-collected from a different site stays a fallback.
+    // A famous seed stays excluded at another URL or in an adapted medium.
     if (seedIds.has(question.id) || questionTitleAliases(question.realTitle, question.aliases, question.kind)
-      .some(name => seedNames.has(`${question.kind}:${key(name)}`))) return 3;
+      .some(name => seedNames.has(key(name)))) return 3;
     return evidenceTier(question);
   }
   function preferred(questions) {
