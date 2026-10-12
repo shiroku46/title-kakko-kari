@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Asset } from 'expo-asset';
 
-const STORAGE_KEY = 'title-kakko-kari:bgm-v1';
+const STORAGE_KEY = 'title-kakko-kari:bgm-v2';
 export const BGM_TRACKS = [
   { id: 'swing-along', title: 'Swing Along', genre: 'エレクトロスウィング', author: 'bramd',
     url: 'https://opengameart.org/content/swing-along', source: require('../../assets/audio/swing-along.mp3') },
@@ -15,12 +15,13 @@ export const BGM_TRACKS = [
 
 function savedSettings() {
   try {
-    const saved = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) || 'null');
+    const current = globalThis.localStorage?.getItem(STORAGE_KEY);
+    const saved = JSON.parse(current || globalThis.localStorage?.getItem('title-kakko-kari:bgm-v1') || 'null');
     if (Number.isInteger(saved?.volume) && saved.volume >= 10 && saved.volume <= 100 && saved.volume % 10 === 0 &&
-        typeof saved.muted === 'boolean') return { volume: saved.volume, muted: saved.muted,
+        typeof saved.muted === 'boolean') return { volume: saved.volume, muted: current ? saved.muted : true,
           trackId: BGM_TRACKS.some(track => track.id === saved.trackId) ? saved.trackId : BGM_TRACKS[0].id };
   } catch (_) { /* Private browsing may deny storage. */ }
-  return { volume: 30, muted: false, trackId: BGM_TRACKS[0].id };
+  return { volume: 20, muted: true, trackId: BGM_TRACKS[0].id };
 }
 
 export default function useRoomBgm(active) {
@@ -68,7 +69,7 @@ export default function useRoomBgm(active) {
       return;
     }
     // Web Audio gain also works where mobile browsers ignore media.volume.
-    gain.gain.value = preferences.current.volume / 100;
+    gain.gain.value = preferences.current.volume / 400;
     audio.loop = true;
     audio.preload = 'auto';
     const current = { audio, context, gain, revision: 0 };
@@ -107,7 +108,7 @@ export default function useRoomBgm(active) {
   useEffect(() => {
     try { globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (_) { /* Keep this session usable. */ }
     if (player.current) {
-      player.current.gain.gain.value = settings.volume / 100;
+      player.current.gain.gain.value = settings.volume / 400;
       if (settings.muted) player.current.audio.pause();
     }
   }, [settings]);

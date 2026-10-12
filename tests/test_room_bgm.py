@@ -13,7 +13,7 @@ const source = readFileSync('client/src/hooks/useRoomBgm.js', 'utf8')
   .replace(/^import .*;\r?\n/gm, '').replace('export default function', 'function').replace('export const', 'const');
 const players = [], contexts = [], slots = [], effects = [];
 const created = [], revoked = [];
-let cursor = 0, active = false, stored = null, denied = false, storageDenied = false;
+let cursor = 0, active = false, stored = null, legacy = null, denied = false, storageDenied = false;
 class Events extends EventEmitter {
   addEventListener(name, listener) { this.on(name, listener); }
   removeEventListener(name, listener) { this.off(name, listener); }
@@ -42,7 +42,7 @@ const sandbox = { Audio, AudioContext, document, Asset: { fromModule: source => 
   URL: { createObjectURL(file) { const uri = 'blob:' + created.length; created.push(uri); return uri; },
     revokeObjectURL(uri) { revoked.push(uri); } },
   localStorage: {
-    getItem() { if (storageDenied) throw Error('storage'); return stored; },
+    getItem(key) { if (storageDenied) throw Error('storage'); return key.endsWith('v1') ? legacy : stored; },
     setItem(_, value) { if (storageDenied) throw Error('storage'); stored = value; },
   },
   useState(initial) {
@@ -85,12 +85,16 @@ class TestRoomBgm(unittest.TestCase):
 render(false); assert.equal(players.length, 0, 'Home has no player');
 render(true); let bgm = render();
 assert.equal(players.length, 1); assert.equal(players[0].loop, true);
-assert.equal(bgm.playing, true); assert.equal(contexts[0].gain.gain.value, 0.3);
+assert.equal(bgm.playing, false); assert.equal(bgm.muted, true);
+assert.equal(contexts[0].state, 'suspended'); assert.equal(contexts[0].gain.gain.value, 0.05);
+bgm.selectTrack('pop-rocks'); bgm = render();
+document.emit('visibilitychange'); assert.equal(players[0].paused, true, 'Default stays silent on track selection and tab return');
+bgm.toggle(); bgm = render(); assert.equal(bgm.playing, true);
 for (let i = 0; i < 5; i++) render(true);
 assert.equal(players.length, 1, 'Room rerenders and transitions share one player');
 bgm.changeVolume(10); bgm = render();
-assert.equal(contexts[0].gain.gain.value, 0.4);
-assert.equal(JSON.parse(stored).volume, 40);
+assert.equal(contexts[0].gain.gain.value, 0.075);
+assert.equal(JSON.parse(stored).volume, 30);
 document.hidden = true; document.emit('visibilitychange');
 assert.equal(render().playing, false);
 document.hidden = false; document.emit('visibilitychange');
@@ -103,14 +107,14 @@ assert.equal(contexts[0].state, 'closed'); assert.equal(players[0].uri, '');
 assert.equal(players[0].eventNames().length, 0); assert.equal(document.eventNames().length, 0);
 render(true); bgm = render();
 assert.equal(players.length, 2); assert.equal(players[1].paused, true);
-assert.equal(bgm.volume, 40, 'Next entry retains volume');
+assert.equal(bgm.volume, 30, 'Next entry retains volume');
 bgm.toggle(); assert.equal(render().playing, true);
 render(false);
 """)
 
     def test_autoplay_denial_load_failure_and_retry(self):
         self.check(r"""
-denied = true; render(true); await flush(); let bgm = render();
+denied = true; render(true); render().toggle(); await flush(); let bgm = render();
 assert.equal(bgm.playing, false); assert.match(bgm.error, /再生ボタン/);
 denied = false; bgm.toggle(); await flush(); bgm = render();
 assert.equal(bgm.playing, true); assert.equal(bgm.error, '');
@@ -125,7 +129,7 @@ assert.equal(render(false).error, '', 'Late rejection after exit cannot change t
     def test_storage_validation_bounds_and_unavailable_audio(self):
         self.check(r"""
 stored = '{"volume":999,"muted":"yes"}'; render(); let bgm = render();
-assert.equal(bgm.volume, 30); assert.equal(bgm.muted, false);
+assert.equal(bgm.volume, 20); assert.equal(bgm.muted, true);
 bgm.changeVolume(-1000); bgm = render(); assert.equal(bgm.volume, 10);
 bgm.changeVolume(1000); bgm = render(); assert.equal(bgm.volume, 100);
 storageDenied = true; bgm.changeVolume(-10); render();
@@ -151,6 +155,7 @@ bgm.loadMp3({name: 'empty.mp3', size: 0}); assert.equal(created.length, 0);
 bgm.loadMp3({name: '好きな曲.MP3', size: 50}); bgm = render();
 assert.equal(bgm.localFile.name, '好きな曲.MP3'); assert.equal(bgm.muted, false);
 assert.equal(players[0].uri, 'blob:0'); assert.equal(bgm.playing, true);
+assert.equal(contexts[0].gain.gain.value, 0.05, 'Local MP3 uses the reduced output');
 assert.equal(JSON.parse(stored).trackId, 'pop-rocks');
 assert(!stored.includes('blob:') && !stored.includes('好きな曲'), 'No file bytes or name persisted');
 bgm.loadMp3({name: 'next.mp3', size: 50}); bgm = render();
@@ -164,7 +169,7 @@ assert.equal(render(false).localFile, null); assert.equal(contexts[0].state, 'cl
 render(true); assert.match(players[1].uri, /bumbumbum.mp3/); render(false);
 """)
 
-    def test_legacy_preferences_file_failure_and_old_play_rejection(self):
+    def test_preferences_file_failure_and_old_play_rejection(self):
         self.check(r"""
 stored = '{"volume":50,"muted":false}';
 render(true); let bgm = render();
@@ -181,6 +186,25 @@ bgm.loadMp3({name: 'broken.mp3', size: 10}); bgm = render();
 assert.match(bgm.error, /読み込めません/); assert.match(players[0].uri, /pop-rocks.mp3/);
 render(false); render().loadMp3({name: 'exit.mp3', size: 10});
 assert.equal(created.length, 0);
+""")
+
+    def test_legacy_migration_starts_muted_and_new_choice_survives_reload(self):
+        self.check(r"""
+legacy = '{"volume":100,"muted":false,"trackId":"pop-rocks"}';
+render(true); let bgm = render();
+assert.equal(bgm.volume, 100); assert.equal(bgm.trackId, 'pop-rocks');
+assert.equal(bgm.muted, true); assert.equal(players[0].paused, true);
+assert.equal(contexts[0].gain.gain.value, 0.25, 'Even maximum volume is one quarter of the old output');
+assert.equal(JSON.parse(stored).muted, true, 'Migration persists the silent default');
+bgm.changeVolume(-10); render(); document.emit('visibilitychange');
+assert.equal(players[0].paused, true, 'Volume changes cannot start playback');
+render().toggle(); bgm = render(); assert.equal(bgm.playing, true);
+assert.equal(contexts[0].gain.gain.value, 0.225);
+render(false); slots.length = 0; effects.length = 0;
+legacy = 'invalid old setting'; render(true); bgm = render();
+assert.equal(bgm.volume, 90); assert.equal(bgm.trackId, 'pop-rocks');
+assert.equal(bgm.muted, false); assert.equal(bgm.playing, true, 'Explicit v2 playback choice survives reload');
+render(false);
 """)
 
 
