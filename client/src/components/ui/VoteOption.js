@@ -24,7 +24,7 @@ export default function VoteOption({ choice, selected, disabled, isOwn = false, 
       <View style={[styles.radio, selected && styles.radioSelected, isOwn && styles.radioOwn]}>
         {selected && <View style={styles.radioCore} />}
       </View>
-      <Text style={[styles.text, selected && styles.textSelected, isOwn && styles.textOwn]} numberOfLines={4}>
+      <Text style={[styles.text, selected && styles.textSelected, isOwn && styles.textOwn]}>
         {choice.title}
       </Text>
       <View style={[styles.tag, selected && styles.tagSelected]}>

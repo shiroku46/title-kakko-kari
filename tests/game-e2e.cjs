@@ -323,6 +323,41 @@ test('human questioner never declares known/unknown and answerers alone unlock s
   assert.equal(round.status, 'submitting');
 });
 
+test('title inputs accept 200 characters and reject 201 without changing the round', async t => {
+  const { bots, room } = await roomWith(t, 4);
+  await ok(bots[0], 'game:start', { mode: 'player', totalRounds: 1 });
+  const started = await event(bots[0], 'game:started');
+  const questioner = bots.find(b => b.player.id === started.round.questioner_id);
+  const answerers = bots.filter(b => b !== questioner);
+  const round = rooms.get(room.code).rounds.at(-1);
+  const realTitle = '本'.repeat(200), fakeTitle = '案'.repeat(200);
+  const rejected = await ack(questioner, 'round:submit_synopsis', { synopsis: '港町で手紙を探す物語。', realTitle: realTitle + '字' });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /200文字以内/);
+  assert.equal(round.real_title, null);
+  await ok(questioner, 'round:submit_synopsis', { synopsis: '港町で手紙を探す物語。', realTitle: ` ${realTitle} ` });
+  assert.equal(round.real_title, realTitle);
+  for (const answerer of answerers) await ok(answerer, 'round:declare_unknown');
+  await ok(questioner, 'round:start_submitting');
+  const before = round.answers.length;
+  for (const invalid of [fakeTitle + '字', '', 200]) {
+    const result = await ack(answerers[0], 'round:submit_fake', { title: invalid });
+    assert.equal(result.ok, false);
+    assert.equal(round.answers.length, before);
+    if (typeof invalid === 'string' && invalid.length > 200) assert.match(result.error, /200文字以内/);
+  }
+  await ok(answerers[0], 'round:submit_fake', { title: ` ${fakeTitle} ` });
+  for (const [i, answerer] of answerers.slice(1).entries()) await ok(answerer, 'round:submit_fake', { title: `案${i}` });
+  const { choices } = await event(questioner, 'round:choices_presented');
+  assert(choices.some(choice => choice.title === fakeTitle));
+  const real = choices.find(choice => choice.title === realTitle);
+  assert(real);
+  for (const answerer of answerers) await ok(answerer, 'round:submit_vote', { answerId: real.id });
+  const revealed = await event(questioner, 'round:revealed');
+  assert.equal(revealed.realTitle, realTitle);
+  assert(revealed.answers.some(answer => answer.title === fakeTitle));
+});
+
 test('health, CORS and both Socket.IO transports without database configuration', async (t) => {
   const res = await fetch(`${url}/health`, { headers: { Origin: 'https://game.example' } });
   const health = await res.json();

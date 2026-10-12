@@ -16,7 +16,7 @@ export default function TitleInputSheet({
   onSubmit,
   submitted,
   submittedTitle,
-  maxLength = 40,
+  maxLength = 200,
   loading = false,
 }) {
   const charCount = value?.length ?? 0;
@@ -28,7 +28,7 @@ export default function TitleInputSheet({
           <Stamp type="封" size="md" animate />
           <View style={styles.submittedInfo}>
             <Text style={styles.submittedLabel}>タイトル案を提出しました</Text>
-            <Text style={styles.submittedTitle} numberOfLines={3}>
+            <Text style={styles.submittedTitle}>
               {submittedTitle}
             </Text>
             <Text style={styles.submittedNote}>ほかの参加者の提出を待っています。</Text>
@@ -59,6 +59,7 @@ export default function TitleInputSheet({
         value={value}
         onChangeText={onChangeText}
         maxLength={maxLength}
+        multiline
         accessibilityLabel="タイトル案の入力欄"
       />
       <View style={styles.metaRow}>
