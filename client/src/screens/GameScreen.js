@@ -442,7 +442,7 @@ export default function GameScreen({ navigation, route }) {
               {departureNotice}
             </Text>
           ) : null}
-          <RoundProgress roundId={round?.id} phase={phase} deadlineAt={deadlineAt} ready={phaseReady}
+          <RoundProgress key={`${round?.id}:${phase}:${deadlineAt}`} roundId={round?.id} phase={phase} deadlineAt={deadlineAt} ready={phaseReady}
             consent={gameData.settings?.advanceMode === 'consent'}
             canAdvance={isQuestioner || isHost && (!questioner?.id || questionerDisconnected)} socket={socket} />
           <View style={{ flex: 1 }} pointerEvents={reconnecting ? 'none' : 'auto'}>
