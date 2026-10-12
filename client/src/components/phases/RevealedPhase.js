@@ -165,7 +165,6 @@ export default function RevealedPhase({
                   styles.answerTitle,
                   answer.isReal && styles.answerTitleReal,
                 ]}
-                numberOfLines={3}
               >
                 {answer.title}
               </Text>

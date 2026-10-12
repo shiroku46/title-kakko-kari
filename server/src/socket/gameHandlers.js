@@ -310,7 +310,7 @@ function registerGameHandlers(io, socket) {
     if (round.questioner_id !== player.id) throw new Error('出題者のみ操作できます');
     requirePhase(round, 'selecting');
     const synopsis = textInput(payload?.synopsis, '作品の紹介文', MAX_LENGTH);
-    const title = textInput(payload?.realTitle, '本物のタイトル', 500);
+    const title = textInput(payload?.realTitle, '本物のタイトル', 200);
     let sourceQuestion = null;
     if (typeof payload?.questionId === 'string') {
       const original = helperStates.get(round)?.question;
@@ -387,7 +387,7 @@ function registerGameHandlers(io, socket) {
     const round = getCurrentRound(room);
     if (round.questioner_id === player.id) throw new Error('出題者は偽タイトルを提出できません');
     requirePhase(round, 'submitting');
-    const title = textInput(payload?.title, 'タイトル', 500);
+    const title = textInput(payload?.title, 'タイトル', 200);
     if (round.answers.some((a) => a.player_id === player.id)) throw new Error('すでに偽タイトルを提出しています');
     round.answers.push({ id: randomUUID(), round_id: round.id, player_id: player.id, title, is_real: false });
     io.to(player.socket_id).emit('round:fake_saved', { roundId: round.id });

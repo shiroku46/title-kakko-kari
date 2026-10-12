@@ -362,6 +362,8 @@ export default function SelectingPhase({
                     placeholder="結果発表まで参加者には見えません"
                     placeholderTextColor={colors.muted}
                     value={realTitle}
+                    maxLength={200}
+                    multiline
                     editable={!requestBusy && (!genreDisclosure || Boolean(workKind))}
                     onChangeText={(text) => {
                       setRealTitle(text);

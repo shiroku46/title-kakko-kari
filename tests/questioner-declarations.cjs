@@ -50,6 +50,27 @@ function loadScreen(path, overrides = {}) {
   return module.exports.default;
 }
 const selecting = loadScreen('components/phases/SelectingPhase.js');
+test('title fields use a 200-character multiline limit and show the answer count', () => {
+  const inputs = [];
+  const CaptureInput = props => { inputs.push(props); return null; };
+  const form = loadScreen('components/phases/SelectingPhase.js', {
+    '../ui/GameText': { Text: Box, TextInput: CaptureInput },
+  });
+  renderToStaticMarkup(React.createElement(form, { round: { id: 'r' }, isQuestioner: true, socket }));
+  const real = inputs.find(input => input.accessibilityLabel === '本物タイトル入力欄');
+  assert.equal(real.maxLength, 200);
+  assert.equal(real.multiline, true);
+  const sheet = loadScreen('components/ui/TitleInputSheet.js', {
+    '../../theme/typography': { fontFamilies: {} },
+    './GameText': { Text: Box, TextInput: CaptureInput },
+    './PaperPanel': Box, './Stamp': Box, './WorkIntroduction': Box,
+  });
+  const html = renderToStaticMarkup(React.createElement(sheet, { value: '案'.repeat(200) }));
+  const answer = inputs.find(input => input.accessibilityLabel === 'タイトル案の入力欄');
+  assert.equal(answer.maxLength, 200);
+  assert.equal(answer.multiline, true);
+  assert.match(html, /200 \/ 200/);
+});
 const GameScreen = loadScreen('screens/GameScreen.js');
 function gameHtml(playerId, { cpu = false, questioner = { id: 'q', nickname: '出題者' }, allDeclared = false } = {}) {
   const player = { id: playerId, nickname: playerId, is_host: playerId === 'q' };
