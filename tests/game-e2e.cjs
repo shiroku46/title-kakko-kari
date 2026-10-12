@@ -1407,16 +1407,51 @@ test('changing a CPU genre cancels a late old selection and the next round waits
   writeBank();
 });
 
-test('computer titles follow the supplied synopsis, stay distinct and handle a short introduction', () => {
-  for (const synopsis of ['宇宙船。惑星。', '港町。手紙。', 'あああ。']) {
-    const titles = generateComputerTitles(synopsis, 5);
-    assert.equal(titles.length, 5);
-    assert.equal(new Set(titles).size, 5);
-    assert.ok(titles.every((title) => typeof title === 'string' && title.length > 0 && title.length <= 50));
-    if (synopsis.startsWith('宇宙船')) assert.ok(titles.every((title) => /宇宙船|惑星/u.test(title)));
-    if (synopsis.startsWith('港町')) assert.ok(titles.every((title) => /港町|手紙/u.test(title)));
+test('computer titles are complete, distinct and bounded for every supported seat count and short or unknown introductions', () => {
+  for (const synopsis of ['宇宙船。惑星。', '港町。手紙。', 'あああ。', '', '代償。政策。処遇。']) {
+    for (let count = 0; count <= 5; count++) {
+      const titles = generateComputerTitles(synopsis, count);
+      assert.equal(titles.length, count);
+      assert.equal(new Set(titles).size, count);
+      assert.ok(titles.every(title => typeof title === 'string' && title.length > 0 && title.length <= 50));
+      assert.ok(titles.every(title => !/代償|政策|処遇|港町の手紙|手紙と港町|宇宙船の惑星/u.test(title)));
+      if (synopsis.startsWith('宇宙船')) assert.ok(titles.every(title => /星|銀河|宇宙|帰還|故郷|地球/u.test(title)));
+      if (synopsis.startsWith('港町')) assert.ok(titles.every(title => /手紙|便り|宛先|差出人|届|一通|ポスト/u.test(title)));
+    }
   }
-  assert.deepEqual(generateComputerTitles('港町。手紙。', 0), []);
+});
+
+test('computer titles prioritize plot events over repeated settings, cast credits and quoted work names', () => {
+  const cases = [
+    ['家族が宇宙の歴史を語る港町。父は息子を誘拐され、取り戻すために奔走する。', /返して|帰って|奪われた|取り戻す|無事|帰り|連れて/u],
+    ['高校の教室で同級生と過ごす高校生が、同じ日を何度も繰り返してしまう。', /今日|朝|明日|一日|やり直し/u],
+    ['会社の社長が地球滅亡の危機を招き、社員と会社から世界を救おうとする。', /世界|明日|朝|終わり|時間|夜明け/u],
+    ['会社で働く女性が職場で嫌がらせを受け、弁護士と共に裁判に挑む。', /法廷|証言|判決|沈黙|正しさ|訴え|弁護/u],
+    ['研究所に捕獲された生き物が、知恵を使って脱出し、生き残る道を探す。', /帰る|出口|脱出|逃げ|自由|外の世界|留まれない/u],
+    ['会社で働く警備員が、情報を統制し歴史を書き換える体制に抗う。', /嘘|昨日|真実|沈黙|書き換え|従わない|言葉/u],
+    ['学校の生徒たちが、放課後の教室に現れる幽霊の正体を探る。', /誰|気づいて|まだ|見えない|ひとり|振り返/u],
+    ['部活の仲間と全国大会を目指し、試合で敗れながら成長する。', /秒|勝|負け|越え|夢|挑/u],
+    ['農場で作物を育て、収穫しながら暮らすゲーム。', /種|実り|土地|土|畑|収穫|育て/u],
+    ['色と形を組み合わせ、パズルの仕掛けを解くゲーム。', /ひらめき|答え|解|手がかり/u],
+    ['町で暮らす青年と少女が出会い、さまざまな壁を越えて愛情を深めていく。', /あなた|ふたり|愛|君|となり|好き/u],
+    ['港町に届いた手紙の差出人を探す。『タイムリープ捜査』などの俳優が主演を務める。', /手紙|便り|宛先|差出人|届|一通|ポスト/u],
+    ['人質を取り戻す物語。『幽霊裁判』などの俳優が父親を演じる。女優たちが共演する。', /返して|帰って|奪われた|取り戻す|無事|帰り|連れて/u],
+  ];
+  for (const [synopsis, relevant] of cases) {
+    const titles = generateComputerTitles(synopsis, 5);
+    assert.ok(titles.every(title => relevant.test(title)), `${synopsis}: ${titles.join(' / ')}`);
+    assert.ok(titles.every(title => !/主演|俳優|社長|警備員|生徒|同級生|研究所/u.test(title)));
+  }
+});
+
+test('computer titles do not mistake ordinary memories, a shared date or artificial intelligence for unrelated plots', () => {
+  const ordinary = generateComputerTitles('同じ日を過ごした同級生が、学校で夏休みの思い出と過去の記憶を語り合う。', 5);
+  assert.ok(ordinary.every(title => /放課後|卒業|夏休み|制服|校庭|春|教室/u.test(title)));
+  const artificial = generateComputerTitles('人工知能を備えたロボットが、人間と一緒に町で暮らす。', 5);
+  assert.ok(artificial.every(title => /人間|心|機械|何者|つくられた/u.test(title)));
+  assert.ok(artificial.every(title => !/銀河|宇宙|惑星|航路|地球/u.test(title)));
+  const lost = generateComputerTitles('記憶を失った青年が、自分の過去を知る人を探す。', 5);
+  assert.ok(lost.every(title => /自分|記憶|思い出せ|覚えて|昨日|名前|忘れた/u.test(title)));
 });
 
 test('computer seats are host-only, bounded, synchronized and cannot be forged by a joining human', async (t) => {
@@ -1485,6 +1520,8 @@ for (const [humanCount, computerCount, mode] of [[2, 2, 'player'], [2, 2, 'cpu']
       assert.equal(round.answers.length, computerCount);
       assert.equal(new Set(round.answers.map((a) => a.title)).size, computerCount);
       assert.ok(round.answers.every((a) => computerIds.includes(a.player_id) && !a.is_real));
+      assert.ok(round.answers.every(a => typeof a.title === 'string' && a.title.length > 0 && a.title.length <= 50));
+      if (mode === 'player') assert.ok(round.answers.every(a => /手紙|便り|宛先|差出人|届|一通|ポスト/u.test(a.title)));
       assert.ok(!JSON.stringify((await ok(host, 'room:get_state')).room).includes(realTitle));
       for (let i = 0; i < answerers.length; i++) {
         await ok(answerers[i], 'round:submit_fake', { title: `人間の案${number}-${i}`, playerId: computerIds[0] });

@@ -9,7 +9,7 @@
     },
     {
       "path": ".github/pull_request_template.md",
-      "sha256": "a31743ca198a2695ff9e46173d334ce8ef9a085b16fd38069d913669473230da"
+      "sha256": "db5e4435ecdb66725d1a04fa43e8c339c2284c613a982b5827ef8544f87d23c5"
     },
     {
       "path": ".github/workflows/ci-reconcile.yml",
@@ -65,11 +65,11 @@
     },
     {
       "path": "docs/MINIMUM_SAFETY_PROFILE.md",
-      "sha256": "1e909b0d9c0d158604d38c42f36d0b4e57b449835c857677d8d2ca555f0d1354"
+      "sha256": "6c111c41c8bd56e3f12d3c8c2e9218a5267511c62a33524ab45b9e8eafc6cce6"
     },
     {
       "path": "docs/OPERATING_RULES.md",
-      "sha256": "0273deb4a50d11307d6d22f34fb13273a922b21f69781e65343cda939e04ef14"
+      "sha256": "f2090dcf7b8e6b12c81203f4c8c4f187c2b89cc801585aab5120ac3c0d5f8f36"
     },
     {
       "path": "docs/PROJECT_STARTUP.md",
