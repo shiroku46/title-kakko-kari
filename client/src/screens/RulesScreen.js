@@ -23,42 +23,36 @@ const FLOW = [
     title: 'ルームを作る・参加する',
     desc: 'ホストが6桁コードを共有し、入室したら名前を入力します。人間とコンピュータを合わせて2〜6席で遊びます。コンピュータはロビーで追加でき、人間1人＋コンピュータ1人から対戦できます。ひとりでの対戦ではコンピュータが出題します。',
     color: colors.red,
-    symbol: '+',
   },
   {
     num: '2',
     title: '出題モードとルールを選ぶ',
     desc: 'プレイヤー出題、またはCPU出題を選択します。ジャンル指定ありでは、出題者（CPU出題ではホスト）がノンジャンル・小説・映画・漫画・ゲームから選んで問題を用意します。ノンジャンルは種類を限定せず検索し、小説には短編小説・文学作品も含みます。なしでは作品の種類を答え合わせまで伏せます。',
     color: colors.blue,
-    symbol: '選',
   },
   {
     num: '3',
     title: '作品の紹介文を読む',
     desc: '作品の紹介文から、雰囲気に合うタイトルを考えます。ランダムお題は公式に流通する作品が対象です。未出版の投稿作品・同人誌・個人の自主配布作品・フリーゲームは含みません。作品名は伏せられています。',
     color: colors.cyan,
-    symbol: '文',
   },
   {
     num: '4',
     title: '偽タイトルを考える',
     desc: '本当にありそうな、もっともらしいタイトル案を提出します。コンピュータは紹介文から偽タイトルを自動提出し、投票や出題はしません。コンピュータにも欺き票とMVPの得点が入ります。',
     color: colors.pink,
-    symbol: '✎',
   },
   {
     num: '5',
     title: 'みんなで投票する',
     desc: '本物と偽物が混ざった候補から、本物だと思う1つへ投票します。',
     color: colors.yellow,
-    symbol: '票',
   },
   {
     num: '6',
     title: '得点とMVPを発表',
     desc: '正解・欺き・MVPのポイントを集計し、最終順位を競います。',
     color: colors.green,
-    symbol: '★',
   },
 ];
 
@@ -91,21 +85,17 @@ export default function RulesScreen({ navigation }) {
             <Text style={styles.closeButtonText}>× 閉じる</Text>
           </TouchableOpacity>
         </View>
-
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>HOW TO PLAY</Text>
           <Text style={styles.heroTitle}>遊び方</Text>
           <Text style={styles.heroCopy}>
             作品の紹介文を読んで、タイトルを考えて、みんなで投票。
             {'\n'}知識がなくても、言葉のセンスで遊べるクイズゲームです。
           </Text>
         </View>
-
         <View style={styles.sectionHeading}>
           <View style={styles.sectionMarker} />
           <Text style={styles.sectionTitle}>ゲームの流れ</Text>
         </View>
-
         <View style={[styles.flowGrid, isPC && styles.flowGridPC]}>
           {FLOW.map((item) => (
             <PaperPanel
@@ -117,19 +107,14 @@ export default function RulesScreen({ navigation }) {
                 <View style={[styles.flowNum, { backgroundColor: item.color }]}>
                   <Text style={styles.flowNumText}>{item.num}</Text>
                 </View>
-                <View style={[styles.flowSymbol, { backgroundColor: item.color }]}>
-                  <Text style={styles.flowSymbolText}>{item.symbol}</Text>
-                </View>
               </View>
               <Text style={styles.flowTitle}>{item.title}</Text>
               <Text style={styles.flowDesc}>{item.desc}</Text>
             </PaperPanel>
           ))}
         </View>
-
         <View style={[styles.infoLayout, isPC && styles.infoLayoutPC]}>
           <PaperPanel tone="cream" variant="elevated" style={styles.scorePanel}>
-            <Text style={styles.panelKicker}>SCORING</Text>
             <Text style={styles.panelTitle}>ポイントのルール</Text>
             <View style={styles.scoreList}>
               {SCORES.map(([pts, title, desc]) => (
@@ -145,17 +130,14 @@ export default function RulesScreen({ navigation }) {
               ))}
             </View>
           </PaperPanel>
-
           <View style={styles.tipColumn}>
             <PaperPanel tone="yellow" style={styles.tipPanel}>
-              <Text style={styles.tipKicker}>TIP 01</Text>
               <Text style={styles.tipTitle}>「それっぽさ」と意外性</Text>
               <Text style={styles.tipBody}>
                 紹介文に出てくる言葉や雰囲気を入れると、説得力のある偽タイトルになります。
               </Text>
             </PaperPanel>
             <PaperPanel tone="sky" style={styles.tipPanel}>
-              <Text style={styles.tipKicker}>TIP 02</Text>
               <Text style={styles.tipTitle}>知っている作品だったら</Text>
               <Text style={styles.tipBody}>
                 「知ってる！」を選ぶと作品を変更します。全員が知らない作品で公平に遊びます。
@@ -198,7 +180,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   closeButton: {
-    minHeight: 42,
+    minHeight: 44,
     paddingHorizontal: 12,
     justifyContent: 'center',
     borderRadius: radii.sm,
@@ -212,7 +194,7 @@ const styles = StyleSheet.create({
     borderColor: colors.navyDeep,
     padding: 28,
   },
-  heroKicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 2 },
+
   heroTitle: { fontFamily: fontFamilies.display, color: colors.white, fontSize: 38, lineHeight: 46, fontWeight: '900', marginTop: 5 },
   heroCopy: { color: '#BCD1E0', fontSize: 14, lineHeight: 23, marginTop: 9 },
   sectionHeading: {
@@ -240,24 +222,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   flowNumText: { color: colors.navy, fontSize: 18, fontWeight: '900' },
-  flowSymbol: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.72,
-  },
-  flowSymbolText: { color: colors.navy, fontSize: 20, fontWeight: '900' },
+
   flowTitle: { color: colors.navy, fontSize: 17, lineHeight: 24, fontWeight: '900', marginTop: 14 },
   flowDesc: { color: colors.ink, fontSize: 12, lineHeight: 19, marginTop: 6 },
   infoLayout: { gap: 13, marginTop: 16 },
   infoLayoutPC: { flexDirection: 'row', alignItems: 'stretch' },
   scorePanel: { flex: 1.3 },
   tipColumn: { flex: 0.7, gap: 13 },
-  panelKicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.6 },
+
   panelTitle: { fontFamily: fontFamilies.display, color: colors.navy, fontSize: 21, fontWeight: '900', marginTop: 3, marginBottom: 14 },
   scoreList: { gap: 9 },
   scoreRow: {
@@ -272,7 +244,7 @@ const styles = StyleSheet.create({
   },
   scorePtsBadge: {
     width: 58,
-    minHeight: 42,
+    minHeight: 44,
     borderRadius: 13,
     backgroundColor: colors.red,
     borderWidth: 2,
@@ -283,9 +255,9 @@ const styles = StyleSheet.create({
   scorePts: { color: colors.white, fontSize: 14, fontWeight: '900' },
   scoreBody: { flex: 1 },
   scoreTitle: { color: colors.navy, fontSize: 14, fontWeight: '900' },
-  scoreDesc: { color: colors.muted, fontSize: 10, lineHeight: 16, marginTop: 2 },
+  scoreDesc: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 2 },
   tipPanel: { flex: 1 },
-  tipKicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.4 },
+
   tipTitle: { color: colors.navy, fontSize: 16, fontWeight: '900', marginTop: 3 },
   tipBody: { color: colors.ink, fontSize: 12, lineHeight: 19, marginTop: 6 },
   backButton: { marginTop: 18, alignSelf: 'center', minWidth: 260 },

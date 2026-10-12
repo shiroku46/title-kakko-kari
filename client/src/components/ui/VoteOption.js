@@ -90,6 +90,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   tagSelected: { backgroundColor: colors.red },
-  tagText: { fontSize: 10, fontWeight: '800', color: colors.muted },
+  tagText: { fontSize: 12, fontWeight: '800', color: colors.muted },
   tagTextSelected: { color: colors.white },
 });

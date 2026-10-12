@@ -42,11 +42,7 @@ export default function TitleInputSheet({
     <PaperPanel tone="cream" variant="elevated">
       <View style={styles.headingRow}>
         <View>
-          <Text style={styles.kicker}>YOUR TITLE</Text>
           <Text style={styles.heading}>それっぽいタイトルを考える</Text>
-        </View>
-        <View style={styles.pencilBadge}>
-          <Text style={styles.pencilText}>✎</Text>
         </View>
       </View>
 
@@ -55,7 +51,6 @@ export default function TitleInputSheet({
           <WorkIntroduction synopsis={synopsis} workKindLabel={workKindLabel} />
         </View>
       ) : null}
-
       <Text style={styles.fieldLabel}>タイトル案</Text>
       <TextInput
         style={styles.input}
@@ -91,13 +86,7 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 16,
   },
-  kicker: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.6,
-    color: colors.red,
-    marginBottom: 4,
-  },
+
   heading: {
     fontFamily: fontFamilies.display,
     fontSize: 20,
@@ -105,20 +94,9 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.navy,
   },
-  pencilBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 15,
-    backgroundColor: colors.cyan,
-    borderWidth: 2,
-    borderColor: colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-    transform: [{ rotate: '5deg' }],
-  },
-  pencilText: { fontSize: 21, color: colors.navy, fontWeight: '900' },
+
   fieldLabel: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '900',
     color: colors.navy,
     marginBottom: 7,
@@ -132,7 +110,7 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 16,
   },
-  synopsis: { fontSize: 14, color: colors.ink, lineHeight: 22 },
+
   input: {
     backgroundColor: colors.white,
     borderRadius: radii.md,
@@ -150,8 +128,8 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 14,
   },
-  hint: { fontSize: 11, color: colors.muted },
-  charCount: { fontSize: 11, color: colors.muted, fontWeight: '700' },
+  hint: { fontSize: 13, color: colors.muted },
+  charCount: { fontSize: 13, color: colors.muted, fontWeight: '700' },
   submittedRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   submittedInfo: { flex: 1 },
   submittedLabel: { fontSize: 12, color: colors.muted, marginBottom: 5 },
@@ -161,5 +139,5 @@ const styles = StyleSheet.create({
     color: colors.navy,
     lineHeight: 27,
   },
-  submittedNote: { fontSize: 11, color: colors.muted, marginTop: 6 },
+  submittedNote: { fontSize: 13, color: colors.muted, marginTop: 6 },
 });

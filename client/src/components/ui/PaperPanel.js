@@ -3,8 +3,8 @@ import { View, StyleSheet } from 'react-native';
 import { colors, radii, shadows } from '../../theme';
 
 const TONES = {
-  white: { backgroundColor: colors.white, borderColor: colors.navy },
-  cream: { backgroundColor: colors.cream, borderColor: colors.navy },
+  white: { backgroundColor: colors.white, borderColor: colors.border },
+  cream: { backgroundColor: colors.white, borderColor: colors.border },
   sky: { backgroundColor: '#E8F7FA', borderColor: colors.navy },
   yellow: { backgroundColor: '#FFF2B8', borderColor: colors.navy },
   pink: { backgroundColor: '#FFE6EF', borderColor: colors.navy },
@@ -37,7 +37,7 @@ const styles = StyleSheet.create({
   base: {
     borderRadius: radii.lg,
     padding: 20,
-    borderWidth: 2,
+    borderWidth: 1,
     ...shadows.paper,
   },
   elevated: {

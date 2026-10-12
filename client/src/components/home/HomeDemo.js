@@ -10,27 +10,6 @@ function Arrow({ down = false }) {
   </View>;
 }
 
-function CameraIcon() {
-  return <View accessible={false} style={styles.camera}>
-    <View style={[styles.reel, { left: 0 }]} /><View style={[styles.reel, { left: 11 }]} />
-    <View style={styles.cameraBody} /><View style={styles.cameraLens} />
-  </View>;
-}
-
-function PencilIcon() {
-  return <View accessible={false} style={styles.pencil}>
-    <View style={styles.pencilBody} /><View style={styles.pencilTip} />
-  </View>;
-}
-
-export function PeopleIcon() {
-  return <View accessible={false} style={styles.people}>
-    {[0, 1, 2].map((i) => <View key={i} style={[styles.person, { left: i * 12, top: i === 1 ? 0 : 6 }]}>
-      <View style={styles.personHead} /><View style={styles.personBody} />
-    </View>)}
-  </View>;
-}
-
 function StepHeading({ number, children, tone, wide }) {
   return <View style={styles.stepHeading}>
     <View style={[styles.stepNumber, { backgroundColor: tone }]}><Text style={styles.stepDigit}>{number}</Text></View>
@@ -81,7 +60,6 @@ export default function HomeDemo({ horizontal = false }) {
         <StepHeading number="1" tone={colors.cyan} wide={wide}>あらすじ</StepHeading>
         <View style={[styles.stageBody, wide && styles.stageBodyWide]}>
           <View style={[styles.storyPaper, wide && styles.storyPaperWide]}>
-            <CameraIcon />
             <Text style={[styles.synopsis, wide && styles.synopsisWide]}>{example.synopsis}</Text>
           </View>
         </View>
@@ -94,7 +72,7 @@ export default function HomeDemo({ horizontal = false }) {
         <View style={[styles.stageBody, wide && styles.stageBodyWide]}>
           <View style={styles.writingPaper}>
             <Text style={[styles.written, wide && styles.writtenWide]}>{example.written}</Text>
-            <View style={styles.writtenRule} /><PencilIcon />
+            <View style={styles.writtenRule} />
           </View>
         </View>
       </View>
@@ -118,13 +96,13 @@ export default function HomeDemo({ horizontal = false }) {
     {feedback ? <Text style={[styles.feedback, selected === 1 && styles.correctFeedback]}
       accessibilityRole="alert" accessibilityLiveRegion="polite">{feedback}</Text> : null}
     <View style={styles.featureRow}>
-      <PeopleIcon /><Text style={styles.featureText}>2〜6人で遊べる　・　ひとり＋コンピュータでも</Text>
+      <Text style={styles.featureText}>2〜6人で遊べる　・　ひとり＋コンピュータでも</Text>
     </View>
   </View>;
 }
 
 const styles = StyleSheet.create({
-  panel: { borderWidth: 1, borderColor: '#A5E8EE', borderRadius: 18, backgroundColor: '#FFF7E8', padding: 22 },
+  panel: { borderWidth: 1, borderColor: colors.border, borderRadius: 18, backgroundColor: '#FFF7E8', padding: 22 },
   demoHeader: { gap: 8, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 0 },
   demoHeaderWide: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   demoTitle: { color: colors.navy, fontWeight: '700', fontSize: 20, lineHeight: 28 },
@@ -147,14 +125,14 @@ const styles = StyleSheet.create({
   stepLabelWide: { fontSize: 21, lineHeight: 30 },
   stageBody: { justifyContent: 'center' },
   stageBodyWide: { minHeight: 208 },
-  storyPaper: { backgroundColor: colors.white, borderColor: colors.border, borderWidth: 1, borderRadius: 7, padding: 22, shadowColor: '#62D9E9', shadowOffset: { width: 3, height: 6 }, shadowOpacity: 0.5, shadowRadius: 0 },
+  storyPaper: { backgroundColor: colors.white, borderColor: colors.border, borderWidth: 1, borderRadius: 7, padding: 22, shadowColor: '#62D9E9', shadowOffset: { width: 3, height: 6 }, shadowOpacity: 0, shadowRadius: 0 },
   storyPaperWide: { minHeight: 202, paddingHorizontal: 24, paddingVertical: 22 },
   synopsis: { color: colors.navy, fontSize: 16, lineHeight: 27, marginTop: 9 },
   synopsisWide: { fontSize: 18, lineHeight: 29 },
-  writingPaper: { minHeight: 112, justifyContent: 'center', backgroundColor: colors.white, borderColor: colors.border, borderWidth: 1, borderRadius: 6, paddingHorizontal: 14, paddingVertical: 26, marginHorizontal: 4, transform: [{ rotate: '1deg' }], shadowColor: '#62D9E9', shadowOffset: { width: 4, height: 7 }, shadowOpacity: 0.5, shadowRadius: 0 },
-  written: { color: colors.navy, fontSize: 22, lineHeight: 30, fontStyle: 'italic', textAlign: 'center', transform: [{ rotate: '-5deg' }] },
+  writingPaper: { minHeight: 112, justifyContent: 'center', backgroundColor: colors.white, borderColor: colors.border, borderWidth: 1, borderRadius: 6, paddingHorizontal: 14, paddingVertical: 26, marginHorizontal: 4, shadowColor: '#62D9E9', shadowOffset: { width: 4, height: 7 }, shadowOpacity: 0, shadowRadius: 0 },
+  written: { color: colors.navy, fontSize: 22, lineHeight: 30, textAlign: 'center' },
   writtenWide: { fontSize: 19, lineHeight: 28 },
-  writtenRule: { height: 2, backgroundColor: '#26CBE0', marginTop: 8, transform: [{ rotate: '-5deg' }] },
+  writtenRule: { height: 2, backgroundColor: '#26CBE0', marginTop: 8 },
   choiceStack: { gap: 8 },
   choice: { minHeight: 48, backgroundColor: colors.white, borderColor: colors.navy, borderWidth: 2, borderRadius: 7, paddingVertical: 10, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center' },
   choiceText: { color: colors.navy, fontSize: 16, lineHeight: 23, textAlign: 'center', fontWeight: '700' },
@@ -169,15 +147,5 @@ const styles = StyleSheet.create({
   arrowDown: { transform: [{ rotate: '90deg' }], marginVertical: 2 },
   arrowLine: { width: 25, height: 3, backgroundColor: colors.navy, position: 'absolute', top: 10, left: 0 },
   arrowHead: { width: 14, height: 14, borderTopWidth: 3, borderRightWidth: 3, borderColor: colors.navy, position: 'absolute', top: 4, right: 2, transform: [{ rotate: '45deg' }] },
-  camera: { width: 30, height: 25, position: 'relative' },
-  reel: { position: 'absolute', top: 0, width: 10, height: 10, borderWidth: 3, borderColor: colors.navy, borderRadius: 5 },
-  cameraBody: { position: 'absolute', top: 9, left: 1, width: 21, height: 14, borderRadius: 2, backgroundColor: colors.navy },
-  cameraLens: { position: 'absolute', right: 0, top: 10, width: 0, height: 0, borderTopWidth: 6, borderBottomWidth: 6, borderRightWidth: 8, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderRightColor: colors.navy },
-  pencil: { position: 'absolute', right: 2, bottom: -14, width: 16, height: 54, transform: [{ rotate: '36deg' }] },
-  pencilBody: { width: 14, height: 42, borderWidth: 3, borderColor: colors.navy, backgroundColor: colors.yellow, borderTopLeftRadius: 4, borderTopRightRadius: 4 },
-  pencilTip: { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 12, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: colors.navy },
-  people: { width: 40, height: 35, position: 'relative' },
-  person: { width: 16, height: 29, position: 'absolute' },
-  personHead: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#20C9DE', alignSelf: 'center' },
-  personBody: { width: 16, height: 15, borderTopLeftRadius: 8, borderTopRightRadius: 8, backgroundColor: '#20C9DE', marginTop: 2 },
+
 });

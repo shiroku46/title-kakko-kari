@@ -16,10 +16,7 @@ export default function StickyNote({ children, color = 'mustard', style }) {
   return (
     <View
       style={[styles.base, palette, style]}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
     >
-      <View style={[styles.tape, { backgroundColor: palette.borderColor }]} />
       {typeof children === 'string' ? (
         <Text style={[styles.text, { color: palette.text }]}>{children}</Text>
       ) : children}
@@ -35,15 +32,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  tape: {
-    position: 'absolute',
-    width: 34,
-    height: 8,
-    top: -6,
-    left: 16,
-    opacity: 0.72,
-    transform: [{ rotate: '-4deg' }],
-  },
+
   text: {
     fontFamily: fontFamilies.accent,
     fontSize: 13,

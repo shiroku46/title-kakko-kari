@@ -2,21 +2,33 @@ import { useEffect, useRef, useState } from 'react';
 import { Asset } from 'expo-asset';
 
 const STORAGE_KEY = 'title-kakko-kari:bgm-v1';
-const source = require('../../assets/audio/lobby-time.mp3');
+export const BGM_TRACKS = [
+  { id: 'swing-along', title: 'Swing Along', genre: 'エレクトロスウィング', author: 'bramd',
+    url: 'https://opengameart.org/content/swing-along', source: require('../../assets/audio/swing-along.mp3') },
+  { id: 'pop-rocks', title: 'Pop Rocks', genre: 'ポップ', author: 'Shane Ivers',
+    url: 'https://www.silvermansound.com/free-music/pop-rocks', source: require('../../assets/audio/pop-rocks.mp3') },
+  { id: 'bumbumbum', title: 'Bumbumbum', genre: 'レトロポップ', author: 'Shane Ivers',
+    url: 'https://www.silvermansound.com/free-music/bumbumbum', source: require('../../assets/audio/bumbumbum.mp3') },
+  { id: 'lobby-time', title: 'Lobby Time', genre: 'ラウンジ', author: 'Kevin MacLeod (incompetech.com)',
+    url: 'https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1600054', source: require('../../assets/audio/lobby-time.mp3') },
+];
 
 function savedSettings() {
   try {
     const saved = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) || 'null');
     if (Number.isInteger(saved?.volume) && saved.volume >= 10 && saved.volume <= 100 && saved.volume % 10 === 0 &&
-        typeof saved.muted === 'boolean') return saved;
+        typeof saved.muted === 'boolean') return { volume: saved.volume, muted: saved.muted,
+          trackId: BGM_TRACKS.some(track => track.id === saved.trackId) ? saved.trackId : BGM_TRACKS[0].id };
   } catch (_) { /* Private browsing may deny storage. */ }
-  return { volume: 30, muted: false };
+  return { volume: 30, muted: false, trackId: BGM_TRACKS[0].id };
 }
 
 export default function useRoomBgm(active) {
   const [settings, setSettings] = useState(savedSettings);
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState('');
+  const [localFile, setLocalFile] = useState(null);
+  const file = useRef(null);
   const player = useRef(null);
   const preferences = useRef(settings);
   preferences.current = settings;
@@ -24,13 +36,14 @@ export default function useRoomBgm(active) {
   function play() {
     const current = player.current;
     if (!current || preferences.current.muted || document.hidden) return;
+    const revision = current.revision;
     setError('');
     if (current.audio.error) current.audio.load();
     current.context.resume().catch(() => {
-      if (player.current === current) setError('BGMを再生できませんでした。再生ボタンで再試行できます。');
+      if (player.current === current && current.revision === revision) setError('BGMを再生できませんでした。再生ボタンで再試行できます。');
     });
     current.audio.play().catch(failure => {
-      if (player.current !== current || failure.name === 'AbortError') return;
+      if (player.current !== current || current.revision !== revision || failure.name === 'AbortError') return;
       setPlaying(false);
       setError(failure.name === 'NotAllowedError'
         ? '再生ボタンを押すとBGMが流れます。'
@@ -44,7 +57,7 @@ export default function useRoomBgm(active) {
     let context, audio, gain;
     try {
       context = new AudioContext();
-      audio = new Audio(Asset.fromModule(source).uri);
+      audio = new Audio(Asset.fromModule(BGM_TRACKS.find(track => track.id === preferences.current.trackId).source).uri);
       gain = context.createGain();
       context.createMediaElementSource(audio).connect(gain);
       gain.connect(context.destination);
@@ -58,7 +71,7 @@ export default function useRoomBgm(active) {
     gain.gain.value = preferences.current.volume / 100;
     audio.loop = true;
     audio.preload = 'auto';
-    const current = { audio, context, gain };
+    const current = { audio, context, gain, revision: 0 };
     player.current = current;
     const update = () => setPlaying(!audio.paused && context.state === 'running');
     const failed = () => {
@@ -83,6 +96,9 @@ export default function useRoomBgm(active) {
       audio.removeAttribute('src');
       audio.load();
       context.close().catch(() => {});
+      if (file.current) URL.revokeObjectURL(file.current.uri);
+      file.current = null;
+      setLocalFile(null);
       setPlaying(false);
       setError('');
     };
@@ -103,6 +119,49 @@ export default function useRoomBgm(active) {
     else play();
   }
 
-  return { ...settings, playing, error, toggle,
+  function switchSource(uri, nextSettings) {
+    preferences.current = nextSettings;
+    setSettings(nextSettings);
+    const current = player.current;
+    if (current) {
+      current.revision++;
+      current.audio.pause();
+      current.audio.src = uri;
+      current.audio.load();
+      setError('');
+      play();
+    }
+    if (file.current) URL.revokeObjectURL(file.current.uri);
+    file.current = null;
+  }
+
+  function selectTrack(id) {
+    const track = BGM_TRACKS.find(item => item.id === id);
+    if (!track) return;
+    switchSource(Asset.fromModule(track.source).uri, { ...settings, trackId: id });
+    setLocalFile(null);
+  }
+
+  function loadMp3(selected) {
+    if (!selected) return;
+    if (!player.current) {
+      setError('このブラウザーではBGMを再生できません。');
+      return;
+    }
+    if (!/\.mp3$/i.test(selected.name) || !selected.size) {
+      setError('音声の入ったMP3ファイルを選んでください。');
+      return;
+    }
+    let uri;
+    try { uri = URL.createObjectURL(selected); } catch (_) {
+      setError('MP3ファイルを読み込めませんでした。もう一度選んでください。');
+      return;
+    }
+    switchSource(uri, { ...settings, muted: false });
+    file.current = { uri, name: selected.name };
+    setLocalFile(file.current);
+  }
+
+  return { ...settings, playing, error, toggle, selectTrack, loadMp3, localFile,
     changeVolume: difference => setSettings(previous => ({ ...previous, volume: Math.max(10, Math.min(100, previous.volume + difference)) })) };
 }

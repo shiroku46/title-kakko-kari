@@ -40,22 +40,16 @@ export default function ResultScreen({ navigation, route }) {
           <GameLogo compact />
           <Text style={styles.topBarCopy}>おつかれさまでした！</Text>
         </View>
-
         <View style={[styles.layout, isPC && styles.layoutPC]}>
           <View style={[styles.heroColumn, isPC && styles.heroColumnPC]}>
             <View style={styles.resultTitleBlock}>
-              <Text style={styles.kicker}>FINAL RESULT</Text>
               <Text style={styles.pageTitle}>最終結果</Text>
               <Text style={styles.pageLead}>
                 たくさんのタイトルが生まれました。
                 {'\n'}今回のトップは…
               </Text>
             </View>
-
             <View style={styles.winnerPanel}>
-              <View style={styles.crownBadge}>
-                <Text style={styles.crownText}>★</Text>
-              </View>
               <Text style={styles.winnerRank}>1位</Text>
               <Text style={styles.winnerName}>{winner?.nickname}</Text>
               <View style={styles.winnerScoreRow}>
@@ -66,27 +60,23 @@ export default function ResultScreen({ navigation, route }) {
             </View>
 
             <PaperPanel tone="yellow" style={styles.bestTitlePanel}>
-              <Text style={styles.bestTitleKicker}>TODAY'S BEST TITLE</Text>
               <Text style={styles.bestTitleHeading}>今日のベストタイトル</Text>
               <Text style={styles.bestTitleBody}>
                 みんなが考えたタイトルを振り返って、いちばん好きな一案を語り合ってみましょう。
               </Text>
             </PaperPanel>
           </View>
-
           <View style={isPC ? styles.rankColumnPC : undefined}>
             <PaperPanel tone="cream" variant="elevated" style={isPC ? styles.rankPanelPC : undefined}>
               <View style={styles.rankHeadingRow}>
                 <View>
-                  <Text style={styles.kicker}>RANKING</Text>
                   <Text style={styles.rankHeading}>最終順位</Text>
                 </View>
                 <View style={styles.playerBadge}>
                   <Text style={styles.playerBadgeNum}>{finalScores.length}</Text>
-                  <Text style={styles.playerBadgeText}>players</Text>
+                  <Text style={styles.playerBadgeText}>人</Text>
                 </View>
               </View>
-
               <View style={isPC ? styles.rankListPC : undefined}>
                 {finalScores.map((item, index) => (
                   <ScoreRow
@@ -98,7 +88,6 @@ export default function ResultScreen({ navigation, route }) {
                   />
                 ))}
               </View>
-
               <View style={styles.actions}>
                 <StationeryButton
                   variant="primary"
@@ -118,7 +107,6 @@ export default function ResultScreen({ navigation, route }) {
             </PaperPanel>
           </View>
         </View>
-
         <View style={styles.footer}>
           <Text style={styles.footerText}>言葉で、あそぶ。タイトルで、つながる。</Text>
         </View>
@@ -161,7 +149,7 @@ const styles = StyleSheet.create({
     borderColor: colors.navyDeep,
     padding: 24,
   },
-  kicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.8 },
+
   pageTitle: { fontFamily: fontFamilies.display, color: colors.white, fontSize: 36, lineHeight: 44, fontWeight: '900', marginTop: 5 },
   pageLead: { color: '#BCD1E0', fontSize: 13, lineHeight: 21, marginTop: 9 },
   winnerPanel: {
@@ -173,18 +161,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
   },
-  crownBadge: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: colors.red,
-    borderWidth: 3,
-    borderColor: colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  crownText: { color: colors.white, fontSize: 29, fontWeight: '900' },
+
   winnerRank: { color: colors.red, fontSize: 14, fontWeight: '900' },
   winnerName: { color: colors.navy, fontSize: 30, lineHeight: 38, fontWeight: '900', marginTop: 2, textAlign: 'center' },
   winnerScoreRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 7 },
@@ -192,7 +169,7 @@ const styles = StyleSheet.create({
   winnerUnit: { color: colors.navy, fontSize: 13, fontWeight: '900', marginLeft: 5 },
   winnerMessage: { color: colors.navy, fontSize: 12, fontWeight: '800', marginTop: 4 },
   bestTitlePanel: {},
-  bestTitleKicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.5 },
+
   bestTitleHeading: { color: colors.navy, fontSize: 18, fontWeight: '900', marginTop: 3 },
   bestTitleBody: { color: colors.ink, fontSize: 12, lineHeight: 19, marginTop: 6 },
   rankPanelPC: { height: '100%' },
@@ -218,7 +195,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   playerBadgeNum: { color: colors.navy, fontSize: 18, fontWeight: '900', lineHeight: 20 },
-  playerBadgeText: { color: colors.navy, fontSize: 8, fontWeight: '900' },
+  playerBadgeText: { color: colors.navy, fontSize: 12, fontWeight: '900' },
   rankListPC: { flex: 1 },
   actions: { gap: 10, marginTop: 12 },
   footer: {
