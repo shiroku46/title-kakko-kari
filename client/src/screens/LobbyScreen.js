@@ -196,10 +196,8 @@ export default function LobbyScreen({ navigation, route }) {
           </StationeryButton>
           </View>
         </View>
-
         <View style={[styles.lobbyTitleRow, !isPC && styles.lobbyTitleRowStacked]}>
           <View style={styles.lobbyTitle}>
-            <Text style={styles.kicker}>ROOM LOBBY</Text>
             <Text style={styles.pageTitle}>みんなが集まるのを待っています</Text>
           </View>
           <View style={styles.countBubble}>
@@ -207,7 +205,6 @@ export default function LobbyScreen({ navigation, route }) {
             <Text style={styles.countUnit}>/ 6人</Text>
           </View>
         </View>
-
         <View style={[styles.body, isPC && styles.bodyPC]}>
           <View style={[styles.mainColumn, isPC && styles.mainColumnPC]}>
             <PaperPanel tone="cream" variant="elevated" style={styles.codePanel}>
@@ -231,7 +228,6 @@ export default function LobbyScreen({ navigation, route }) {
                   accessibilityLabel="コードをコピー"
                   style={({ pressed }) => [styles.shareBadge, pressed && styles.copyPressed]}
                 >
-                  <Text style={styles.shareBadgeIcon}>⧉</Text>
                   <Text style={styles.shareBadgeText}>
                     {Platform.OS === 'web' ? 'コードをコピー' : 'このコードを共有'}
                   </Text>
@@ -243,13 +239,11 @@ export default function LobbyScreen({ navigation, route }) {
                   : '一緒に遊ぶ人へ、この6桁のコードを伝えてください。')}
               </Text>
             </PaperPanel>
-
             <View style={styles.sectionHeader}>
               <View style={styles.sectionMarker} />
               <Text style={styles.sectionTitle}>参加メンバー</Text>
               <Text style={styles.sectionSub}>合わせて2〜6席</Text>
             </View>
-
             <View style={[styles.playerGrid, isPC && styles.playerGridPC]}>
               {displaySlots.map((slot, index) => (
                 <PlayerCard
@@ -277,20 +271,17 @@ export default function LobbyScreen({ navigation, route }) {
               </PaperPanel>
             )}
           </View>
-
           <View style={[styles.sideColumn, isPC && styles.sideColumnPC]}>
             {isHost ? (
               <PaperPanel tone="white" variant="elevated" style={styles.settingsPanel}>
                 <View style={styles.settingsHeadingRow}>
                   <View>
-                    <Text style={styles.settingsKicker}>HOST SETTINGS</Text>
                     <Text style={styles.settingsTitle}>ゲーム設定</Text>
                   </View>
                   <View style={styles.hostBadge}>
                     <Text style={styles.hostBadgeText}>ホスト</Text>
                   </View>
                 </View>
-
                 <Text style={styles.settingsLabel}>コンピュータ回答者</Text>
                 <View style={styles.roundRow}>
                   <StationeryButton variant="neutral" onPress={() => updateComputers(computerCount - 1)}
@@ -302,7 +293,6 @@ export default function LobbyScreen({ navigation, route }) {
                     accessibilityLabel="コンピュータを1人増やす" style={styles.roundButton}>＋</StationeryButton>
                 </View>
                 <Text style={styles.startHint}>紹介文からタイトル案を自動提出します。投票と出題はしません。</Text>
-
                 <Text style={styles.settingsLabel}>出題モード</Text>
                 <View style={styles.modeStack}>
                   {humanCount > 1 ? <ModeButton
@@ -321,7 +311,6 @@ export default function LobbyScreen({ navigation, route }) {
                   />
                 </View>
                 {humanCount === 1 ? <Text style={styles.startHint}>ひとりでの対戦はコンピュータが出題します。</Text> : null}
-
                 <Text style={styles.settingsLabel}>ジャンル指定</Text>
                 <View style={styles.roundRow}>
                   {[false, true].map((value) => (
@@ -335,7 +324,6 @@ export default function LobbyScreen({ navigation, route }) {
                 <Text style={styles.startHint}>
                   {genreDisclosure ? 'ノンジャンル・小説・映画・漫画・ゲームから選んで問題を用意します。小説には短編小説・文学作品も含みます。' : '作品の種類を伏せて、紹介文から自由にタイトルを考えます。'}
                 </Text>
-
                 <Text style={styles.settingsLabel}>進み方</Text>
                 <View style={styles.roundRow}>{[['auto', '自動送り'], ['consent', '出題者が進める']].map(([value, label]) =>
                   <StationeryButton key={value} variant={progressSettings.advanceMode === value ? 'yellow' : 'neutral'}
@@ -367,7 +355,6 @@ export default function LobbyScreen({ navigation, route }) {
                     </View>
                   </>
                 )}
-
                 <View style={styles.startArea}>
                   <StationeryButton
                     variant="primary"
@@ -465,7 +452,7 @@ const styles = StyleSheet.create({
   },
   lobbyTitleRowStacked: { backgroundColor: colors.canvas },
   lobbyTitle: { flex: 1, minWidth: 0 },
-  kicker: { color: colors.red, fontSize: 10, fontWeight: '900', letterSpacing: 1.8 },
+
   pageTitle: {
     fontFamily: fontFamilies.display,
     color: colors.navy,
@@ -500,7 +487,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 14,
   },
-  codeLabel: { color: colors.muted, fontSize: 11, fontWeight: '900' },
+  codeLabel: { color: colors.muted, fontSize: 12, fontWeight: '900' },
   copyPressed: { opacity: 0.65 },
   codeText: {
     color: colors.navy,
@@ -519,8 +506,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     alignItems: 'center',
   },
-  shareBadgeIcon: { color: colors.red, fontSize: 18, fontWeight: '900' },
-  shareBadgeText: { color: colors.navy, fontSize: 10, fontWeight: '800', marginTop: 1 },
+
+  shareBadgeText: { color: colors.navy, fontSize: 12, fontWeight: '800', marginTop: 1 },
   codeHint: { color: colors.muted, fontSize: 12, marginTop: 12 },
   sectionHeader: {
     flexDirection: 'row',
@@ -530,7 +517,7 @@ const styles = StyleSheet.create({
   },
   sectionMarker: { width: 7, height: 23, borderRadius: 4, backgroundColor: colors.red },
   sectionTitle: { color: colors.navy, fontSize: 17, fontWeight: '900' },
-  sectionSub: { color: colors.muted, fontSize: 11, marginLeft: 'auto' },
+  sectionSub: { color: colors.muted, fontSize: 12, marginLeft: 'auto' },
   playerGrid: { gap: 9 },
   playerGridPC: { flexDirection: 'row', flexWrap: 'wrap' },
   playerCardPC: { width: '31%', minWidth: 190, flexGrow: 1 },
@@ -552,7 +539,7 @@ const styles = StyleSheet.create({
   waitingIconText: { color: colors.navy, fontWeight: '900', fontSize: 22 },
   waitingBody: { flex: 1 },
   waitingTitle: { color: colors.navy, fontSize: 15, fontWeight: '900' },
-  waitingNote: { color: colors.muted, fontSize: 11, marginTop: 3 },
+  waitingNote: { color: colors.muted, fontSize: 12, marginTop: 3 },
   settingsPanel: { padding: 20 },
   settingsHeadingRow: {
     flexDirection: 'row',
@@ -564,7 +551,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.navy,
     marginBottom: 15,
   },
-  settingsKicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.5 },
+
   settingsTitle: { color: colors.navy, fontSize: 22, fontWeight: '900', marginTop: 2 },
   hostBadge: {
     backgroundColor: colors.yellow,
@@ -574,10 +561,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  hostBadgeText: { color: colors.navy, fontSize: 10, fontWeight: '900' },
+  hostBadgeText: { color: colors.navy, fontSize: 12, fontWeight: '900' },
   settingsLabel: {
     color: colors.navy,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '900',
     marginBottom: 8,
     marginTop: 2,
@@ -599,10 +586,10 @@ const styles = StyleSheet.create({
     paddingTop: 15,
     marginTop: 2,
   },
-  startHint: { textAlign: 'center', color: colors.muted, fontSize: 11, marginTop: 8 },
-  startReady: { textAlign: 'center', color: colors.green, fontSize: 11, fontWeight: '800', marginTop: 8 },
+  startHint: { textAlign: 'center', color: colors.muted, fontSize: 12, marginTop: 8 },
+  startReady: { textAlign: 'center', color: colors.green, fontSize: 12, fontWeight: '800', marginTop: 8 },
   guestPanel: {},
-  guestKicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 1.8 },
+  guestKicker: { color: colors.yellow, fontSize: 12, fontWeight: '900', letterSpacing: 1.8 },
   guestTitle: { color: colors.white, fontSize: 20, fontWeight: '900', marginTop: 5 },
   guestBody: { color: '#C3D6E4', fontSize: 12, lineHeight: 19, marginTop: 7 },
   tipPanel: {},

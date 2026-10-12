@@ -19,11 +19,6 @@ export default function PlayerCard({ player, isMe = false, isHost = false, statu
     <View style={[styles.base, isMe && styles.baseMe, empty && styles.empty, style]}>
       <View style={[styles.avatar, { backgroundColor: empty ? '#E8EDF0' : colorForName(nickname) }]}>
         <Text style={[styles.initial, empty && styles.initialEmpty]}>{initial}</Text>
-        {isHost && (
-          <View style={styles.crown}>
-            <Text style={styles.crownText}>★</Text>
-          </View>
-        )}
       </View>
       <View style={styles.info}>
         <Text style={styles.name} numberOfLines={1}>
@@ -73,23 +68,10 @@ const styles = StyleSheet.create({
   },
   initial: { fontSize: 17, fontWeight: '900', color: colors.navy },
   initialEmpty: { color: colors.muted },
-  crown: {
-    position: 'absolute',
-    top: -10,
-    right: -7,
-    backgroundColor: colors.yellow,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  crownText: { color: colors.navy, fontSize: 10, fontWeight: '900' },
+
   info: { flex: 1, minWidth: 0 },
   name: { fontSize: 14, fontWeight: '800', color: colors.navy },
-  meta: { fontSize: 11, color: colors.muted, marginTop: 2 },
+  meta: { fontSize: 13, color: colors.muted, marginTop: 2 },
   statusDot: {
     width: 10,
     height: 10,

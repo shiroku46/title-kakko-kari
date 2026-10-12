@@ -61,7 +61,7 @@ export default function NameEntryScreen({ navigation, route }) {
       <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
         <View style={styles.brand}><GameLogo compact /></View>
         <View style={styles.card}>
-          <Text style={styles.room}>ROOM {room.code}</Text>
+          <Text style={styles.room}>部屋 {room.code}</Text>
           <Text accessibilityRole="header" style={styles.heading}>名前を入力してください</Text>
           <Text style={styles.note}>この部屋で使う名前を決めましょう。</Text>
           <Text style={styles.label}>あなたの名前</Text>
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
   label: { color: colors.navy, fontSize: 13, fontWeight: '700', marginBottom: 8 },
   input: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, backgroundColor: colors.paper, padding: 14, fontSize: 18, color: colors.navy },
   inputMeta: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, marginBottom: 24 },
-  limit: { color: colors.muted, fontSize: 11 },
+  limit: { color: colors.muted, fontSize: 12 },
   error: { color: colors.redDark, lineHeight: 22, marginBottom: 16 },
   required: { color: colors.muted, fontSize: 12, lineHeight: 20, textAlign: 'center', marginTop: 14 },
 });

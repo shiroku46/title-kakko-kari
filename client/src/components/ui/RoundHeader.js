@@ -11,7 +11,7 @@ export default function RoundHeader({ currentRound, totalRounds, questioner, pha
     <View style={styles.header}>
       <View style={styles.topRow}>
         <View style={styles.roundPill}>
-          <Text style={styles.roundLabel}>ROUND</Text>
+          <Text style={styles.roundLabel}>ラウンド</Text>
           <Text style={styles.roundValue}>{currentRound} / {totalRounds}</Text>
         </View>
         {questioner ? (
@@ -22,11 +22,6 @@ export default function RoundHeader({ currentRound, totalRounds, questioner, pha
         ) : null}
       </View>
       <Text style={[styles.phase, isMobile && styles.phaseMobile]}>{phase}</Text>
-      <View style={styles.accentLine}>
-        <View style={styles.accentRed} />
-        <View style={styles.accentYellow} />
-        <View style={styles.accentCyan} />
-      </View>
     </View>
   );
 }
@@ -35,35 +30,35 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.navy,
     borderRadius: radii.lg,
-    borderWidth: 2,
+    borderWidth: 0,
     borderColor: colors.navyDeep,
     paddingHorizontal: 20,
-    paddingVertical: 18,
+    paddingVertical: 24,
     marginBottom: 14,
     overflow: 'hidden',
   },
   topRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 10,
   },
   roundPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.cream,
+    backgroundColor: 'transparent',
     borderRadius: radii.pill,
     paddingHorizontal: 12,
     paddingVertical: 6,
     gap: 8,
   },
   roundLabel: {
-    fontSize: 9,
+    fontSize: 13,
     fontWeight: '900',
-    color: colors.red,
-    letterSpacing: 1,
+    color: '#E2ECF2',
   },
-  roundValue: { fontSize: 13, fontWeight: '900', color: colors.navy },
+  roundValue: { fontSize: 13, fontWeight: '900', color: colors.white },
   questionerPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -74,23 +69,16 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     gap: 7,
   },
-  questionerLabel: { fontSize: 10, color: '#A8C6DA' },
+  questionerLabel: { fontSize: 12, color: '#A8C6DA' },
   questionerName: { fontSize: 12, fontWeight: '800', color: colors.white },
   phase: {
     marginTop: 14,
     fontFamily: fontFamilies.display,
-    fontSize: 25,
+    fontSize: 28,
     lineHeight: 38,
     fontWeight: '900',
     color: colors.white,
+    textAlign: 'center',
   },
   phaseMobile: { fontSize: 21, lineHeight: 32 },
-  accentLine: {
-    flexDirection: 'row',
-    gap: 5,
-    marginTop: 12,
-  },
-  accentRed: { width: 62, height: 5, borderRadius: 3, backgroundColor: colors.red },
-  accentYellow: { width: 24, height: 5, borderRadius: 3, backgroundColor: colors.yellow },
-  accentCyan: { width: 14, height: 5, borderRadius: 3, backgroundColor: colors.cyan },
 });

@@ -93,23 +93,14 @@ export default function SubmittingPhase({
                 <WorkIntroduction synopsis={synopsis} workKindLabel={workKindLabel} realTitle={realTitle} />
               </PaperPanel>
               <PaperPanel tone="navy" variant="elevated" style={styles.progressPanel}>
-                <Text style={styles.kicker}>SUBMISSION STATUS</Text>
                 <Text style={styles.progressTitle}>タイトル案を受付中</Text>
                 <Text style={styles.progressNote}>
                   集まったタイトル案は出題者だけに表示されます。{consent ? '提出が揃うか制限時間が終わると、出題者が投票へ進められます。' : '提出が揃うか制限時間が終わると、投票へ進みます。'}
                 </Text>
-
                 <View style={styles.counterWrap}>
                   <View style={styles.counterBubble}>
                     <Text style={styles.counterNum}>{fakeSubmittedCount}</Text>
                     <Text style={styles.counterUnit}>人提出</Text>
-                  </View>
-                  <View style={styles.cardStack}>
-                    <View style={[styles.miniCard, styles.miniCardA]} />
-                    <View style={[styles.miniCard, styles.miniCardB]} />
-                    <View style={[styles.miniCard, styles.miniCardC]}>
-                      <Text style={styles.miniCardText}>TITLE</Text>
-                    </View>
                   </View>
                 </View>
               </PaperPanel>
@@ -170,7 +161,7 @@ const styles = StyleSheet.create({
   answererLayout: { gap: 12 },
   requestError: { color: colors.redDark, backgroundColor: colors.cream, padding: 14, borderRadius: radii.md, fontSize: 14, lineHeight: 22 },
   progressPanel: { alignItems: 'center', paddingVertical: 30 },
-  kicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 1.7 },
+
   progressTitle: { fontFamily: fontFamilies.display, color: colors.white, fontSize: 25, lineHeight: 34, fontWeight: '900', marginTop: 6 },
   progressNote: {
     color: '#BCD1E0',
@@ -198,35 +189,7 @@ const styles = StyleSheet.create({
   },
   counterNum: { color: colors.navy, fontSize: 48, lineHeight: 54, fontWeight: '900' },
   counterUnit: { color: colors.navy, fontSize: 12, fontWeight: '900' },
-  cardStack: { width: 120, height: 100, position: 'relative' },
-  miniCard: {
-    position: 'absolute',
-    width: 90,
-    height: 62,
-    borderRadius: radii.md,
-    borderWidth: 2,
-    borderColor: colors.white,
-  },
-  miniCardA: {
-    left: 2,
-    top: 16,
-    backgroundColor: colors.cyan,
-    transform: [{ rotate: '-10deg' }],
-  },
-  miniCardB: {
-    left: 24,
-    top: 10,
-    backgroundColor: colors.pink,
-    transform: [{ rotate: '7deg' }],
-  },
-  miniCardC: {
-    left: 14,
-    top: 24,
-    backgroundColor: colors.cream,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  miniCardText: { color: colors.navy, fontSize: 13, fontWeight: '900', letterSpacing: 1.5 },
+
   tipPanel: {},
   tipTitle: { color: colors.navy, fontSize: 15, fontWeight: '900' },
   tipText: { color: colors.ink, fontSize: 12, lineHeight: 19, marginTop: 5 },

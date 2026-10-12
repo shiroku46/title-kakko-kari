@@ -290,12 +290,10 @@ export default function SelectingPhase({
                   tone="navy"
                   style={[styles.guidePanel, isPC && styles.guidePanelPC]}
                 >
-                  <Text style={styles.guideKicker}>QUESTIONER</Text>
                   <Text style={styles.guideTitle}>出題する作品を選びましょう</Text>
                   <Text style={styles.guideBody}>
                     マイナーだけれど面白い作品ほど、みんなのタイトル案が広がります。
                   </Text>
-
                   <View style={styles.guideSteps}>
                     {[
                       ['1', genreDisclosure ? 'ジャンルを選んで作品を決める' : '作品を決める'],
@@ -319,7 +317,6 @@ export default function SelectingPhase({
                 >
                   <View style={styles.formHeadingRow}>
                     <View>
-                      <Text style={styles.kicker}>MAKE A QUESTION</Text>
                       <Text style={styles.heading}>作品の紹介文を用意する</Text>
                     </View>
                     <View style={styles.secretBadge}>
@@ -343,7 +340,6 @@ export default function SelectingPhase({
                     公式に流通する作品から探します。紹介文と正解は出題者だけに表示され、文章を編集してから出題できます。
                   </Text>
                   {requestError?.action === 'fetch' ? errorNotice : null}
-
                   <Text style={styles.fieldLabel}>作品の紹介文</Text>
                   <TextInput
                     style={[styles.input, styles.textarea]}
@@ -360,7 +356,6 @@ export default function SelectingPhase({
                     numberOfLines={6}
                     accessibilityLabel="作品の紹介文入力欄"
                   />
-
                   <Text style={styles.fieldLabel}>正解のタイトル（出題者だけに表示）</Text>
                   <TextInput
                     style={styles.input}
@@ -397,14 +392,12 @@ export default function SelectingPhase({
                 >
                   <View style={styles.formHeadingRow}>
                     <View>
-                      <Text style={styles.kicker}>SYNOPSIS OPEN</Text>
                       <Text style={styles.heading}>作品の紹介文を公開しました</Text>
                     </View>
                     <View style={styles.openBadge}>
                       <Text style={styles.openBadgeText}>回答受付中</Text>
                     </View>
                   </View>
-
                   <View style={styles.synopsisBox}>
                     <WorkIntroduction synopsis={synopsis || synopsisText} workKindLabel={workKindLabel} realTitle={realTitle} />
                   </View>
@@ -461,19 +454,12 @@ export default function SelectingPhase({
             <View style={[styles.answererLayout, isPC && styles.answererLayoutPC]}>
               {!synopsis ? (
                 <PaperPanel tone="navy" variant="elevated" style={styles.waitPanel}>
-                  <Text style={styles.waitKicker}>WAITING FOR QUESTION</Text>
                   <Text style={styles.waitTitle}>
                     {isCpu ? 'ホストが作品を選んでいます' : `${questioner?.nickname}さんが作品を選んでいます`}
                   </Text>
                   <Text style={styles.waitText}>
                     作品の紹介文が届くまで、このままお待ちください。
                   </Text>
-                  <View style={styles.waitIllustration}>
-                    <View style={[styles.waitCard, styles.waitCardBack]} />
-                    <View style={[styles.waitCard, styles.waitCardFront]}>
-                      <Text style={styles.waitCardText}>?</Text>
-                    </View>
-                  </View>
                   {requestError ? (
                     <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.waitErrorText}>
                       {requestError.message}
@@ -488,7 +474,6 @@ export default function SelectingPhase({
                         <Text style={styles.synopsisIconText}>文</Text>
                       </View>
                       <View style={styles.synopsisHeadingText}>
-                        <Text style={styles.kicker}>READ & ANSWER</Text>
                         <Text style={styles.heading}>このタイトルを知っていますか？</Text>
                       </View>
                     </View>
@@ -579,7 +564,7 @@ const styles = StyleSheet.create({
   questionerLayoutPC: { flexDirection: 'row', alignItems: 'stretch' },
   guidePanel: {},
   guidePanelPC: { flex: 0.75 },
-  guideKicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 1.7 },
+
   guideTitle: { color: colors.white, fontSize: 23, lineHeight: 32, fontWeight: '900', marginTop: 6 },
   guideBody: { color: '#C2D5E4', fontSize: 12, lineHeight: 20, marginTop: 9 },
   guideSteps: { gap: 10, marginTop: 22 },
@@ -608,7 +593,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.navy,
     marginBottom: 15,
   },
-  kicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.6 },
+
   heading: { color: colors.navy, fontSize: 21, lineHeight: 29, fontWeight: '900', marginTop: 3 },
   secretBadge: {
     backgroundColor: colors.pink,
@@ -618,7 +603,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  secretBadgeText: { color: colors.navy, fontSize: 10, fontWeight: '900' },
+  secretBadgeText: { color: colors.navy, fontSize: 12, fontWeight: '900' },
   openBadge: {
     backgroundColor: colors.cyan,
     borderRadius: radii.pill,
@@ -627,11 +612,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  openBadgeText: { color: colors.navy, fontSize: 10, fontWeight: '900' },
+  openBadgeText: { color: colors.navy, fontSize: 12, fontWeight: '900' },
   autoFetchButton: { marginBottom: 6 },
-  helperText: { color: colors.muted, fontSize: 10, textAlign: 'center', marginBottom: 13 },
+  helperText: { color: colors.muted, fontSize: 12, textAlign: 'center', marginBottom: 13 },
   errorText: { color: colors.redDark, fontSize: 13, lineHeight: 21, marginTop: 8, marginBottom: 12 },
-  fieldLabel: { color: colors.navy, fontSize: 11, fontWeight: '900', marginBottom: 7 },
+  fieldLabel: { color: colors.navy, fontSize: 12, fontWeight: '900', marginBottom: 7 },
   input: {
     backgroundColor: colors.white,
     borderRadius: radii.md,
@@ -654,7 +639,7 @@ const styles = StyleSheet.create({
     borderColor: colors.navy,
     padding: 18,
   },
-  synopsisText: { color: colors.ink, fontSize: 15, lineHeight: 25 },
+
   knownBox: {
     backgroundColor: '#FFE4EC',
     borderRadius: radii.md,
@@ -665,7 +650,7 @@ const styles = StyleSheet.create({
   },
   knownTitle: { color: colors.red, fontSize: 14, fontWeight: '900' },
   knownNames: { color: colors.navy, fontSize: 15, fontWeight: '800', marginTop: 5 },
-  knownNote: { color: colors.muted, fontSize: 11, marginTop: 4 },
+  knownNote: { color: colors.muted, fontSize: 12, marginTop: 4 },
   successBox: {
     backgroundColor: '#E2F6E8',
     borderRadius: radii.md,
@@ -675,7 +660,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   successTitle: { color: colors.navy, fontSize: 14, fontWeight: '900' },
-  successText: { color: colors.muted, fontSize: 11, marginTop: 4 },
+  successText: { color: colors.muted, fontSize: 12, marginTop: 4 },
   waitingBox: {
     marginTop: 14,
     backgroundColor: '#E8F5F8',
@@ -691,35 +676,12 @@ const styles = StyleSheet.create({
   answererLayout: { gap: 14 },
   answererLayoutPC: {},
   waitPanel: { alignItems: 'center', paddingVertical: 34 },
-  waitKicker: { color: colors.yellow, fontSize: 10, fontWeight: '900', letterSpacing: 1.7 },
+
   waitTitle: { color: colors.white, fontSize: 22, lineHeight: 31, fontWeight: '900', marginTop: 7, textAlign: 'center' },
   waitText: { color: '#BCD1E0', fontSize: 12, lineHeight: 19, marginTop: 7, textAlign: 'center' },
   waitErrorText: { color: colors.yellow, fontSize: 13, lineHeight: 21, marginTop: 12, textAlign: 'center' },
   skipConfirmation: { alignItems: 'center', marginTop: 12 },
-  waitIllustration: { width: 110, height: 80, marginTop: 20, position: 'relative' },
-  waitCard: {
-    position: 'absolute',
-    width: 72,
-    height: 54,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.white,
-  },
-  waitCardBack: {
-    backgroundColor: colors.cyan,
-    left: 8,
-    top: 8,
-    transform: [{ rotate: '-8deg' }],
-  },
-  waitCardFront: {
-    backgroundColor: colors.yellow,
-    right: 7,
-    top: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    transform: [{ rotate: '7deg' }],
-  },
-  waitCardText: { color: colors.navy, fontSize: 24, fontWeight: '900' },
+
   skipButton: { marginTop: 14, minWidth: 240 },
   synopsisHeading: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
   synopsisIcon: {
@@ -736,7 +698,7 @@ const styles = StyleSheet.create({
   synopsisHeadingText: { flex: 1 },
   declarePanel: {},
   declareQuestion: { color: colors.navy, fontSize: 18, fontWeight: '900', textAlign: 'center' },
-  declareNote: { color: colors.muted, fontSize: 11, lineHeight: 18, textAlign: 'center', marginTop: 5 },
+  declareNote: { color: colors.muted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 5 },
   declareRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 },
   declareButton: { flex: 1, minWidth: 150 },
   declaredPanel: { flexDirection: 'row', alignItems: 'center', gap: 13 },
@@ -754,5 +716,5 @@ const styles = StyleSheet.create({
   declaredIconText: { color: colors.navy, fontSize: 21, fontWeight: '900' },
   declaredBody: { flex: 1 },
   declaredTitle: { color: colors.navy, fontSize: 15, fontWeight: '900' },
-  declaredNote: { color: colors.muted, fontSize: 11, marginTop: 3 },
+  declaredNote: { color: colors.muted, fontSize: 12, marginTop: 3 },
 });

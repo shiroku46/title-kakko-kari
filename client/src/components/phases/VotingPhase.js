@@ -82,7 +82,6 @@ export default function VotingPhase({
           questioner={questioner}
           phase="本物だと思うタイトルに投票"
         />
-
         <View style={[styles.layout, isPC && styles.layoutPC]}>
           <View style={[styles.mainColumn, isPC && styles.mainColumnPC]}>
             <PaperPanel tone="cream" style={styles.synopsisPanel}>
@@ -93,7 +92,6 @@ export default function VotingPhase({
               <PaperPanel tone="white" variant="elevated" style={styles.votePanel}>
                 <View style={styles.voteHeadingRow}>
                   <View>
-                    <Text style={styles.kicker}>VOTE</Text>
                     <Text style={styles.voteTitle}>どのタイトルが本物？</Text>
                     <Text style={styles.voteNote}>
                       1つ選んで、投票してください。{'\n'}
@@ -105,7 +103,6 @@ export default function VotingPhase({
                     <Text style={styles.choiceCountLabel}>候補</Text>
                   </View>
                 </View>
-
                 <View style={styles.choiceList}>
                   {choices.map((choice) => (
                     <VoteOption
@@ -159,7 +156,6 @@ export default function VotingPhase({
               </PaperPanel>
             ) : (
               <PaperPanel tone="navy" style={styles.questionerPanel}>
-                <Text style={styles.questionerKicker}>QUESTIONER VIEW</Text>
                 <Text style={styles.questionerTitle}>投票を見守っています</Text>
                 <Text style={styles.questionerBody}>
                   出題者は投票しません。{consent ? '投票が揃うか制限時間が終わると、出題者が正解を発表できます。' : '投票が揃うか制限時間が終わると、結果が発表されます。'}
@@ -171,10 +167,8 @@ export default function VotingPhase({
               </PaperPanel>
             )}
           </View>
-
           <View style={[styles.sideColumn, isPC && styles.sideColumnPC]}>
             <PaperPanel tone="yellow" style={styles.progressPanel}>
-              <Text style={styles.progressKicker}>VOTING STATUS</Text>
               <Text style={styles.progressTitle}>投票状況</Text>
               <View style={styles.progressValueRow}>
                 <Text style={styles.progressValue}>{voteProgress.voted}</Text>
@@ -226,22 +220,7 @@ const styles = StyleSheet.create({
   sideColumn: { gap: 14 },
   sideColumnPC: { flex: 0.75 },
   synopsisPanel: {},
-  synopsisHeading: { flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 12 },
-  synopsisIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 15,
-    backgroundColor: colors.cyan,
-    borderWidth: 2,
-    borderColor: colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  synopsisIconText: { color: colors.navy, fontSize: 18, fontWeight: '900' },
-  synopsisHeadingBody: { flex: 1 },
-  kicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.6 },
-  synopsisTitle: { color: colors.navy, fontSize: 18, fontWeight: '900', marginTop: 2 },
-  synopsisText: { color: colors.ink, fontSize: 15, lineHeight: 25 },
+
   votePanel: {},
   voteHeadingRow: {
     flexDirection: 'row',
@@ -254,7 +233,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   voteTitle: { color: colors.navy, fontSize: 22, lineHeight: 30, fontWeight: '900', marginTop: 3 },
-  voteNote: { color: colors.muted, fontSize: 11, marginTop: 4 },
+  voteNote: { color: colors.muted, fontSize: 12, marginTop: 4 },
   choiceCount: {
     width: 58,
     height: 58,
@@ -266,7 +245,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   choiceCountNumber: { color: colors.navy, fontSize: 20, fontWeight: '900', lineHeight: 22 },
-  choiceCountLabel: { color: colors.navy, fontSize: 9, fontWeight: '900' },
+  choiceCountLabel: { color: colors.navy, fontSize: 12, fontWeight: '900' },
   choiceList: { marginBottom: 5 },
   voteError: { color: colors.red, fontSize: 13, lineHeight: 20, marginBottom: 10 },
   votedBox: {
@@ -292,13 +271,13 @@ const styles = StyleSheet.create({
   votedIconText: { color: colors.white, fontWeight: '900', fontSize: 20 },
   votedBody: { flex: 1 },
   votedTitle: { color: colors.navy, fontSize: 15, fontWeight: '900' },
-  votedText: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  votedText: { color: colors.muted, fontSize: 12, marginTop: 2 },
   questionerPanel: {},
-  questionerKicker: { color: colors.yellow, fontSize: 9, fontWeight: '900', letterSpacing: 1.6 },
+
   questionerTitle: { color: colors.white, fontSize: 22, fontWeight: '900', marginTop: 5 },
   questionerBody: { color: '#BCD1E0', fontSize: 12, lineHeight: 19, marginTop: 7 },
   progressPanel: {},
-  progressKicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.6 },
+
   progressTitle: { color: colors.navy, fontSize: 19, fontWeight: '900', marginTop: 4 },
   progressValueRow: {
     flexDirection: 'row',
@@ -319,7 +298,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   progressFill: { height: '100%', backgroundColor: colors.red },
-  progressNote: { color: colors.ink, fontSize: 11, lineHeight: 17, marginTop: 10 },
+  progressNote: { color: colors.ink, fontSize: 12, lineHeight: 17, marginTop: 10 },
   tipPanel: {},
   tipTitle: { color: colors.navy, fontSize: 15, fontWeight: '900' },
   tipBody: { color: colors.ink, fontSize: 12, lineHeight: 19, marginTop: 5 },

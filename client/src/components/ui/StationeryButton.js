@@ -11,6 +11,7 @@ export default function StationeryButton({
   loading = false,
   onPress,
   accessibilityLabel,
+  accessibilityState,
   style,
   textStyle,
 }) {
@@ -29,7 +30,8 @@ export default function StationeryButton({
       disabled={isDisabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? (typeof children === 'string' ? children : undefined)}
-      accessibilityState={{ disabled: isDisabled }}
+      accessibilityState={{ ...accessibilityState, disabled: isDisabled }}
+      aria-expanded={accessibilityState?.expanded}
       activeOpacity={0.82}
     >
       {loading ? (
@@ -58,16 +60,16 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
+    borderWidth: 1,
     ...shadows.button,
   },
   primary: {
     backgroundColor: colors.red,
-    borderColor: colors.navy,
+    borderColor: colors.red,
   },
   secondary: {
     backgroundColor: colors.blue,
-    borderColor: colors.navy,
+    borderColor: colors.blue,
   },
   yellow: {
     backgroundColor: colors.yellow,
@@ -75,7 +77,7 @@ const styles = StyleSheet.create({
   },
   neutral: {
     backgroundColor: colors.white,
-    borderColor: colors.navy,
+    borderColor: colors.border,
   },
   ghost: {
     backgroundColor: 'transparent',

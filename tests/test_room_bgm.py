@@ -10,8 +10,9 @@ const { EventEmitter } = require('node:events');
 const { readFileSync } = require('node:fs');
 const { runInNewContext } = require('node:vm');
 const source = readFileSync('client/src/hooks/useRoomBgm.js', 'utf8')
-  .replace(/^import .*;\r?\n/gm, '').replace('export default function', 'function');
+  .replace(/^import .*;\r?\n/gm, '').replace('export default function', 'function').replace('export const', 'const');
 const players = [], contexts = [], slots = [], effects = [];
+const created = [], revoked = [];
 let cursor = 0, active = false, stored = null, denied = false, storageDenied = false;
 class Events extends EventEmitter {
   addEventListener(name, listener) { this.on(name, listener); }
@@ -19,6 +20,7 @@ class Events extends EventEmitter {
 }
 class Audio extends Events {
   constructor(uri) { super(); this.uri = uri; this.paused = true; this.loads = 0; players.push(this); }
+  set src(value) { this.uri = value; }
   play() {
     if (denied) return Promise.reject(Object.assign(new Error('autoplay'), { name: 'NotAllowedError' }));
     this.paused = false; this.emit('playing'); return Promise.resolve();
@@ -35,8 +37,10 @@ class AudioContext extends Events {
   close() { this.state = 'closed'; return Promise.resolve(); }
 }
 const document = new Events(); document.hidden = false;
-const sandbox = { Audio, AudioContext, document, Asset: { fromModule: () => ({ uri: '/local-bgm.mp3' }) },
-  require: () => 'bundled-track',
+const sandbox = { Audio, AudioContext, document, Asset: { fromModule: source => ({ uri: source }) },
+  require: source => source,
+  URL: { createObjectURL(file) { const uri = 'blob:' + created.length; created.push(uri); return uri; },
+    revokeObjectURL(uri) { revoked.push(uri); } },
   localStorage: {
     getItem() { if (storageDenied) throw Error('storage'); return stored; },
     setItem(_, value) { if (storageDenied) throw Error('storage'); stored = value; },
@@ -128,6 +132,55 @@ storageDenied = true; bgm.changeVolume(-10); render();
 sandbox.AudioContext = undefined; render(true); bgm = render();
 assert.equal(bgm.playing, false); assert.match(bgm.error, /再生できません/);
 assert.equal(players.length, 0); bgm.toggle(); render(); render(false);
+""")
+
+    def test_track_selection_local_files_and_cleanup(self):
+        self.check(r"""
+stored = '{"volume":20,"muted":true,"trackId":"not-a-track"}';
+render(true); let bgm = render();
+assert.equal(bgm.trackId, 'swing-along'); assert.equal(bgm.muted, true);
+bgm.selectTrack('pop-rocks'); bgm = render();
+assert.match(players[0].uri, /pop-rocks.mp3/); assert.equal(players[0].paused, true);
+assert.equal(players.length, 1); assert.equal(contexts.length, 1);
+assert.equal(JSON.parse(stored).trackId, 'pop-rocks');
+bgm.selectTrack('unknown'); assert.equal(render().trackId, 'pop-rocks');
+bgm.loadMp3(null); assert.equal(created.length, 0);
+bgm.loadMp3({name: 'not-music.txt', size: 10}); bgm = render();
+assert.match(bgm.error, /MP3/); assert.equal(created.length, 0);
+bgm.loadMp3({name: 'empty.mp3', size: 0}); assert.equal(created.length, 0);
+bgm.loadMp3({name: '好きな曲.MP3', size: 50}); bgm = render();
+assert.equal(bgm.localFile.name, '好きな曲.MP3'); assert.equal(bgm.muted, false);
+assert.equal(players[0].uri, 'blob:0'); assert.equal(bgm.playing, true);
+assert.equal(JSON.parse(stored).trackId, 'pop-rocks');
+assert(!stored.includes('blob:') && !stored.includes('好きな曲'), 'No file bytes or name persisted');
+bgm.loadMp3({name: 'next.mp3', size: 50}); bgm = render();
+assert.deepEqual(revoked, ['blob:0']); assert.equal(players[0].uri, 'blob:1');
+bgm.selectTrack('bumbumbum'); bgm = render();
+assert.deepEqual(revoked, ['blob:0', 'blob:1']); assert.equal(bgm.localFile, null);
+assert.equal(players.length, 1); assert.equal(contexts.length, 1);
+bgm.loadMp3({name: 'exit.mp3', size: 50}); render(); render(false);
+assert.deepEqual(revoked, ['blob:0', 'blob:1', 'blob:2']);
+assert.equal(render(false).localFile, null); assert.equal(contexts[0].state, 'closed');
+render(true); assert.match(players[1].uri, /bumbumbum.mp3/); render(false);
+""")
+
+    def test_legacy_preferences_file_failure_and_old_play_rejection(self):
+        self.check(r"""
+stored = '{"volume":50,"muted":false}';
+render(true); let bgm = render();
+assert.equal(bgm.volume, 50); assert.equal(bgm.trackId, 'swing-along');
+let rejectOld;
+players[0].play = () => new Promise((_, reject) => { rejectOld = reject; });
+bgm.toggle(); bgm = render(); bgm.toggle(); render();
+players[0].play = Audio.prototype.play;
+render().selectTrack('pop-rocks'); render();
+rejectOld(Object.assign(Error('old source failed'), { name: 'NotSupportedError' }));
+await flush(); bgm = render(); assert.equal(bgm.error, ''); assert.equal(bgm.playing, true);
+sandbox.URL.createObjectURL = () => { throw Error('file access'); };
+bgm.loadMp3({name: 'broken.mp3', size: 10}); bgm = render();
+assert.match(bgm.error, /読み込めません/); assert.match(players[0].uri, /pop-rocks.mp3/);
+render(false); render().loadMp3({name: 'exit.mp3', size: 10});
+assert.equal(created.length, 0);
 """)
 
 

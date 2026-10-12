@@ -35,7 +35,6 @@ export default function HomeScreen({ navigation }) {
     <Text style={[styles.formHeading, wide && styles.formHeadingWide]}>
       {joining ? '部屋に入る' : 'ゲームをはじめる'}
     </Text>
-
     <Text style={styles.fieldLabel}>あなたの名前</Text>
     <TextInput style={[styles.input, wide && styles.inputWide]}
       placeholder="例：しろく" placeholderTextColor={colors.muted}
@@ -147,13 +146,11 @@ export default function HomeScreen({ navigation }) {
             </TouchableOpacity>
           </View>
         </View>
-
         <View style={[styles.main, wide && styles.mainWide]}>
           {hero}
           {form}
         </View>
         {!wide ? <View style={styles.mobileDemo}><HomeDemo /></View> : null}
-
         <View style={styles.footer}>
           <Text style={styles.footerBrand}>{GAME_NAME}</Text>
           <Text style={styles.footerCopy}>言葉で、あそぶ。</Text>
@@ -168,7 +165,7 @@ function Chevron() {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: '#FFF1D6' },
+  backdrop: { flex: 1, backgroundColor: colors.canvas },
   flex: { flex: 1 },
   container: { width: '100%', maxWidth: 1586, alignSelf: 'center', paddingTop: Platform.OS === 'web' ? 10 : 50, paddingBottom: 22 },
   topBar: { minHeight: 60, borderBottomWidth: 1, borderBottomColor: colors.navy, paddingBottom: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
@@ -194,14 +191,14 @@ const styles = StyleSheet.create({
   formArea: { width: '100%' },
   formAreaWide: { width: '30%', borderLeftWidth: 1, borderLeftColor: colors.border, paddingLeft: 34, paddingTop: 66 },
   formHeading: { color: colors.navy, fontSize: 25, lineHeight: 36, fontWeight: '700', marginBottom: 28 },
-  formHeadingWide: { fontSize: 36, lineHeight: 50, marginBottom: 50 },
+  formHeadingWide: { fontSize: 30, lineHeight: 42, marginBottom: 30 },
   fieldLabel: { color: colors.navy, fontSize: 16, lineHeight: 25, fontWeight: '700', marginBottom: 8 },
-  input: { minHeight: 54, backgroundColor: colors.white, borderWidth: 2, borderColor: colors.navy, borderRadius: 9, color: colors.ink, paddingHorizontal: 16, paddingVertical: 12, fontSize: 18, marginBottom: 18 },
+  input: { minHeight: 54, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: 9, color: colors.ink, paddingHorizontal: 16, paddingVertical: 12, fontSize: 18, marginBottom: 18 },
   inputWide: { minHeight: 64, marginBottom: 28 },
   codeInput: { letterSpacing: 5, textAlign: 'center', fontWeight: '700', fontSize: 20 },
   error: { color: colors.redDark, fontSize: 14, lineHeight: 23, marginBottom: 16 },
   actionStack: { gap: 14 },
-  playButton: { minHeight: 56, borderRadius: 10, shadowColor: colors.navy, shadowOffset: { width: 1, height: 3 }, shadowOpacity: 1, shadowRadius: 0, elevation: 0 },
+  playButton: { minHeight: 56, borderRadius: 10, shadowColor: colors.navy, shadowOffset: { width: 1, height: 3 }, shadowOpacity: 0, shadowRadius: 0, elevation: 0 },
   playButtonWide: { minHeight: 72 },
   playButtonText: { color: colors.navy, fontSize: 22, fontWeight: '700', letterSpacing: 0 },
   playButtonTextWide: { fontSize: 26 },

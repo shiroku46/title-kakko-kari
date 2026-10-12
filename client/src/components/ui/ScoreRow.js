@@ -69,5 +69,5 @@ const styles = StyleSheet.create({
   delta: { fontSize: 13, color: colors.red, fontWeight: '900' },
   score: { fontSize: 20, color: colors.navy, fontWeight: '900' },
   scoreWinner: { color: colors.red, fontSize: 23 },
-  unit: { fontSize: 11, color: colors.muted, marginLeft: -4 },
+  unit: { fontSize: 12, color: colors.muted, marginLeft: -4 },
 });

@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
   hiddenText: { fontSize: 15, color: colors.muted, fontWeight: '700' },
   title: { fontSize: 16, color: colors.ink, fontWeight: '800', lineHeight: 25 },
   titleReal: { color: colors.red },
-  author: { fontSize: 11, color: colors.muted, marginTop: 4 },
-  realLabel: { fontSize: 11, color: colors.red, fontWeight: '800', marginTop: 4 },
+  author: { fontSize: 12, color: colors.muted, marginTop: 4 },
+  realLabel: { fontSize: 12, color: colors.red, fontWeight: '800', marginTop: 4 },
   stamp: { flexShrink: 0 },
 });

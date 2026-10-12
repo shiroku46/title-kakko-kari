@@ -9,7 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { Text } from '../ui/GameText';
-import { colors, radii } from '../../theme';
+import { colors } from '../../theme';
 import {
   PaperPanel,
   StationeryButton,
@@ -94,7 +94,7 @@ export default function ConfirmingPhase({
         />
 
         {isHost ? (
-          <PaperPanel tone="cream" variant="elevated" style={styles.panel}>
+          <PaperPanel tone="cream" variant="elevated" style={{ padding: contentPadding }}>
             {genreDisclosure ? <GenreSelector workKind={selectedKind} onSelect={(kind) => {
               setSelectedKind(kind); setRequestError(null);
             }} disabled={Boolean(pendingAction)} /> : null}
@@ -141,18 +141,15 @@ export default function ConfirmingPhase({
               <>
                 <View style={styles.headingRow}>
                   <View style={styles.headingCopy}>
-                    <Text style={styles.kicker}>WORK CHECK</Text>
                     <Text style={styles.heading}>この紹介文をみんなに提示しますか？</Text>
                   </View>
                   <View style={styles.cpuBadge}>
                     <Text style={styles.cpuBadgeText}>CPU出題</Text>
                   </View>
                 </View>
-
                 <View style={styles.synopsisBox}>
                   <WorkIntroduction synopsis={preview} workKindLabel={workKindLabel} />
                 </View>
-
                 <Text style={styles.note}>
                   本物のタイトルと出典は、答え合わせで表示されます。
                 </Text>
@@ -162,7 +159,6 @@ export default function ConfirmingPhase({
                     {displayError}
                   </Text>
                 ) : null}
-
                 <View style={styles.buttonRow}>
                   <StationeryButton
                     variant="neutral"
@@ -214,65 +210,43 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'web' ? 22 : 54,
     paddingBottom: 40,
   },
-  panel: { padding: 22 },
   headingRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    alignItems: 'center',
     gap: 12,
     paddingBottom: 14,
-    borderBottomWidth: 2,
-    borderBottomColor: colors.navy,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
     marginBottom: 16,
   },
-  kicker: { color: colors.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.7 },
-  headingCopy: { flex: 1, minWidth: 0 },
-  heading: { color: colors.navy, fontSize: 21, lineHeight: 29, fontWeight: '900', marginTop: 3 },
+
+  headingCopy: { width: '100%' },
+  heading: { color: colors.navy, fontSize: 24, lineHeight: 34, fontWeight: '900', marginTop: 3, textAlign: 'center' },
   cpuBadge: {
     flexShrink: 0,
-    backgroundColor: colors.cyan,
-    borderRadius: radii.pill,
-    borderWidth: 2,
-    borderColor: colors.navy,
     paddingHorizontal: 11,
     paddingVertical: 6,
   },
-  cpuBadgeText: { color: colors.navy, fontSize: 10, fontWeight: '900' },
+  cpuBadgeText: { color: colors.muted, fontSize: 13, fontWeight: '900' },
   synopsisBox: {
-    backgroundColor: colors.white,
-    borderRadius: radii.lg,
-    borderWidth: 2,
-    borderColor: colors.navy,
-    padding: 18,
+    padding: 16,
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
     paddingTop: 27,
-    position: 'relative',
   },
-  synopsisTab: {
-    position: 'absolute',
-    top: -10,
-    left: 16,
-    backgroundColor: colors.yellow,
-    borderWidth: 2,
-    borderColor: colors.navy,
-    borderRadius: radii.sm,
-    paddingHorizontal: 11,
-    paddingVertical: 4,
-    transform: [{ rotate: '-2deg' }],
-  },
-  synopsisTabText: { color: colors.navy, fontSize: 11, fontWeight: '900' },
-  synopsisText: { color: colors.ink, fontSize: 16, lineHeight: 27 },
-  note: { color: colors.muted, fontSize: 11, marginTop: 10, marginBottom: 15 },
+
+  note: { color: colors.muted, fontSize: 13, lineHeight: 22, marginTop: 10, marginBottom: 24, textAlign: 'center' },
   errorText: { color: colors.redDark, fontSize: 13, lineHeight: 21, marginBottom: 12 },
   buttonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   secondaryButton: { flex: 1, minWidth: 170 },
-  primaryButton: { flex: 1.5, minWidth: 220 },
+  primaryButton: { flex: 1, minWidth: 220 },
   loadingBox: { alignItems: 'center', paddingVertical: 34 },
   loadingIcon: {
     width: 76,
     height: 76,
     borderRadius: 38,
     backgroundColor: '#E7F5F7',
-    borderWidth: 2,
+    borderWidth: 0,
     borderColor: colors.navy,
     alignItems: 'center',
     justifyContent: 'center',

@@ -28,7 +28,7 @@ export default function Stamp({ type, size = 'md', animate = false, style }) {
 
   const isRect = RECT_TYPES.has(type);
   const dim = size === 'lg' ? 58 : size === 'sm' ? 30 : 44;
-  const fontSize = isRect ? (size === 'sm' ? 10 : 12) : Math.round(dim * 0.38);
+  const fontSize = isRect ? 12 : Math.round(dim * 0.38);
 
   return (
     <Animated.View
