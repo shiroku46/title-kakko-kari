@@ -158,7 +158,7 @@ export default function VotingPhase({
               <PaperPanel tone="navy" style={styles.questionerPanel}>
                 <Text style={styles.questionerTitle}>投票を見守っています</Text>
                 <Text style={styles.questionerBody}>
-                  出題者は投票しません。{consent ? '投票が揃うか制限時間が終わると、出題者が正解を発表できます。' : '投票が揃うか制限時間が終わると、結果が発表されます。'}
+                  出題者は投票しません。{consent ? '投票が揃うと、出題者が正解を発表できます。' : '投票が揃うと、結果が発表されます。'}
                 </Text>
                 <Text style={styles.questionerTitle}>みんなのタイトル案</Text>
                 {choices.map((choice, index) => (

@@ -11,7 +11,7 @@ export default function RoundProgress({ roundId, phase, deadlineAt, ready, conse
   const [error, setError] = useState(null);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState(null);
-  const timed = ['submitting', 'voting'].includes(phase) && Boolean(deadlineAt) && !ready;
+  const timed = phase === 'submitting' && Boolean(deadlineAt) && !ready;
   useEffect(() => {
     setNotice(null);
     if (!timed) return;
@@ -30,7 +30,7 @@ export default function RoundProgress({ roundId, phase, deadlineAt, ready, conse
     }, 1000);
     return () => clearInterval(timer);
   }, [deadlineAt, timed]);
-  if (!['submitting', 'voting'].includes(phase) || !deadlineAt && !consent) return null;
+  if (!['submitting', 'voting'].includes(phase) || !(phase === 'submitting' && deadlineAt) && !consent) return null;
   const seconds = deadlineAt ? Math.max(0, Math.ceil((deadlineAt - now) / 1000)) : 0;
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   const urgent = timed && seconds <= 10;
@@ -48,19 +48,19 @@ export default function RoundProgress({ roundId, phase, deadlineAt, ready, conse
   };
   return <View style={[styles.panel, warning && styles.warning, urgent && styles.urgent]}>
     <View style={styles.content}>
-      <View style={styles.timerRow}>
-        <Text style={[styles.label, warning && !urgent && styles.darkText]}>{phase === 'submitting' ? '回答' : '投票'}の残り時間</Text>
+      {phase === 'submitting' ? <View style={styles.timerRow}>
+        <Text style={[styles.label, warning && !urgent && styles.darkText]}>回答の残り時間</Text>
         <Text style={[styles.time, isMobile && styles.timeMobile, (!deadlineAt || ready) && styles.status,
           warning && !urgent && styles.darkText, urgent && (isMobile ? styles.countdownMobile : styles.countdown)]}
           accessibilityLabel={ready ? '受付終了' : deadlineAt ? `残り${Math.floor(seconds / 60)}分${seconds % 60}秒` : '時間制限なし'}>
           {ready ? '受付終了' : deadlineAt ? clock : '時間制限なし'}
         </Text>
-      </View>
-      {deadlineAt && !ready ? <Text style={[styles.notice, warning && !urgent && styles.darkText]}
+      </View> : null}
+      {timed ? <Text style={[styles.notice, warning && !urgent && styles.darkText]}
         accessibilityLiveRegion="polite" aria-atomic={true}>{noticeText || ' '}</Text> : null}
       {consent ? <Text style={[styles.message, warning && !urgent && styles.darkText]} accessibilityLiveRegion="polite">
         {ready ? '出題者の同意を待っています。'
-          : `${phase === 'submitting' ? '回答' : '投票'}が揃う${deadlineAt ? 'か、制限時間が終わる' : ''}まで待っています。`}
+          : `${phase === 'submitting' ? '回答' : '投票'}が揃う${phase === 'submitting' && deadlineAt ? 'か、制限時間が終わる' : ''}まで待っています。`}
       </Text> : null}
       {canAdvance && consent ? <StationeryButton disabled={!ready || pending} loading={pending} onPress={advance}
         accessibilityLabel="この段階を進める">{phase === 'submitting' ? '投票へ進める' : '正解を発表する'}</StationeryButton> : null}

@@ -81,7 +81,7 @@ assert.equal(timer.noticeText, ''); assert.equal(timer.urgent, false);
 props.consent = false; assert.equal(render(), null);
 props.phase = 'revealed'; props.deadlineAt = time + 5000;
 assert.equal(render(), null); assert.equal(timers.size, 0);
-unmount(); props.phase = 'voting'; props.consent = true; props.ready = false;
+unmount(); props.phase = 'submitting'; props.consent = true; props.ready = false;
 render(); assert.equal(timers.size, 1);
 props.ready = true; render(); timer = render();
 assert.equal(timers.size, 0); assert.equal(timer.noticeText, ''); assert.equal(timer.urgent, false);
@@ -95,12 +95,58 @@ assert.equal(requests[0].event, 'round:advance_phase'); assert.equal(requests[0]
 assert.equal(requests[0].milliseconds, 10000);
 requests[0].reply(null, { ok: false, error: '待ってください' });
 timer = render(); assert.equal(timer.pending, false); assert.equal(timer.error, '待ってください');
-unmount(); props.phase = 'voting'; props.roundId = 'next'; props.deadlineAt = time + 60000;
-timer = render(); assert.equal(timer.clock, '1:00'); assert.equal(timer.noticeText, ''); assert.equal(timer.error, null);
+unmount(); props.phase = 'voting'; props.roundId = 'next'; props.deadlineAt = time + 5000;
+timer = render(); assert.equal(timers.size, 0); assert.equal(timer.noticeText, ''); assert.equal(timer.error, null);
+assert.equal(timer.urgent, false); assert.equal(timer.warning, false);
+tick(60000); timer = render(); assert.equal(timer.noticeText, ''); assert.equal(timers.size, 0);
 props.socket.connected = false; timer.advance(); assert.equal(requests.length, 1);
 props.socket.connected = true; timer.advance(); requests[1].reply(null, { ok: true });
 assert.equal(render().error, null); unmount(); assert.equal(timers.size, 0);
+props.consent = false; assert.equal(render(), null); assert.equal(timers.size, 0);
 """)
+
+    @unittest.skipUnless((ROOT / "client/node_modules/@babel/core").exists(),
+                         "Rendered component check requires npm ci in client")
+    def test_rendered_voting_has_no_timer_and_keeps_consent_controls(self):
+        result = subprocess.run(["node", "-e", r"""
+const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { runInNewContext } = require('node:vm');
+const React = require('./client/node_modules/react');
+const { renderToStaticMarkup } = require('./client/node_modules/react-dom/server');
+const { transformSync } = require('./client/node_modules/@babel/core');
+const source = transformSync(readFileSync('client/src/components/RoundProgress.js', 'utf8'), {
+  configFile: false, babelrc: false, plugins: [
+    require.resolve('./client/node_modules/@babel/plugin-transform-react-jsx'),
+    require.resolve('./client/node_modules/@babel/plugin-transform-modules-commonjs'),
+  ],
+}).code;
+const module = { exports: {} };
+runInNewContext(source, { module, exports: module.exports, Date, require(name) {
+  if (name === 'react') return React;
+  if (name === 'react-native') return { View: 'div', StyleSheet: { create: value => value } };
+  if (name === './ui/GameText') return { Text: ({ children }) => React.createElement('span', null, children) };
+  if (name === './ui') return { StationeryButton: ({ children, disabled }) => React.createElement('button', { disabled }, children) };
+  if (name === '../theme') return { colors: {} };
+  if (name === '../hooks/useResponsiveLayout') return { useResponsiveLayout: () => ({ isMobile: false }) };
+  throw new Error(name);
+} });
+const props = { phase: 'voting', deadlineAt: Date.now() + 5000, ready: false, consent: false, canAdvance: true };
+const render = () => renderToStaticMarkup(React.createElement(module.exports.default, props));
+assert.equal(render(), '');
+props.consent = true;
+let html = render();
+assert.doesNotMatch(html, /残り時間|制限時間|時間制限|受付終了|締め切り|0:05/);
+assert.match(html, /投票が揃うまで待っています。/);
+assert.match(html, /<button disabled="">正解を発表する<\/button>/);
+props.ready = true; html = render();
+assert.match(html, /出題者の同意を待っています。/);
+assert.match(html, /<button>正解を発表する<\/button>/);
+props.canAdvance = false; assert.doesNotMatch(render(), /<button/);
+props.phase = 'submitting'; props.ready = false;
+assert.match(render(), /回答の残り時間/); assert.match(render(), /あと5秒で締め切りです。/);
+"""], cwd=ROOT, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
 
 if __name__ == "__main__":

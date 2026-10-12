@@ -1258,7 +1258,7 @@ test('genre rule is a validated host-only lobby setting, synchronized to guests 
   const start=await event(bots[0],'game:started');assert.equal(start.settings.genreDisclosure,true);assert.equal(start.round.workKind,undefined);
   await denied(bots[0],'room:update_settings',{genreDisclosure:false});
 });
-for (const seconds of [0, 60, 180, 300, 420]) test(`duration ${seconds}s is synchronized and used for both phases and recovery`, async t => {
+for (const seconds of [0, 60, 180, 300, 420]) test(`duration ${seconds}s limits title submission only and voting recovery stays untimed`, async t => {
   const { bots, room, entry } = await roomWith(t, 4);
   const settings = { genreDisclosure: false, advanceMode: 'consent', timeLimitSeconds: seconds };
   await denied(bots[1], 'room:update_settings', settings);
@@ -1278,17 +1278,15 @@ for (const seconds of [0, 60, 180, 300, 420]) test(`duration ${seconds}s is sync
   const answerers = bots.filter(b => b !== q);
   await ok(q, 'round:submit_synopsis', { synopsis: '港町で手紙を探す物語。', realTitle: '秘密の正解' });
   for (const b of answerers) await ok(b, 'round:declare_unknown');
-  let before = Date.now();
+  const before = Date.now();
   await ok(q, 'round:start_submitting');
   const submitting = await event(bots[0], 'round:submitting_started');
   if (seconds) assert.ok(submitting.deadlineAt >= before + seconds * 1000 && submitting.deadlineAt <= Date.now() + seconds * 1000);
   else assert.equal(submitting.deadlineAt, null);
   for (const [i, b] of answerers.entries()) await ok(b, 'round:submit_fake', { title: `回答案${i}` });
-  before = Date.now();
   await ok(q, 'round:advance_phase');
   const voting = await event(bots[0], 'round:choices_presented');
-  if (seconds) assert.ok(voting.deadlineAt >= before + seconds * 1000 && voting.deadlineAt <= Date.now() + seconds * 1000);
-  else assert.equal(voting.deadlineAt, null);
+  assert.equal(voting.deadlineAt, null);
   const restored = await bot(t);
   const resume = await ok(restored, 'room:resume', { code: room.code, playerId: entry.player.id, token: entry.token });
   assert.deepEqual(resume.room.settings, settings);

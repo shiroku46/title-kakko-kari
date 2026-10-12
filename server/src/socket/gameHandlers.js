@@ -432,7 +432,8 @@ function registerGameHandlers(io, socket) {
     if (!isRoundController(round, player) && !(questioner && !questioner.is_connected && player.is_host)) {
       throw new Error('出題者またはCPU出題のホストが進めてください');
     }
-    if (!round.phase_ready) throw new Error('回答が揃うか、制限時間が終わるまでお待ちください');
+    if (!round.phase_ready) throw new Error(round.status === 'voting'
+      ? '投票が揃うまでお待ちください' : '回答が揃うか、制限時間が終わるまでお待ちください');
     if (round.status === 'submitting') transitionToVoting(io, room, round);
     else if (round.status === 'voting') revealRound(io, room, round);
     else throw new Error('現在この操作はできません');
@@ -487,14 +488,15 @@ function checkRoundProgress(io, room, round) {
   } else if (round.status === 'voting') {
     const votedCount = answerers.filter((p) => round.votes.some((v) => v.voter_id === p.id)).length;
     io.to(room.code).emit('round:vote_progress', { votedCount, totalCount: answerers.length });
-    if (votedCount === answerers.length || deadlinePassed(round)) readyPhase(io, room, round, revealRound);
+    if (votedCount === answerers.length) readyPhase(io, room, round, revealRound);
   } else if (round.status === 'selecting' && round.synopsis) {
     checkAllDeclared(io, room, round);
   }
 }
 
 function setDeadline(room, round) {
-  round.deadline_at = room.settings.timeLimitSeconds ? Date.now() + room.settings.timeLimitSeconds * 1000 : null;
+  round.deadline_at = round.status === 'submitting' && room.settings.timeLimitSeconds
+    ? Date.now() + room.settings.timeLimitSeconds * 1000 : null;
   round.phase_ready = false;
   round.timer_notified = false;
 }
@@ -509,7 +511,7 @@ async function checkRoundTimers(io) {
   for (const room of rooms.values()) {
     if (room.status !== 'playing') continue;
     const round = getCurrentRound(room);
-    if (!['submitting', 'voting'].includes(round.status) || round.timer_notified || !deadlinePassed(round)) continue;
+    if (round.status !== 'submitting' || round.timer_notified || !deadlinePassed(round)) continue;
     try {
       await commitGameAction(io, room, persistRooms, (stagedIo) => {
         round.timer_notified = true;
