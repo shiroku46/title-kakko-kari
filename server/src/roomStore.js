@@ -33,6 +33,11 @@ function deserializeRooms(saved) {
       for (const round of room.rounds) {
         if (!Array.isArray(round.declarations) || !Array.isArray(round.answers) || !Array.isArray(round.votes)) throw new Error();
         round.declarations = new Map(round.declarations);
+        if (round.status === 'voting') {
+          round.deadline_at = null;
+          round.phase_ready = room.players.filter((p) => p.is_connected && !p.is_computer && p.id !== round.questioner_id)
+            .every((p) => round.votes.some((v) => v.voter_id === p.id));
+        }
         if (round.questioner_id === null && round.status === 'selecting' && !round.synopsis) {
           round.fetchError = '接続が戻りました。もう一度、問題を取得してください。';
         }

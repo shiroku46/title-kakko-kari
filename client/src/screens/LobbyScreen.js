@@ -329,12 +329,12 @@ export default function LobbyScreen({ navigation, route }) {
                   <StationeryButton key={value} variant={progressSettings.advanceMode === value ? 'yellow' : 'neutral'}
                     disabled={settingsPending || starting} onPress={() => updateGenreRule(genreDisclosure, { advanceMode: value })}
                     accessibilityLabel={label}>{label}</StationeryButton>)}</View>
-                <Text style={styles.settingsLabel}>回答・投票の制限時間</Text>
+                <Text style={styles.settingsLabel}>タイトルを考える時間</Text>
                 <View style={styles.roundRow}>{[0, 60, 180, 300, 420].map((value) =>
                   <StationeryButton key={value} variant={progressSettings.timeLimitSeconds === value ? 'yellow' : 'neutral'}
                     disabled={settingsPending || starting} onPress={() => updateGenreRule(genreDisclosure, { timeLimitSeconds: value })}
                     accessibilityLabel={value ? `${value / 60}分` : '制限なし'}>{value ? `${value / 60}分` : 'なし'}</StationeryButton>)}</View>
-                <Text style={styles.startHint}>時間が終わると提出済みの回答・投票で進みます。出題者が進める設定では同意を待ちます。タイトル案が一つもなければ提出を待ちます。</Text>
+                <Text style={styles.startHint}>時間が終わると提出済みのタイトル案で投票へ進みます。投票には時間制限がなく、全員の投票を待ちます。出題者が進める設定では同意を待ちます。タイトル案が一つもなければ提出を待ちます。</Text>
 
                 {effectiveGameMode === 'cpu' && (
                   <>

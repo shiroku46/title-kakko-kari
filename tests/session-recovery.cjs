@@ -180,6 +180,43 @@ test('fresh browser sockets restore declarations, submissions, private questione
   assert.equal((await ok(rejoined[0], 'room:resume', credential(rejoined[0].entry))).gameData.currentRound, 2);
 });
 
+for (const completed of [false, true]) test(`restart removes legacy voting expiry and restores ${completed ? 'completed' : 'partial'} vote readiness`, async (t) => {
+  const g = await game(t);
+  for (const m of g.answerers) await ok(m, 'round:declare_unknown');
+  await ok(g.questioner, 'round:start_submitting');
+  for (const [i, m] of g.answerers.entries()) await ok(m, 'round:submit_fake', { title: `保存する案${i}` });
+  await stopServer();
+  const saved = JSON.parse(readFileSync(statePath, 'utf8'));
+  const room = saved.rooms.find((r) => r.code === g.questioner.entry.room.code);
+  const round = room.rounds.find((r) => r.round_number === room.current_round);
+  room.settings.advanceMode = 'consent';
+  room.settings.timeLimitSeconds = 60;
+  round.deadline_at = Date.now() - 1;
+  round.phase_ready = true;
+  round.timer_notified = true;
+  const real = round.answers.find((a) => a.is_real);
+  round.votes = g.answerers.slice(0, completed ? g.answerers.length : 1)
+    .map((m) => ({ voter_id: m.entry.player.id, answer_id: real.id }));
+  writeFileSync(statePath, JSON.stringify(saved));
+  await startServer();
+  const restored = [];
+  for (const m of g.members) restored.push(await resume(t, m.entry));
+  const questioner = restored.find((m) => m.entry.player.id === g.questioner.entry.player.id);
+  assert.equal(questioner.state.gameData.resumeState.phase, 'voting');
+  assert.equal(questioner.state.gameData.round.deadlineAt, null);
+  assert.equal(questioner.state.gameData.round.phaseReady, completed);
+  assert.equal(questioner.state.gameData.resumeState.voteProgress.voted, round.votes.length);
+  if (!completed) {
+    assert.equal((await request(questioner, 'round:advance_phase')).ok, false);
+    const remaining = restored.find((m) => m.entry.player.id === g.answerers[1].entry.player.id);
+    await ok(remaining, 'round:submit_vote', { answerId: real.id });
+  }
+  await ok(questioner, 'round:advance_phase');
+  const revealed = await ok(questioner, 'room:resume', credential(questioner.entry));
+  assert.equal(revealed.gameData.resumeState.phase, 'revealed');
+  assert.equal(revealed.gameData.resumeState.revealData.votes.length, g.answerers.length);
+});
+
 test('all transports can disappear beyond the packet window without deletion or a game stop', async (t) => {
   const g = await game(t);
   for (const m of g.answerers) await ok(m, 'round:declare_unknown');

@@ -288,22 +288,34 @@ test('failed introduction and final advancement restore state and publish no suc
   assert.equal(ending.events.length, 0);
 });
 
-test('consent mode waits for the controller, including deadline expiry and restart fields', async () => {
+test('consent mode expires title submission but waits for every vote and the controller', async () => {
   const f = fixture('submitting');
   f.room.settings = { genreDisclosure: false, advanceMode: 'consent', timeLimitSeconds: 30 };
   const round = f.room.rounds[0];
-  round.answers = round.answers.filter((a) => !a.is_real);
-  f.game.checkRoundProgress(f.io, f.room, round);
+  round.answers = round.answers.filter((a) => a.player_id === 'a');
+  round.deadline_at = Date.now() - 1;
+  await f.game.checkRoundTimers(f.io);
   assert.equal(round.status, 'submitting');
   assert.equal(round.phase_ready, true);
   assert.equal((await f.command('a')('round:advance_phase')).ok, false);
   assert.equal((await f.command('q')('round:advance_phase')).ok, true);
   assert.equal(round.status, 'voting');
-  assert(round.deadline_at > Date.now());
+  assert.equal(round.deadline_at, null);
+  assert.equal(round.phase_ready, false);
   round.deadline_at = Date.now() - 1;
   await f.game.checkRoundTimers(f.io);
   assert.equal(round.status, 'voting');
+  assert.equal(round.phase_ready, false);
+  const real = round.answers.find((a) => a.is_real);
+  assert.equal((await f.command('a')('round:submit_vote', { answerId: real.id })).ok, true);
+  assert.equal(round.phase_ready, false);
+  const premature = await f.command('q')('round:advance_phase');
+  assert.equal(premature.ok, false);
+  assert.match(premature.error, /投票が揃うまで/);
+  for (const id of ['b', 'c']) assert.equal((await f.command(id)('round:submit_vote', { answerId: real.id })).ok, true);
+  assert.equal(round.status, 'voting');
   assert.equal(round.phase_ready, true);
+  assert.equal((await f.command('a')('round:advance_phase')).ok, false);
   assert.equal((await f.command('q')('round:advance_phase')).ok, true);
   assert.equal(round.status, 'revealed');
 });
@@ -317,9 +329,15 @@ test('automatic expiry uses only submitted titles and never makes an empty MVP r
   assert.equal(round.status, 'submitting');
   assert.equal((await f.command('a')('round:submit_fake', { title: '遅れて届いた案' })).ok, true);
   assert.equal(round.status, 'voting');
+  assert.equal(round.deadline_at, null);
   round.deadline_at = Date.now() - 1;
   round.timer_notified = false;
   await f.game.checkRoundTimers(f.io);
+  assert.equal(round.status, 'voting');
+  const real = round.answers.find((a) => a.is_real);
+  for (const id of ['a', 'b']) assert.equal((await f.command(id)('round:submit_vote', { answerId: real.id })).ok, true);
+  assert.equal(round.status, 'voting');
+  assert.equal((await f.command('c')('round:submit_vote', { answerId: real.id })).ok, true);
   assert.equal(round.status, 'revealed');
   assert.equal((await f.command('q')('round:submit_mvp', { answerId: round.answers.find((a) => !a.is_real).id })).ok, true);
 });
