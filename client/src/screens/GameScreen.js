@@ -48,6 +48,7 @@ export default function GameScreen({ navigation, route }) {
   const [ownAnswerId, setOwnAnswerId] = useState(saved.ownAnswerId || null);
   const [revealData, setRevealData] = useState(saved.revealData || null);
   const [fakeSubmittedCount, setFakeSubmittedCount] = useState(saved.fakeSubmittedCount || 0);
+  const [fakeSubmissionTotal, setFakeSubmissionTotal] = useState(saved.fakeSubmissionTotal || 0);
   const [voteProgress, setVoteProgress] = useState(saved.voteProgress || { voted: 0, total: 0 });
   const [roomPlayers, setRoomPlayers] = useState(room.players);
   const [knownPlayerIds, setKnownPlayerIds] = useState(saved.knownPlayerIds ||
@@ -133,6 +134,7 @@ export default function GameScreen({ navigation, route }) {
       setOwnAnswerId(null);
       setRevealData(null);
       setFakeSubmittedCount(0);
+      setFakeSubmissionTotal(0);
       setVoteProgress({ voted: 0, total: 0 });
       setKnownPlayerIds([]);
       setAllDeclared(false);
@@ -204,13 +206,18 @@ export default function GameScreen({ navigation, route }) {
     },
     'round:phase_ready': ({ roundId }) => { if (roundId === round.id) setPhaseReady(true); },
     'round:submitting_started': (data) => {
+      if (data.roundId !== round.id) return;
       setDeadlineAt(data.deadlineAt);
       setPhaseReady(false);
+      setFakeSubmittedCount(0);
+      setFakeSubmissionTotal(0);
       if (mode === 'cpu' && fetchedSynopsis) setSynopsis(fetchedSynopsis);
       setPhase('submitting');
     },
     'round:fake_submitted': (data) => {
+      if (data.roundId && data.roundId !== round.id) return;
       setFakeSubmittedCount(data.submittedCount);
+      setFakeSubmissionTotal(data.totalCount ?? 0);
     },
     'round:choices_presented': (data) => {
       setDeadlineAt(data.deadlineAt);
@@ -353,6 +360,7 @@ export default function GameScreen({ navigation, route }) {
             isQuestioner={isQuestioner}
             playerId={player.id}
             fakeSubmittedCount={fakeSubmittedCount}
+            fakeSubmissionTotal={fakeSubmissionTotal}
             consent={gameData.settings?.advanceMode === 'consent'}
             realTitle={isQuestioner ? questionerView?.realTitle : null}
             submittedAnswers={isQuestioner ? questionerView?.answers : []}

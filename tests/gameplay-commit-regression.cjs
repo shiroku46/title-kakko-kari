@@ -412,3 +412,87 @@ test('fake title progress includes computer submissions', async () => {
   });
   assert.equal(round.status, 'submitting');
 });
+
+test('submitted fake title can be replaced repeatedly without duplicate entry or privacy leakage', async () => {
+  const f = fixture('submitting'), round = f.room.rounds[0];
+  round.answers = round.answers.filter((a) => a.is_real || a.player_id === 'a');
+  const answer = round.answers.find((a) => a.player_id === 'a');
+  const oldId = answer.id;
+  const command = f.command('a');
+  for (const title of ['差し替えた案', '最終版のタイトル']) {
+    assert.equal((await command('round:submit_fake', { title })).ok, true);
+    assert.equal(round.answers.length, 2);
+    assert.equal(round.answers.find((a) => a.player_id === 'a').id, oldId);
+    assert.equal(round.answers.find((a) => a.player_id === 'a').title, title);
+    assert.equal(round.status, 'submitting');
+  }
+  const progress = f.events.filter((e) => e.event === 'round:fake_submitted');
+  assert.equal(progress.length, 2);
+  for (const e of progress) {
+    assert.equal(e.target, f.room.code);
+    assert.deepEqual(structuredClone(e.args[0]), { roundId: round.id, submittedCount: 1, totalCount: 3 });
+    assert.equal(JSON.stringify(e.args[0]).includes('タイトル'), false);
+  }
+  const saved = f.events.filter((e) => e.event === 'round:fake_saved');
+  assert.equal(saved.length, 2);
+  assert(saved.every((e) => e.target === 'socket-a'));
+  assert.equal(saved.at(-1).args[0].title, '最終版のタイトル');
+  const questionerViews = f.events.filter((e) => e.event === 'round:questioner_view');
+  assert(questionerViews.every((e) => e.target === 'socket-q'));
+  assert.equal(questionerViews.at(-1).args[0].answers.find((a) => a.id === oldId).title, '最終版のタイトル');
+  const resume = f.game.getResumeGame(f.room, f.room.players[1]).resumeState;
+  assert.equal(resume.submittedTitle, '最終版のタイトル');
+  assert.equal(resume.fakeSubmittedCount, 1);
+  assert.equal(resume.fakeSubmissionTotal, 3);
+});
+
+test('consent mode still locks fake replacement after the last submission', async () => {
+  const f = fixture('submitting'), round = f.room.rounds[0];
+  f.room.settings.advanceMode = 'consent';
+  round.phase_ready = true; // All submissions were received, but the questioner has not advanced.
+  const original = round.answers.find((a) => a.player_id === 'a');
+  const before = original.title;
+  const result = await f.command('a')('round:submit_fake', { title: '終了後の変更' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /全員が提出済み/);
+  assert.equal(original.title, before);
+  assert.equal(round.status, 'submitting');
+  assert.equal(f.events.length, 0);
+});
+
+test('a final submission serializes before a late replacement and preserves the prior answer', async () => {
+  const f = fixture('submitting'), round = f.room.rounds[0];
+  f.room.settings.advanceMode = 'consent';
+  round.answers = round.answers.filter((a) => a.is_real || a.player_id !== 'c');
+  const before = round.answers.find((a) => a.player_id === 'a').title;
+  const last = f.command('c')('round:submit_fake', { title: '最後の案' });
+  const edit = f.command('a')('round:submit_fake', { title: '送信に間に合わなかった案' });
+  assert.equal((await last).ok, true);
+  const denied = await edit;
+  assert.equal(denied.ok, false);
+  assert.match(denied.error, /全員が提出済み/);
+  assert.equal(round.phase_ready, true);
+  assert.equal(round.status, 'submitting');
+  assert.equal(round.answers.find((a) => a.player_id === 'a').title, before);
+  assert.equal(f.events.filter((e) => e.event === 'round:fake_submitted').at(-1).args[0].submittedCount, 3);
+});
+
+test('a failed fake-title replacement restores the prior answer and emits nothing', async () => {
+  const f = fixture('submitting'), round = f.room.rounds[0];
+  round.answers = round.answers.filter((a) => a.is_real || a.player_id === 'a');
+  f.fail(true);
+  assert.equal((await f.command('a')('round:submit_fake', { title: '保存失敗の案' })).ok, false);
+  assert.equal(round.answers.find((a) => a.player_id === 'a').title, '偽A');
+  assert.equal(f.events.length, 0);
+  f.fail(false);
+  assert.equal((await f.command('a')('round:submit_fake', { title: '保存成功の案' })).ok, true);
+  assert.equal(round.answers.find((a) => a.player_id === 'a').title, '保存成功の案');
+});
+
+test('fake-title replacement is rejected during voting', async () => {
+  const f = fixture('voting');
+  const answer = f.room.rounds[0].answers.find((a) => a.player_id === 'a');
+  assert.equal((await f.command('a')('round:submit_fake', { title: '投票後の案' })).ok, false);
+  assert.equal(answer.title, '偽A');
+  assert.equal(f.events.length, 0);
+});

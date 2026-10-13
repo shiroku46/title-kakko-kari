@@ -452,8 +452,11 @@ for (const count of [4, 5, 6]) {
         assert.ok(!JSON.stringify(state).includes(realTitle));
         assert.equal(state.room.rounds, undefined);
         await denied(host, 'game:next_round');
-        const duplicates = await Promise.all([ack(answerers[0], 'round:submit_fake', { title: '偽物0' }), ack(answerers[0], 'round:submit_fake', { title: '重複' })]);
-        assert.equal(duplicates.filter((v) => v.ok).length, 1);
+        const firstFake = await ack(answerers[0], 'round:submit_fake', { title: '仮の案' });
+        const replacedFake = await ack(answerers[0], 'round:submit_fake', { title: '偽物0' });
+        assert.equal(firstFake.ok, true);
+        assert.equal(replacedFake.ok, true);
+        assert.equal((await event(answerers[0], 'round:fake_saved')).title, '仮の案');
         await Promise.all(answerers.slice(1).map((b, i) => ok(b, 'round:submit_fake', { title: `偽物${i + 1}` })));
         for (const b of answerers) assert.equal((await event(b, 'round:fake_saved')).roundId, data.round.id);
         const presentedChoices = await Promise.all(bots.map((b) => event(b, 'round:choices_presented')));

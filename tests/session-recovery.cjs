@@ -136,9 +136,14 @@ test('fresh browser sockets restore declarations, submissions, private questione
   const restored = await resume(t, a.entry);
   assert.equal(restored.state.gameData.resumeState.submitted, true);
   assert.equal(restored.state.gameData.resumeState.submittedTitle, '保存する偽のタイトル');
-  assert.equal((await request(restored, 'round:submit_fake', { title: '重複' })).ok, false);
+  assert.equal((await request(restored, 'round:submit_fake', { title: '差し替え後のタイトル' })).ok, true);
+  const updated = await ok(restored, 'room:resume', credential(restored.entry));
+  assert.equal(updated.gameData.resumeState.submittedTitle, '差し替え後のタイトル');
+  assert.equal(updated.gameData.resumeState.fakeSubmittedCount, 1);
+  assert.equal(updated.gameData.resumeState.fakeSubmissionTotal, 2);
   const qView = await ok(q, 'room:resume', credential(q.entry));
   assert.equal(qView.gameData.resumeState.questionerView.answers.length, 2);
+  assert(qView.gameData.resumeState.questionerView.answers.some((answer) => answer.title === '差し替え後のタイトル'));
   await ok(g.answerers[1], 'round:submit_fake', { title: 'もう一人の案' });
   const voting = await ok(restored, 'room:resume', credential(restored.entry));
   assert.equal(voting.gameData.resumeState.phase, 'voting');

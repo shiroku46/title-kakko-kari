@@ -27,6 +27,7 @@ export default function SubmittingPhase({
   workKindLabel,
   isQuestioner,
   fakeSubmittedCount,
+  fakeSubmissionTotal = 0,
   consent = false,
   realTitle,
   submittedAnswers = [],
@@ -35,34 +36,62 @@ export default function SubmittingPhase({
   socket,
 }) {
   const [fakeTitle, setFakeTitle] = useState(initialTitle);
+  const [savedTitle, setSavedTitle] = useState(initialTitle);
   const [submitted, setSubmitted] = useState(initialSubmitted);
+  const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [requestError, setRequestError] = useState(null);
   const pendingRef = useRef(false);
+  // The server also enforces this boundary so a late edit cannot win a race.
+  const canReplace = !fakeSubmissionTotal || fakeSubmittedCount < fakeSubmissionTotal;
   const { isPC, contentPadding } = useResponsiveLayout();
   useSocketListeners({
-    'round:fake_saved': ({ roundId }) => {
+    'round:fake_saved': ({ roundId, title }) => {
       if (roundId === round.id) {
+        if (typeof title === 'string') {
+          setSavedTitle(title);
+          setFakeTitle(title);
+        }
         setSubmitted(true);
+        setEditing(false);
         setRequestError(null);
       }
     },
   });
 
   function handleSubmitFake() {
-    if (pendingRef.current || submitted) return;
-    if (!fakeTitle.trim()) return setRequestError('タイトルを入力してください');
+    if (pendingRef.current || (submitted && (!editing || !canReplace))) return;
+    const title = fakeTitle.trim();
+    if (!title) return setRequestError('タイトルを入力してください');
+    if (submitted && title === savedTitle) return;
     if (!socket?.connected) return setRequestError('接続が切れています。接続を確認してください。');
     pendingRef.current = true;
     setSubmitting(true);
     setRequestError(null);
-    socket.timeout(10000).emit('round:submit_fake', { title: fakeTitle.trim(), roundId: round?.id }, (error, res) => {
+    socket.timeout(10000).emit('round:submit_fake', { title, roundId: round?.id }, (error, res) => {
       pendingRef.current = false;
       setSubmitting(false);
       if (error) return setRequestError('返事がありません。接続を確認して、もう一度お試しください。');
       if (!res?.ok) return setRequestError(res?.error || 'タイトルを送れませんでした。もう一度お試しください。');
+      setSavedTitle(title);
+      setFakeTitle(title);
       setSubmitted(true);
+      setEditing(false);
     });
+  }
+
+  function startReplacing() {
+    if (!submitted || !canReplace || pendingRef.current) return;
+    setFakeTitle(savedTitle);
+    setEditing(true);
+    setRequestError(null);
+  }
+
+  function cancelReplacing() {
+    if (pendingRef.current) return;
+    setFakeTitle(savedTitle);
+    setEditing(false);
+    setRequestError(null);
   }
 
   return (
@@ -109,7 +138,7 @@ export default function SubmittingPhase({
                   <Text style={styles.progressTitle}>提出状況</Text>
                   <View style={styles.progressValueRow}>
                     <Text testID="submission-progress" accessibilityLiveRegion="polite" style={styles.progressValue}>{fakeSubmittedCount}</Text>
-                    <Text style={styles.progressUnit}>人が提出</Text>
+                    <Text style={styles.progressUnit}>/ {fakeSubmissionTotal || '—'} 人が提出</Text>
                   </View>
                   <Text style={styles.progressNote}>みんなの提出状況は自動で更新されます。</Text>
                 </PaperPanel>
@@ -137,9 +166,14 @@ export default function SubmittingPhase({
                 }}
                 onSubmit={handleSubmitFake}
                 submitted={submitted}
-                submittedTitle={fakeTitle}
+                submittedTitle={savedTitle}
+                editing={editing}
+                canReplace={canReplace}
+                onStartEdit={startReplacing}
+                onCancelEdit={cancelReplacing}
                 loading={submitting}
                 submittedCount={fakeSubmittedCount}
+                submissionTotal={fakeSubmissionTotal}
               />
             </View>
           )}

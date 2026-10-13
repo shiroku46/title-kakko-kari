@@ -16,7 +16,12 @@ export default function TitleInputSheet({
   onSubmit,
   submitted,
   submittedTitle,
+  editing = false,
+  canReplace = false,
+  onStartEdit,
+  onCancelEdit,
   submittedCount = 0,
+  submissionTotal = 0,
   maxLength = 200,
   loading = false,
 }) {
@@ -25,12 +30,12 @@ export default function TitleInputSheet({
     <View style={[styles.submissionProgress, submitted && styles.submissionProgressSubmitted]}>
       <Text style={styles.submissionProgressLabel}>みんなの提出状況</Text>
       <Text testID="submission-progress" accessibilityLiveRegion="polite" style={styles.submissionProgressCount}>
-        {submittedCount} 人が提出済み
+        {submissionTotal ? `${submittedCount} / ${submissionTotal} 人が提出済み` : `${submittedCount} 人が提出済み`}
       </Text>
     </View>
   );
 
-  if (submitted) {
+  if (submitted && (!editing || !canReplace)) {
     return (
       <PaperPanel tone="yellow" variant="elevated">
         <View style={styles.submittedRow}>
@@ -40,10 +45,19 @@ export default function TitleInputSheet({
             <Text style={styles.submittedTitle}>
               {submittedTitle}
             </Text>
-            <Text style={styles.submittedNote}>ほかの参加者の提出を待っています。</Text>
+            <Text style={styles.submittedNote}>
+              {canReplace
+                ? '全員が提出するまでは、タイトルを何度でも差し替えできます。'
+                : '全員の提出が揃ったため、タイトルは変更できません。'}
+            </Text>
           </View>
         </View>
         {submissionProgress}
+        {canReplace ? (
+          <StationeryButton variant="secondary" onPress={onStartEdit} accessibilityLabel="提出したタイトルを差し替える">
+            タイトルを差し替える
+          </StationeryButton>
+        ) : null}
       </PaperPanel>
     );
   }
@@ -52,7 +66,7 @@ export default function TitleInputSheet({
     <PaperPanel tone="cream" variant="elevated">
       <View style={styles.headingRow}>
         <View>
-          <Text style={styles.heading}>それっぽいタイトルを考える</Text>
+          <Text style={styles.heading}>{editing ? 'タイトルを差し替える' : 'それっぽいタイトルを考える'}</Text>
         </View>
       </View>
 
@@ -62,7 +76,8 @@ export default function TitleInputSheet({
         </View>
       ) : null}
       {submissionProgress}
-      <Text style={styles.fieldLabel}>タイトル案</Text>
+      {editing ? <Text style={styles.editingHint}>差し替えを確定すると、前のタイトル案が上書きされます。</Text> : null}
+      <Text style={styles.fieldLabel}>{editing ? '新しいタイトル案' : 'タイトル案'}</Text>
       <TextInput
         style={styles.input}
         placeholder="本物らしいタイトルを入力"
@@ -81,11 +96,16 @@ export default function TitleInputSheet({
         variant="primary"
         onPress={onSubmit}
         loading={loading}
-        disabled={!value?.trim()}
-        accessibilityLabel="タイトル案を提出する"
+        disabled={!value?.trim() || (editing && (!canReplace || value.trim() === submittedTitle.trim()))}
+        accessibilityLabel={editing ? 'タイトル案の差し替えを確定する' : 'タイトル案を提出する'}
       >
-        タイトル案を提出する →
+        {editing ? 'このタイトルに差し替える →' : 'タイトル案を提出する →'}
       </StationeryButton>
+      {editing ? (
+        <StationeryButton variant="ghost" onPress={onCancelEdit} disabled={loading} accessibilityLabel="差し替え編集をやめる">
+          編集をやめる
+        </StationeryButton>
+      ) : null}
     </PaperPanel>
   );
 }
@@ -151,6 +171,7 @@ const styles = StyleSheet.create({
   submissionProgressSubmitted: { marginTop: 16, marginBottom: 0 },
   submissionProgressLabel: { color: colors.navy, fontSize: 13, fontWeight: '700' },
   submissionProgressCount: { color: colors.navy, fontSize: 16, fontWeight: '900' },
+  editingHint: { color: colors.muted, fontSize: 13, lineHeight: 20, marginBottom: 12 },
   submittedRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   submittedInfo: { flex: 1 },
   submittedLabel: { fontSize: 12, color: colors.muted, marginBottom: 5 },

@@ -388,9 +388,18 @@ function registerGameHandlers(io, socket) {
     if (round.questioner_id === player.id) throw new Error('出題者は偽タイトルを提出できません');
     requirePhase(round, 'submitting');
     const title = textInput(payload?.title, 'タイトル', 200);
-    if (round.answers.some((a) => a.player_id === player.id)) throw new Error('すでに偽タイトルを提出しています');
-    round.answers.push({ id: randomUUID(), round_id: round.id, player_id: player.id, title, is_real: false });
-    io.to(player.socket_id).emit('round:fake_saved', { roundId: round.id });
+    const existing = round.answers.find((a) => a.player_id === player.id && !a.is_real);
+    if (existing) {
+      const answerers = connectedAnswerers(room, round);
+      if (answerers.every((p) => round.answers.some((a) => a.player_id === p.id && !a.is_real))) {
+        throw new Error('全員が提出済みのため、タイトルを差し替えできません');
+      }
+      // Keep the answer identity: votes and the submission counter must not gain another entry.
+      existing.title = title;
+    } else {
+      round.answers.push({ id: randomUUID(), round_id: round.id, player_id: player.id, title, is_real: false });
+    }
+    io.to(player.socket_id).emit('round:fake_saved', { roundId: round.id, title });
     checkRoundProgress(io, room, round);
   });
 
@@ -609,7 +618,9 @@ function getResumeGame(room, player) {
       // Retain the legacy display field while older clients remain in service.
       knownDeclarations: answerers.filter((p) => round.declarations.get(p.id) === 'known').map((p) => p.nickname),
       allDeclared: answerers.length > 0 && answerers.every((p) => round.declarations.has(p.id)),
-      fakeSubmittedCount: round.answers.filter((a) => !a.is_real).length,
+      fakeSubmittedCount: answerers.filter((p) => round.answers.some((a) => a.player_id === p.id && !a.is_real)).length +
+        room.players.filter((p) => p.is_computer && round.answers.some((a) => a.player_id === p.id && !a.is_real)).length,
+      fakeSubmissionTotal: answerers.length + room.players.filter((p) => p.is_computer).length,
       voteProgress: { voted: round.votes.length, total: answerers.length },
       revealData: round.status === 'revealed' ? getRevealedRound(room, round) : null,
       questionerDisconnected: Boolean(questioner && !questioner.is_connected),
