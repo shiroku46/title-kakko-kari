@@ -478,9 +478,10 @@ function checkRoundProgress(io, room, round) {
     sendQuestionerView(io, room, round);
     const submittedCount = answerers.filter((p) => round.answers.some((a) => a.player_id === p.id)).length;
     const computerCount = room.players.filter((p) => p.is_computer).length;
-    const questioner = room.players.find((p) => p.id === round.questioner_id);
-    if (questioner?.socket_id) io.to(questioner.socket_id).emit('round:fake_submitted', {
-      submittedCount: submittedCount + computerCount, totalCount: answerers.length + computerCount,
+    // Only aggregate progress is shared; titles and author IDs remain private.
+    io.to(room.code).emit('round:fake_submitted', {
+      roundId: round.id, submittedCount: submittedCount + computerCount,
+      totalCount: answerers.length + computerCount,
     });
     if (round.answers.some((a) => !a.is_real) && (submittedCount === answerers.length || deadlinePassed(round))) {
       readyPhase(io, room, round, transitionToVoting);

@@ -1,5 +1,4 @@
 import WorkIntroduction from '../ui/WorkIntroduction';
-import { fontFamilies } from '../../theme/typography';
 import React, { useState, useRef } from 'react';
 import {
   View,
@@ -40,7 +39,7 @@ export default function SubmittingPhase({
   const [submitting, setSubmitting] = useState(false);
   const [requestError, setRequestError] = useState(null);
   const pendingRef = useRef(false);
-  const { contentPadding } = useResponsiveLayout();
+  const { isPC, contentPadding } = useResponsiveLayout();
   useSocketListeners({
     'round:fake_saved': ({ roundId }) => {
       if (roundId === round.id) {
@@ -88,36 +87,37 @@ export default function SubmittingPhase({
           />
 
           {isQuestioner ? (
-            <View style={styles.questionerLayout}>
-              <PaperPanel tone="cream">
-                <WorkIntroduction synopsis={synopsis} workKindLabel={workKindLabel} realTitle={realTitle} />
-              </PaperPanel>
-              <PaperPanel tone="navy" variant="elevated" style={styles.progressPanel}>
-                <Text style={styles.progressTitle}>タイトル案を受付中</Text>
-                <Text style={styles.progressNote}>
-                  集まったタイトル案は出題者だけに表示されます。{consent ? '提出が揃うか制限時間が終わると、出題者が投票へ進められます。' : '提出が揃うか制限時間が終わると、投票へ進みます。'}
-                </Text>
-                <View style={styles.counterWrap}>
-                  <View style={styles.counterBubble}>
-                    <Text style={styles.counterNum}>{fakeSubmittedCount}</Text>
-                    <Text style={styles.counterUnit}>人提出</Text>
+            <View style={[styles.layout, isPC && styles.layoutPC]}>
+              <View style={[styles.mainColumn, isPC && styles.mainColumnPC]}>
+                <PaperPanel tone="cream">
+                  <WorkIntroduction synopsis={synopsis} workKindLabel={workKindLabel} realTitle={realTitle} />
+                </PaperPanel>
+                <PaperPanel tone="navy" style={styles.questionerPanel}>
+                  <Text style={styles.questionerTitle}>みんなのタイトル案</Text>
+                  <Text style={styles.questionerBody}>
+                    出題者はタイトルを提出しません。{consent ? '提出が揃うか制限時間が終わると、投票へ進められます。' : '提出が揃うか制限時間が終わると、投票へ進みます。'}
+                  </Text>
+                  <View style={styles.answerList}>
+                    {submittedAnswers.length ? submittedAnswers.map((answer, index) => (
+                      <Text key={answer.id} testID="questioner-answer" style={styles.answerItem}>{index + 1}. {answer.title}</Text>
+                    )) : <Text style={styles.emptyAnswer}>まだ提出されていません。</Text>}
                   </View>
-                </View>
-              </PaperPanel>
-
-              <PaperPanel tone="white">
-                <Text style={styles.tipTitle}>集まったタイトル案</Text>
-                {submittedAnswers.length ? submittedAnswers.map((answer, index) => (
-                  <Text key={answer.id} testID="questioner-answer" style={styles.tipText}>{index + 1}. {answer.title}</Text>
-                )) : <Text style={styles.tipText}>まだ提出されていません。</Text>}
-              </PaperPanel>
-
-              <PaperPanel tone="yellow" style={styles.tipPanel}>
-                <Text style={styles.tipTitle}>出題者のヒント</Text>
-                <Text style={styles.tipText}>
-                  回答者には、作品の紹介文だけが表示されています。どんなタイトルが集まるか、お楽しみに。
-                </Text>
-              </PaperPanel>
+                </PaperPanel>
+              </View>
+              <View style={[styles.sideColumn, isPC && styles.sideColumnPC]}>
+                <PaperPanel tone="yellow" style={styles.progressPanel}>
+                  <Text style={styles.progressTitle}>提出状況</Text>
+                  <View style={styles.progressValueRow}>
+                    <Text testID="submission-progress" accessibilityLiveRegion="polite" style={styles.progressValue}>{fakeSubmittedCount}</Text>
+                    <Text style={styles.progressUnit}>人が提出</Text>
+                  </View>
+                  <Text style={styles.progressNote}>みんなの提出状況は自動で更新されます。</Text>
+                </PaperPanel>
+                <PaperPanel tone="sky" style={styles.tipPanel}>
+                  <Text style={styles.tipTitle}>出題者のヒント</Text>
+                  <Text style={styles.tipText}>回答者には作品の紹介文だけが表示されています。</Text>
+                </PaperPanel>
+              </View>
             </View>
           ) : (
             <View style={styles.answererLayout}>
@@ -139,6 +139,7 @@ export default function SubmittingPhase({
                 submitted={submitted}
                 submittedTitle={fakeTitle}
                 loading={submitting}
+                submittedCount={fakeSubmittedCount}
               />
             </View>
           )}
@@ -152,45 +153,32 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { flex: 1 },
   content: {
-    width: '100%',
-    alignSelf: 'center',
-    paddingTop: Platform.OS === 'web' ? 22 : 54,
+    width: '100%', alignSelf: 'center', paddingTop: Platform.OS === 'web' ? 22 : 54,
     paddingBottom: 40,
   },
-  questionerLayout: { gap: 14 },
-  answererLayout: { gap: 12 },
-  requestError: { color: colors.redDark, backgroundColor: colors.cream, padding: 14, borderRadius: radii.md, fontSize: 14, lineHeight: 22 },
-  progressPanel: { alignItems: 'center', paddingVertical: 30 },
-
-  progressTitle: { fontFamily: fontFamilies.display, color: colors.white, fontSize: 25, lineHeight: 34, fontWeight: '900', marginTop: 6 },
-  progressNote: {
-    color: '#BCD1E0',
-    fontSize: 12,
-    lineHeight: 19,
-    textAlign: 'center',
-    maxWidth: 560,
-    marginTop: 8,
-  },
-  counterWrap: {
-    marginTop: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 32,
-  },
-  counterBubble: {
-    width: 126,
-    height: 126,
-    borderRadius: 63,
-    backgroundColor: colors.yellow,
-    borderWidth: 4,
-    borderColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  counterNum: { color: colors.navy, fontSize: 48, lineHeight: 54, fontWeight: '900' },
-  counterUnit: { color: colors.navy, fontSize: 12, fontWeight: '900' },
-
+  layout: { gap: 14 },
+  layoutPC: { flexDirection: 'row', alignItems: 'flex-start', gap: 18 },
+  mainColumn: { gap: 14 },
+  mainColumnPC: { flex: 1.7 },
+  sideColumn: { gap: 14 },
+  sideColumnPC: { flex: 0.75 },
+  questionerPanel: {},
+  questionerTitle: { color: colors.white, fontSize: 22, lineHeight: 30, fontWeight: '900', marginTop: 5 },
+  questionerBody: { color: '#D5E3ED', fontSize: 14, lineHeight: 23, marginTop: 8 },
+  answerList: { marginTop: 15, gap: 5 },
+  answerItem: { color: colors.white, fontSize: 16, lineHeight: 26, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: '#52728A' },
+  emptyAnswer: { color: '#D5E3ED', fontSize: 15, lineHeight: 24 },
+  progressPanel: {},
+  progressTitle: { color: colors.navy, fontSize: 19, fontWeight: '900', marginTop: 4 },
+  progressValueRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', gap: 10, marginTop: 14 },
+  progressValue: { color: colors.red, fontSize: 48, lineHeight: 58, fontWeight: '900' },
+  progressUnit: { color: colors.navy, fontSize: 16, fontWeight: '900' },
+  progressNote: { color: colors.ink, fontSize: 13, lineHeight: 20, marginTop: 10 },
   tipPanel: {},
   tipTitle: { color: colors.navy, fontSize: 15, fontWeight: '900' },
-  tipText: { color: colors.ink, fontSize: 12, lineHeight: 19, marginTop: 5 },
+  tipText: { color: colors.ink, fontSize: 14, lineHeight: 22, marginTop: 6 },
+  answererLayout: { gap: 12 },
+  requestError: { color: colors.redDark, backgroundColor: colors.cream, padding: 14,
+    borderRadius: radii.md, fontSize: 14, lineHeight: 22 },
 });

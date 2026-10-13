@@ -377,3 +377,38 @@ test('old round UUID and missing UUID reject every mutating round command before
   }
   assert.deepEqual(f.room, before); assert.equal(f.order.length, 26); assert.equal(f.events.length, 0);
 });
+
+test('fake title progress reaches the room without leaking titles', async () => {
+  const f = fixture('submitting'), round = f.room.rounds[0];
+  round.answers = round.answers.filter((a) => a.is_real);
+  assert.equal((await f.command('a')('round:submit_fake', { title: 'ひみつの偽タイトル' })).ok, true);
+  const progress = f.events.filter((e) => e.event === 'round:fake_submitted');
+  assert.equal(progress.length, 1);
+  assert.equal(progress[0].target, f.room.code);
+  assert.deepEqual(structuredClone(progress[0].args[0]), {
+    roundId: round.id, submittedCount: 1, totalCount: 3,
+  });
+  assert.equal(JSON.stringify(progress[0].args[0]).includes('ひみつの偽タイトル'), false);
+  assert.equal(f.game.getResumeGame(f.room, f.room.players[2]).resumeState.fakeSubmittedCount, 1);
+  assert.equal(round.status, 'submitting');
+});
+
+test('fake title progress includes computer submissions', async () => {
+  const f = fixture('submitting'), round = f.room.rounds[0];
+  f.room.players.push({
+    ...f.room.players[1], id: 'cpu', nickname: 'コンピュータ1',
+    socket_id: null, is_computer: true, is_host: false,
+  });
+  round.answers = [
+    round.answers.find((a) => a.is_real),
+    { id: 'cpu-fake', title: 'コンピュータの案', player_id: 'cpu', is_real: false },
+  ];
+  assert.equal((await f.command('a')('round:submit_fake', { title: '人間の案' })).ok, true);
+  const progress = f.events.filter((e) => e.event === 'round:fake_submitted');
+  assert.equal(progress.length, 1);
+  assert.equal(progress[0].target, f.room.code);
+  assert.deepEqual(structuredClone(progress[0].args[0]), {
+    roundId: round.id, submittedCount: 2, totalCount: 4,
+  });
+  assert.equal(round.status, 'submitting');
+});

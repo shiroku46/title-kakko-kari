@@ -16,10 +16,19 @@ export default function TitleInputSheet({
   onSubmit,
   submitted,
   submittedTitle,
+  submittedCount = 0,
   maxLength = 200,
   loading = false,
 }) {
   const charCount = value?.length ?? 0;
+  const submissionProgress = (
+    <View style={[styles.submissionProgress, submitted && styles.submissionProgressSubmitted]}>
+      <Text style={styles.submissionProgressLabel}>みんなの提出状況</Text>
+      <Text testID="submission-progress" accessibilityLiveRegion="polite" style={styles.submissionProgressCount}>
+        {submittedCount} 人が提出済み
+      </Text>
+    </View>
+  );
 
   if (submitted) {
     return (
@@ -34,6 +43,7 @@ export default function TitleInputSheet({
             <Text style={styles.submittedNote}>ほかの参加者の提出を待っています。</Text>
           </View>
         </View>
+        {submissionProgress}
       </PaperPanel>
     );
   }
@@ -51,6 +61,7 @@ export default function TitleInputSheet({
           <WorkIntroduction synopsis={synopsis} workKindLabel={workKindLabel} />
         </View>
       ) : null}
+      {submissionProgress}
       <Text style={styles.fieldLabel}>タイトル案</Text>
       <TextInput
         style={styles.input}
@@ -131,6 +142,15 @@ const styles = StyleSheet.create({
   },
   hint: { fontSize: 13, color: colors.muted },
   charCount: { fontSize: 13, color: colors.muted, fontWeight: '700' },
+  submissionProgress: {
+    backgroundColor: colors.white, borderRadius: radii.md, borderWidth: 1,
+    borderColor: colors.border, paddingHorizontal: 14, paddingVertical: 12,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center',
+    justifyContent: 'space-between', gap: 8, marginBottom: 16,
+  },
+  submissionProgressSubmitted: { marginTop: 16, marginBottom: 0 },
+  submissionProgressLabel: { color: colors.navy, fontSize: 13, fontWeight: '700' },
+  submissionProgressCount: { color: colors.navy, fontSize: 16, fontWeight: '900' },
   submittedRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   submittedInfo: { flex: 1 },
   submittedLabel: { fontSize: 12, color: colors.muted, marginBottom: 5 },
