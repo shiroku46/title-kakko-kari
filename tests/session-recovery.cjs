@@ -139,8 +139,9 @@ test('fresh browser sockets restore declarations, submissions, private questione
   assert.equal((await request(restored, 'round:submit_fake', { title: '差し替え後のタイトル' })).ok, true);
   const updated = await ok(restored, 'room:resume', credential(restored.entry));
   assert.equal(updated.gameData.resumeState.submittedTitle, '差し替え後のタイトル');
-  assert.equal(updated.gameData.resumeState.fakeSubmittedCount, 1);
-  assert.equal(updated.gameData.resumeState.fakeSubmissionTotal, 2);
+  // One human answer plus one automatically submitted computer title.
+  assert.equal(updated.gameData.resumeState.fakeSubmittedCount, 2);
+  assert.equal(updated.gameData.resumeState.fakeSubmissionTotal, 3);
   const qView = await ok(q, 'room:resume', credential(q.entry));
   assert.equal(qView.gameData.resumeState.questionerView.answers.length, 2);
   assert(qView.gameData.resumeState.questionerView.answers.some((answer) => answer.title === '差し替え後のタイトル'));
