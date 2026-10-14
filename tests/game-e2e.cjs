@@ -1561,7 +1561,14 @@ for (const [humanCount, computerCount, mode] of [[2, 2, 'player'], [2, 2, 'cpu']
       assert.ok(!JSON.stringify((await ok(host, 'room:get_state')).room).includes(realTitle));
       for (let i = 0; i < answerers.length; i++) {
         await ok(answerers[i], 'round:submit_fake', { title: `人間の案${number}-${i}`, playerId: computerIds[0] });
-        await denied(answerers[i], 'round:submit_fake', { title: '二重提出' });
+        if (i < answerers.length - 1) {
+          const answerId = round.answers.find((a) => a.player_id === answerers[i].player.id).id;
+          await ok(answerers[i], 'round:submit_fake', { title: `差し替えた人間の案${number}-${i}` });
+          assert.equal(round.answers.find((a) => a.player_id === answerers[i].player.id).id, answerId);
+          assert.equal(round.answers.length, computerCount + i + 1);
+        } else {
+          await denied(answerers[i], 'round:submit_fake', { title: '終了後の変更' });
+        }
       }
       const shown = await event(host, 'round:choices_presented');
       assert.equal(shown.choices.length, computerCount + answerers.length + 1);

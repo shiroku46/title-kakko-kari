@@ -489,6 +489,29 @@ test('a failed fake-title replacement restores the prior answer and emits nothin
   assert.equal(round.answers.find((a) => a.player_id === 'a').title, '保存成功の案');
 });
 
+test('replacement queued before the last submission commits first even with delayed persistence', async () => {
+  const f = fixture('submitting'), round = f.room.rounds[0];
+  f.room.settings.advanceMode = 'consent';
+  round.answers = round.answers.filter((a) => a.is_real || a.player_id !== 'c');
+  const id = round.answers.find((a) => a.player_id === 'a').id;
+  let release;
+  f.delay(new Promise((resolve) => { release = resolve; }));
+  const edit = f.command('a')('round:submit_fake', { title: '先に確定した案' });
+  const last = f.command('c')('round:submit_fake', { title: '最後の案' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(f.events.length, 0);
+  assert.equal(round.answers.some((a) => a.player_id === 'c'), false);
+  release();
+  assert.equal((await edit).ok, true);
+  assert.equal((await last).ok, true);
+  const resume = f.game.getResumeGame(f.room, f.room.players[1]).resumeState;
+  assert.equal(resume.submittedTitle, '先に確定した案');
+  assert.equal(resume.fakeSubmittedCount, 3);
+  assert.equal(resume.fakeSubmissionTotal, 3);
+  assert.equal(round.answers.find((a) => a.player_id === 'a').id, id);
+  assert.equal((await f.command('a')('round:submit_fake', { title: '復帰後の変更' })).ok, false);
+});
+
 test('fake-title replacement is rejected during voting', async () => {
   const f = fixture('voting');
   const answer = f.room.rounds[0].answers.find((a) => a.player_id === 'a');
