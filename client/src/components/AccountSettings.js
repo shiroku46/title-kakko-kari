@@ -4,7 +4,7 @@ import { Text, TextInput } from './ui/GameText';
 import { PaperPanel, StationeryButton } from './ui';
 import { colors } from '../theme';
 import useAccount from '../hooks/useAccount';
-import { authClient, accountUrl } from '../utils/accountAuth';
+import { authClient, accountUrl, discordCallbacks, consumeAccountError } from '../utils/accountAuth';
 function resetToken() { try { return new URLSearchParams(globalThis.location?.search).get('token'); } catch (_) { return null; } }
 
 export default function AccountSettings() {
@@ -19,6 +19,10 @@ export default function AccountSettings() {
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  useEffect(() => {
+    const failure = consumeAccountError();
+    if (failure) { setError(failure); setOpen(true); }
+  }, []);
   useEffect(() => {
     if (user) setName(user.name?.slice(0, 12) || '');
   }, [user?.id, user?.name]);
@@ -58,7 +62,7 @@ export default function AccountSettings() {
       {user ? <>
         <StationeryButton disabled={pending || !name.trim()} onPress={() => action(() => authClient.updateUser({ name: name.trim() }), '名前を保存しました。')}
           accessibilityLabel="アカウントの名前を保存">保存する</StationeryButton>
-        {configuration.discord ? <StationeryButton disabled={pending} onPress={() => action(() => authClient.linkSocial({ provider: 'discord', callbackURL: `${accountUrl}/` }))}>Discord を連携する</StationeryButton> : null}
+        {configuration.discord ? <StationeryButton disabled={pending} onPress={() => action(() => authClient.linkSocial({ provider: 'discord', ...discordCallbacks }))}>Discord を連携する</StationeryButton> : null}
         <StationeryButton variant="ghost" disabled={pending} onPress={() => action(() => authClient.signOut(), 'ログアウトしました。')}
           accessibilityLabel="ログアウトする">ログアウト</StationeryButton>
       </> : <>
@@ -80,7 +84,7 @@ export default function AccountSettings() {
             <StationeryButton variant="ghost" disabled={pending || !email.trim()} onPress={() => action(() => authClient.requestPasswordReset({ email, redirectTo: `${accountUrl}/` }), '登録済みのアドレスに再設定のメールを送信します。')}>パスワードを忘れた</StationeryButton>
           </> : null}
         </> : <Text style={styles.note}>メールログインは準備中です。</Text>}
-        {configuration.discord ? <StationeryButton disabled={pending} onPress={() => action(() => authClient.signIn.social({ provider: 'discord', callbackURL: `${accountUrl}/` }))}
+        {configuration.discord ? <StationeryButton disabled={pending} onPress={() => action(() => authClient.signIn.social({ provider: 'discord', ...discordCallbacks }))}
           accessibilityLabel="Discordでログインする">Discord でログインする</StationeryButton> : <Text style={styles.note}>Discord ログインは準備中です。</Text>}
       </>}
       {message ? <Text accessibilityLiveRegion="polite" style={styles.note}>{message}</Text> : null}

@@ -17,13 +17,28 @@ function deserializeRooms(saved) {
   try {
     if (saved.version !== 1 || !Array.isArray(saved.rooms)) throw new Error();
     const rooms = new Map();
+    if (saved.history !== undefined && !Array.isArray(saved.history)) throw new Error();
+    rooms.history = new Map(saved.history || []);
+    for (const [id, entry] of rooms.history) {
+      if (typeof id !== 'string' || entry?.detail?.id !== id || !entry.access ||
+          typeof entry.access !== 'object' || Array.isArray(entry.access) ||
+          !Array.isArray(entry.detail.rounds) || !Array.isArray(entry.detail.players)) throw new Error();
+      for (const owner of Object.values(entry.access)) {
+        if (!owner || !/^[a-f0-9]{64}$/.test(owner.hash) ||
+            owner.userId != null && typeof owner.userId !== 'string') throw new Error();
+      }
+    }
     for (const room of saved.rooms) {
       if (!/^\d{6}$/.test(room.code) || typeof room.id !== 'string' ||
           !['waiting', 'playing', 'finished'].includes(room.status) ||
           !Array.isArray(room.players) || !Array.isArray(room.rounds) || !Array.isArray(room.usedQuestionIds) ||
           !room.settings || !Number.isInteger(room.current_round) || rooms.has(room.code)) throw new Error();
       if (room.password_hash != null && !/^[a-f0-9]{32}:[a-f0-9]{64}$/.test(room.password_hash)) throw new Error();
-      if (room.expires_at && room.expires_at <= Date.now()) continue;
+      if (room.expires_at && room.expires_at <= Date.now()) {
+        const archived = rooms.history.get(room.id);
+        if (archived?.detail.status === 'playing') archived.detail.status = 'interrupted';
+        continue;
+      }
       for (const player of room.players) {
         if (typeof player.id !== 'string' || typeof player.nickname !== 'string' || !Number.isFinite(player.score)) throw new Error();
         if (player.resume_hash && !/^[a-f0-9]{64}$/.test(player.resume_hash)) throw new Error();
@@ -54,7 +69,7 @@ function deserializeRooms(saved) {
 }
 
 function serializeRooms(rooms) {
-  return { version: 1, rooms: [...rooms.values()].map((room) => ({
+  return { version: 1, history: [...(rooms.history || [])], rooms: [...rooms.values()].map((room) => ({
     ...room, rounds: room.rounds.map((round) => ({ ...round, declarations: [...round.declarations] })),
   })) };
 }

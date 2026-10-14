@@ -233,6 +233,7 @@ function registerGameHandlers(io, socket) {
     room.status = 'playing';
     room.current_round = 1;
     room.total_rounds = mode === 'cpu' ? Math.min(Math.max(requestedRounds, 1), 20) : ordered.length;
+    room.started_at = Date.now();
     startRound(io, room, mode, 'game:started', ordered.map((p) => ({
       id: p.id, nickname: p.nickname, turnOrder: p.turn_order,
     })), defer);
@@ -552,6 +553,7 @@ function revealRound(io, room, round) {
     return { player_id: p.id, correct_pts, deceive_pts, total_pts };
   });
   round.status = 'revealed';
+  round.revealed_at = Date.now();
   round.deadline_at = null;
   round.phase_ready = false;
   io.to(room.code).emit('round:revealed', getRevealedRound(room, round));

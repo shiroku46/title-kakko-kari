@@ -25,6 +25,14 @@ app.all('/api/auth/*', (req, res) => {
   if (!accountAuth.handler) return res.status(503).json({ error: 'ログインの設定がまだ完了していません。' });
   return accountAuth.handler(req, res);
 });
+require('./gameHistory').registerHistoryRoutes(app, {
+  rooms: require('./gameState').rooms, persist: require('./gameState').persistRooms,
+  requireStorage: require('./gameState').requireRoomStorage,
+  run: require('./socket/commitGameAction').runStateOperation,
+  getSession: headers => accountAuth.getSession?.(headers),
+  origin: () => { try { return new URL(process.env.BETTER_AUTH_URL).origin; }
+    catch { return 'https://title-kakko-kari.vercel.app'; } },
+});
 
 const release = (process.env.RENDER_GIT_COMMIT || 'local').slice(0, 12);
 const instanceId = randomUUID();

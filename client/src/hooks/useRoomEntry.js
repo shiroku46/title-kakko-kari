@@ -106,7 +106,7 @@ export default function useRoomEntry(navigation) {
       if (controller.signal.aborted || !mounted.current) return;
       entered = true;
       saveRoomSession({ serverUrl: targetUrl, nickname: result.player.nickname, code: result.room.code,
-        playerId: result.player.id, token: result.token || saved?.token });
+        roomId: result.room.id, playerId: result.player.id, token: result.token || saved?.token });
       showRoom(navigation, result);
     } catch (failure) {
       if (mounted.current && (timedOut || !controller.signal.aborted)) {

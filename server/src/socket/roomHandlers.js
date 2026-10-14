@@ -66,7 +66,7 @@ function registerRoomHandlers(io, socket) {
         const player = {
           id: randomUUID(), room_id: room.id, nickname, is_host: isHost,
           socket_id: socket.id, is_connected: true, is_online: true, resume_hash: tokenHash(token), score: 0, turn_order: null,
-          icon: null, profile_ready: payload.nickname !== undefined,
+          icon: null, profile_ready: payload.nickname !== undefined, history_hash: tokenHash(token),
         };
         try {
           await commitGameAction(io, room, persistRooms, () => {
@@ -115,14 +115,17 @@ function registerRoomHandlers(io, socket) {
       }
       rejoinUnavailable = false;
       const oldSocket = io.sockets.sockets.get(player.socket_id);
-      const previous = { socket_id: player.socket_id, is_online: player.is_online, expires_at: room.expires_at };
+      const previous = { socket_id: player.socket_id, is_online: player.is_online, expires_at: room.expires_at,
+        history_hash: player.history_hash };
       player.socket_id = socket.id;
       player.is_online = true;
+      player.history_hash ||= tokenHash(payload.token);
       updateRoomExpiry(room);
       try { await persistRooms(); }
       catch (error) {
         player.socket_id = previous.socket_id;
         player.is_online = previous.is_online;
+        player.history_hash = previous.history_hash;
         room.expires_at = previous.expires_at;
         throw error;
       }

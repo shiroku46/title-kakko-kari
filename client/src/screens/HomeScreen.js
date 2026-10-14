@@ -86,6 +86,8 @@ export default function HomeScreen({ navigation }) {
       <Text style={styles.rulesText}>遊び方を見る</Text><Chevron />
     </TouchableOpacity>
     <AccountSettings />
+    <StationeryButton variant="ghost" disabled={entry.busy} onPress={() => navigation.navigate('History')}
+      accessibilityLabel="遊んだ履歴を見る">遊んだ履歴を見る</StationeryButton>
     <View style={styles.settingsArea}>
       <TouchableOpacity style={styles.settingsToggle} onPress={toggleSettings}
         disabled={entry.busy} accessibilityRole="button" accessibilityLabel="接続設定を開く"

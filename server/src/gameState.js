@@ -5,6 +5,7 @@ const { loadRooms, saveRooms, REJOIN_WINDOW_MS } = require('./roomStore');
 // for recovery across hosting-instance replacement.
 const databaseConfigured = Object.hasOwn(process.env, 'DATABASE_URL');
 const rooms = databaseConfigured ? new Map() : loadRooms();
+rooms.history ||= new Map();
 let databaseStore;
 
 async function initializeRooms(instanceId) {
@@ -19,6 +20,7 @@ async function initializeRooms(instanceId) {
     const saved = await databaseStore.load();
     rooms.clear();
     for (const [code, room] of saved) rooms.set(code, room);
+    rooms.history = saved.history;
   } catch (_) {
     throw new Error('部屋の永続保存先を初期化できません。DATABASE_URL と専用 DB を確認してください。');
   }
@@ -37,10 +39,15 @@ function requireRoomStorage() {
 
 function persistRooms() {
   requireRoomStorage();
+  const previousHistory = rooms.history;
+  rooms.history = require('./gameHistory').recordHistory(rooms);
   pruneRooms();
-  if (databaseStore) return databaseStore.save(rooms);
+  if (databaseStore) return databaseStore.save(rooms).catch(error => {
+    rooms.history = previousHistory; throw error;
+  });
   try { saveRooms(rooms); }
   catch (_) {
+    rooms.history = previousHistory;
     const error = new Error('部屋を保存できませんでした。接続を確認して、もう一度お試しください。');
     error.code = 'ROOM_STORE_UNAVAILABLE'; throw error;
   }

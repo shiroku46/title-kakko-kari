@@ -1,3 +1,4 @@
+import { rememberHistory } from './gameHistory';
 const STORAGE_KEY = 'title-kakko-kari:room-session-v1';
 let memorySession = null;
 
@@ -15,6 +16,7 @@ export function getRoomSession() {
 
 export function saveRoomSession(session) {
   memorySession = session;
+  rememberHistory(session);
   try { globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(session)); } catch (_) { /* Keep this app session usable. */ }
 }
 
