@@ -58,7 +58,8 @@ function canRead(entry, id, receipts, userId) {
 
 function readHistory(rooms, receipts, userId, id, before) {
   receipts = validReceipts(receipts);
-  const active = new Set([...rooms.values()].map(room => room.id));
+  const now = Date.now();
+  const active = new Set([...rooms.values()].filter(room => !room.expires_at || room.expires_at > now).map(room => room.id));
   const status = detail => detail.status === 'playing' && !active.has(detail.id) ? 'interrupted' : detail.status;
   if (id !== undefined) {
     const entry = rooms.history?.get(id);

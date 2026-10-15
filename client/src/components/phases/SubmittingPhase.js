@@ -28,6 +28,7 @@ export default function SubmittingPhase({
   workKindLabel,
   isQuestioner,
   fakeSubmittedCount,
+  phaseReady = false,
   consent = false,
   realTitle,
   submittedAnswers = [],
@@ -51,7 +52,7 @@ export default function SubmittingPhase({
   });
 
   function handleSubmitFake() {
-    if (pendingRef.current || submitted) return;
+    if (pendingRef.current || submitted || phaseReady) return;
     if (!fakeTitle.trim()) return setRequestError('タイトルを入力してください');
     if (!socket?.connected) return setRequestError('接続が切れています。接続を確認してください。');
     pendingRef.current = true;
@@ -126,7 +127,7 @@ export default function SubmittingPhase({
                   {requestError}
                 </Text>
               ) : null}
-              <TitleInputSheet
+              {phaseReady && !submitted ? <PaperPanel tone="cream"><Text accessibilityLiveRegion="polite">タイトル案の受付は終了しました。投票へ進むまでお待ちください。</Text></PaperPanel> : <TitleInputSheet
                 synopsis={synopsis}
                 workKindLabel={workKindLabel}
                 value={fakeTitle}
@@ -139,7 +140,7 @@ export default function SubmittingPhase({
                 submitted={submitted}
                 submittedTitle={fakeTitle}
                 loading={submitting}
-              />
+              />}
             </View>
           )}
         </ScrollView>

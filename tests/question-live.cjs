@@ -17,6 +17,26 @@ const html = n => `<title>自主制作映画「港への便り${n}の日」</tit
 const response = body => new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8' } });
 const discovery = candidates => async () => ({ candidates: [...candidates] });
 
+test('second discovery pass changes to a work-introduction query instead of repeating business results', async () => {
+  const queries = [];
+  for (const pass of [0, 1]) await discoverLiveCandidates({ kind: 'game', pass, page: 0,
+    fetchImpl: async url => { const u = new URL(url); if (u.searchParams.has('p') || u.searchParams.has('q')) queries.push(u.searchParams.get('p') || u.searchParams.get('q')); return response(''); } });
+  assert.equal(queries.length, 2); assert.notEqual(queries[0], queries[1]);
+  assert.match(queries[1], /ストーリー 公式サイト/u);
+  const { searchQuery } = require('../server/src/questions/web-search');
+  assert.match(searchQuery('manga', '作品紹介'), /短編集 内容紹介 出版社/u);
+  assert.doesNotMatch(searchQuery('manga', '作品紹介'), /1巻/u);
+});
+
+test('persisted works exclude another URL for the same title after source restart', async t => {
+  const source = createLiveQuestionSource({ discoverImpl: discovery([work(1)]),
+    fetchImpl: async () => response(html(1)) });
+  t.after(() => source.stop());
+  const previous = { realTitle: '港への便り1の日', kind: 'film' };
+  await assert.rejects(source.selectQuestion(['old-url-id'], { kind: 'film', excludedWorks: [previous] }));
+  assert.equal(source.getStatus().successfulRequests, 0);
+});
+
 test('an explicit genre limits every discovery attempt and never falls back to a different medium', async t => {
   const searched = [];
   const source = createLiveQuestionSource({ discoverImpl: async ({ kind }) => {
@@ -490,6 +510,33 @@ test('a completed late route is checked before a large ready queue exhausts the 
   } });
   t.after(() => source.stop());
   assert.equal((await source.selectQuestion()).kind, 'novel');
+});
+
+test('fast invalid pages leave budget for a slower verified discovery route', async t => {
+  let requests = 0;
+  const source = createLiveQuestionSource({ maxRequests: 8, deadlineMilliseconds: 500,
+    discoverImpl: async ({ kind }) => ({ candidates: Array.from({ length: 50 }, (_, i) => ({ kind, url: `https://publisher.example.org/invalid${i}` })),
+      remaining: new Promise(resolve => setTimeout(() => resolve({ candidates: [{ kind, url: 'https://publisher.example.org/book/letter' }] }), 20)) }),
+    fetchImpl: async url => { requests++; return response(url.endsWith('/book/letter') ? commercialBook() : '<title>作品情報なし</title>'); } });
+  t.after(() => source.stop());
+  assert.equal((await source.selectQuestion([], { kind: 'novel' })).kind, 'novel');
+  assert.ok(requests <= 8);
+});
+
+test('an exhausted CPU theme falls back only to another verified work with unused decoys', async t => {
+  const { generateComputerTitles } = require('../server/src/computerTitles');
+  const usedTitles = generateComputerTitles(story, 100);
+  const farming = '農場を継いだ青年は、古い畑で作物を育て始める。日照りで収穫が減るなか、隣の農園に暮らす人々と協力し、水路を修理することにした。離れて暮らす家族にも手紙を送り、この土地での新たな暮らしを伝える。次の春に種をまくため、彼らは小さな倉庫を直し、村の市場で収穫物を売ろうとする。';
+  const source = createLiveQuestionSource({ discoverImpl: discovery([work(1), work(2)]),
+    fetchImpl: async url => response(url === work(1).url ? html(1) : html(2).replace(story, farming)) });
+  t.after(() => source.stop());
+  const next = await source.selectQuestion([], { kind: 'film', acceptQuestion: q =>
+    generateComputerTitles(q.synopsis, 5, { realTitle: q.realTitle, usedTitles }).length === 5 });
+  assert.equal(next.id, work(2).id);
+  const decoys = generateComputerTitles(next.synopsis, 5, { usedTitles, realTitle: next.realTitle });
+  assert.equal(decoys.length, 5); assert.ok(decoys.every(title => !usedTitles.includes(title)));
+  await assert.rejects(source.selectQuestion([], { kind: 'film', acceptQuestion: () => false }), /未使用のCPU/u);
+  assert.equal(source.getStatus().failure.code, 'cpu_titles_exhausted');
 });
 
 test('unavailable media cannot exhaust the request budget before a verified used-medium fallback is tried', async t => {
