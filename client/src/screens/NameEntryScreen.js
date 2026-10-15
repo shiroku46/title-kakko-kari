@@ -66,7 +66,7 @@ export default function NameEntryScreen({ navigation, route }) {
           <Text style={styles.note}>この部屋で使う名前を決めましょう。</Text>
           <Text style={styles.label}>あなたの名前</Text>
           <TextInput value={nickname} onChangeText={value => { edited.current = true; setNickname(value); setError(''); }}
-            accessibilityLabel="ニックネーム入力欄" placeholder="例：しろく" placeholderTextColor={colors.muted}
+            accessibilityLabel="ニックネーム入力欄" placeholder="例：名無しの命名人" placeholderTextColor={colors.muted}
             style={styles.input} maxLength={12} editable={!pending && !reconnecting} autoFocus
             returnKeyType="done" onSubmitEditing={save} autoCorrect={false} />
           <View style={styles.inputMeta}><Text style={styles.limit}>12文字以内</Text><Text style={styles.limit}>{nickname.length} / 12</Text></View>

@@ -8,7 +8,6 @@ import { Text, TextInput } from '../components/ui/GameText';
 import { getCurrentUrl } from '../hooks/useSocket';
 import useRoomEntry from '../hooks/useRoomEntry';
 import { getRoomSession } from '../utils/roomSession';
-import { DEFAULT_SERVER_URL } from '../config';
 import { colors } from '../theme';
 import { brandAssets, GAME_NAME } from '../theme/brand';
 import { StationeryButton, GameLogo } from '../components/ui';
@@ -19,8 +18,7 @@ export default function HomeScreen({ navigation }) {
   const [nickname, setNickname] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [mode, setMode] = useState('home');
-  const [showSettings, setShowSettings] = useState(false);
-  const [serverUrl, setServerUrl] = useState(getCurrentUrl());
+  const serverUrl = getCurrentUrl();
   const { width, height } = useResponsiveLayout();
   const wide = width >= 1200;
   const entry = useRoomEntry(navigation);
@@ -28,7 +26,6 @@ export default function HomeScreen({ navigation }) {
   const previousRoom = getRoomSession();
 
   const openRules = () => navigation.navigate('Rules');
-  const toggleSettings = () => setShowSettings((value) => !value);
   const start = () => entry.enterRoom({ nickname, code: roomCode, serverUrl, joining });
 
   const form = <View style={[styles.formArea, wide && styles.formAreaWide]}>
@@ -37,7 +34,7 @@ export default function HomeScreen({ navigation }) {
     </Text>
     <Text style={styles.fieldLabel}>あなたの名前</Text>
     <TextInput style={[styles.input, wide && styles.inputWide]}
-      placeholder="例：しろく" placeholderTextColor={colors.muted}
+      placeholder="例：名無しの命名人" placeholderTextColor={colors.muted}
       value={nickname} onChangeText={(value) => { setNickname(value); entry.clearError(); }}
       maxLength={12} editable={!entry.busy} accessibilityLabel="ニックネーム入力欄"
       autoComplete="off" autoCorrect={false} />
@@ -85,30 +82,8 @@ export default function HomeScreen({ navigation }) {
       accessibilityRole="button" accessibilityLabel="遊び方を見る">
       <Text style={styles.rulesText}>遊び方を見る</Text><Chevron />
     </TouchableOpacity>
-    <AccountSettings />
     <StationeryButton variant="ghost" disabled={entry.busy} onPress={() => navigation.navigate('History')}
       accessibilityLabel="遊んだ履歴を見る">遊んだ履歴を見る</StationeryButton>
-    <View style={styles.settingsArea}>
-      <TouchableOpacity style={styles.settingsToggle} onPress={toggleSettings}
-        disabled={entry.busy} accessibilityRole="button" accessibilityLabel="接続設定を開く"
-        aria-expanded={showSettings}
-        accessibilityState={{ expanded: showSettings }}>
-        <Text style={styles.settingsToggleText}>{showSettings ? '接続設定を閉じる' : '接続設定を開く'}</Text>
-        <View style={[styles.triangle, showSettings && styles.triangleUp]} accessible={false} />
-      </TouchableOpacity>
-      {showSettings ? <View style={styles.settingsCard}>
-        <Text style={styles.fieldLabel}>サーバーURL</Text>
-        <TextInput style={styles.input} value={serverUrl}
-          onChangeText={(value) => { setServerUrl(value); entry.clearError(); }}
-          placeholder={DEFAULT_SERVER_URL} placeholderTextColor={colors.muted}
-          autoCapitalize="none" autoCorrect={false} editable={!entry.busy}
-          accessibilityLabel="サーバーURL入力欄" />
-        <Text style={styles.settingsNote}>ふつうは、そのままで遊べます。</Text>
-        <StationeryButton variant="neutral" disabled={entry.busy}
-          onPress={() => { setServerUrl(DEFAULT_SERVER_URL); entry.clearError(); }}
-          accessibilityLabel="デフォルトURLに戻す">はじめの設定に戻す</StationeryButton>
-      </View> : null}
-    </View>
   </View>;
 
   const hero = <View style={[styles.hero, wide && styles.heroWide]}>
@@ -140,12 +115,7 @@ export default function HomeScreen({ navigation }) {
               <Text style={[styles.topLinkText, wide && styles.topLinkTextWide]}>遊び方</Text>
             </TouchableOpacity>
             <View style={styles.navDivider} />
-            <TouchableOpacity style={styles.topLink} onPress={toggleSettings} disabled={entry.busy}
-              accessibilityRole="button" accessibilityLabel="接続設定"
-              aria-expanded={showSettings}
-              accessibilityState={{ expanded: showSettings }}>
-              <Text style={[styles.topLinkText, wide && styles.topLinkTextWide]}>接続設定</Text>
-            </TouchableOpacity>
+            <AccountSettings />
           </View>
         </View>
         <View style={[styles.main, wide && styles.mainWide]}>
@@ -208,12 +178,6 @@ const styles = StyleSheet.create({
   rulesLink: { minHeight: 48, marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16 },
   rulesText: { color: colors.navy, fontSize: 17, lineHeight: 26, fontWeight: '700', textDecorationLine: 'underline' },
   chevron: { width: 10, height: 10, borderTopWidth: 2, borderRightWidth: 2, borderColor: colors.navy, transform: [{ rotate: '45deg' }] },
-  settingsArea: { marginTop: 38, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border },
-  settingsToggle: { minHeight: 44, flexDirection: 'row', gap: 14, alignItems: 'center', justifyContent: 'center' },
-  settingsToggleText: { color: colors.navy, fontSize: 14, lineHeight: 24, fontWeight: '700' },
-  triangle: { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 9, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: colors.navy },
-  triangleUp: { transform: [{ rotate: '180deg' }] },
-  settingsCard: { marginTop: 14, backgroundColor: '#FFF7E8', borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 16 },
   settingsNote: { color: colors.muted, fontSize: 12, lineHeight: 20, marginBottom: 10 },
   loadingBox: { alignItems: 'center', gap: 12, paddingVertical: 12 },
   loadingMessage: { color: colors.navy, fontSize: 14, lineHeight: 24, textAlign: 'center' },

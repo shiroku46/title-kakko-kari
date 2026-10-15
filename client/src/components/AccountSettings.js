@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, Modal, ScrollView, StyleSheet, Platform } from 'react-native';
 import { Text, TextInput } from './ui/GameText';
 import { PaperPanel, StationeryButton } from './ui';
 import { colors } from '../theme';
@@ -38,9 +38,11 @@ export default function AccountSettings() {
         failure.code === 'INVALID_EMAIL_OR_PASSWORD' ? 'メールアドレスかパスワードを確認してください。' : '手続きができませんでした。少し待って、もう一度お試しください。');
     } finally { setPending(false); }
   }
-  if (Platform.OS !== 'web') return <Text>アカウントのログインはブラウザー版で利用できます。</Text>;
+  if (Platform.OS !== 'web') return <StationeryButton variant="ghost" style={styles.trigger} disabled
+    accessibilityLabel="アカウントのログインはブラウザー版で利用できます。">ログイン</StationeryButton>;
   if (!configuration) return null;
-  if (!configuration.ready) return <Text style={styles.note}>アカウントログインは準備中です。ゲストで遊べます。</Text>;
+  if (!configuration.ready) return <StationeryButton variant="ghost" style={styles.trigger} disabled
+    accessibilityLabel="アカウントログインは準備中です。ゲストで遊べます。">ログイン</StationeryButton>;
   const submit = () => action(async () => token ? authClient.resetPassword({ token, newPassword: password }).then(result => {
     if (!result.error) {
       const url = new URL(globalThis.location.href); url.searchParams.delete('token');
@@ -51,11 +53,16 @@ export default function AccountSettings() {
     signup ? authClient.signUp.email({ name: name.trim(), email, password, callbackURL: `${accountUrl}/` }) :
       authClient.signIn.email({ email, password, rememberMe: remember }),
     signup ? '確認メールのリンクを開いてください。' : token ? 'パスワードを更新しました。ログインしてください。' : 'ログインしました。');
-  return <View style={styles.container}>
-    <StationeryButton variant="ghost" onPress={() => setOpen(!open)} accessibilityLabel="アカウントの設定">
-      {user ? `${user.name}さんのアカウント` : 'ログイン / アカウントをつくる'}
+  return <View>
+    <StationeryButton variant="ghost" style={styles.trigger} onPress={() => setOpen(true)}
+      accessibilityLabel={user ? 'アカウントの設定' : 'ログイン'} accessibilityState={{ expanded: open }}>
+      {user ? 'アカウント' : 'ログイン'}
     </StationeryButton>
-    {open ? <PaperPanel tone="cream">
+    <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <View style={styles.backdrop}>
+        <ScrollView style={styles.panel} keyboardShouldPersistTaps="handled">
+          <PaperPanel tone="cream">
+      <StationeryButton variant="ghost" onPress={() => setOpen(false)} accessibilityLabel="アカウント設定を閉じる">閉じる</StationeryButton>
       <Text style={styles.title}>{user ? 'アカウントの名前' : signup ? 'アカウントをつくる' : token ? '新しいパスワード' : 'ログイン'}</Text>
       {user || signup ? <TextInput style={styles.input} value={name} onChangeText={setName} maxLength={12}
         editable={!pending} placeholder="ゲームで使う名前" accessibilityLabel="アカウント名入力欄" /> : null}
@@ -89,11 +96,17 @@ export default function AccountSettings() {
       </>}
       {message ? <Text accessibilityLiveRegion="polite" style={styles.note}>{message}</Text> : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    </PaperPanel> : null}
+          </PaperPanel>
+        </ScrollView>
+      </View>
+    </Modal>
   </View>;
 }
 const styles = StyleSheet.create({
-  container: { gap: 8, marginTop: 12 }, title: { fontWeight: '700', color: colors.navy, marginBottom: 8 },
+  trigger: { minHeight: 44, paddingHorizontal: 8, paddingVertical: 10 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.45)', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  panel: { width: '100%', maxWidth: 440, maxHeight: '90%', flexGrow: 0 },
+  title: { fontWeight: '700', color: colors.navy, marginBottom: 8 },
   input: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.navy, borderRadius: 8, padding: 12, marginBottom: 8 },
   note: { color: colors.ink, fontSize: 12, lineHeight: 20 }, error: { color: colors.red, marginTop: 8 },
 });
