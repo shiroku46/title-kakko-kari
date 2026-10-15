@@ -34,6 +34,14 @@ test('anniversary collection aliases cannot leak the named work and attributed e
   assert.equal(introductionSentenceIsUsable('監督は本シリーズを手掛けてきた映画監督。'), false);
 });
 
+test('purchase warnings and launch praise cannot pad a short manga plot', () => {
+  for (const noise of ['ご購入の際はご注意ください。', 'ご注文の前にお確かめください。',
+    '新進気鋭の作家が描く、異類婚姻幻想譚が堂々、開演!']) assert.equal(introductionSentenceIsUsable(noise), false, noise);
+  const short = '身寄りを失った少女は、魔法使いに連れられて異国で暮らし始める。';
+  assert.throws(() => summarizeExtractively(short + 'ご購入の際はご注意ください。'.repeat(8)));
+  assert.equal(introductionSentenceIsUsable('少女は市場で魔法の道具を買い、旅立ちの準備を進めていく。'), true);
+});
+
 const sentences = [
   '海辺の村に暮らす少年は、嵐の翌朝、壊れた舟のそばで見知らぬ旅人を見つけた。',
   '旅人は遠く離れた島から来たと言い、行方のわからなくなった妹を探していると話した。',
