@@ -512,6 +512,33 @@ test('a completed late route is checked before a large ready queue exhausts the 
   assert.equal((await source.selectQuestion()).kind, 'novel');
 });
 
+test('fast invalid pages leave budget for a slower verified discovery route', async t => {
+  let requests = 0;
+  const source = createLiveQuestionSource({ maxRequests: 8, deadlineMilliseconds: 500,
+    discoverImpl: async ({ kind }) => ({ candidates: Array.from({ length: 50 }, (_, i) => ({ kind, url: `https://publisher.example.org/invalid${i}` })),
+      remaining: new Promise(resolve => setTimeout(() => resolve({ candidates: [{ kind, url: 'https://publisher.example.org/book/letter' }] }), 20)) }),
+    fetchImpl: async url => { requests++; return response(url.endsWith('/book/letter') ? commercialBook() : '<title>作品情報なし</title>'); } });
+  t.after(() => source.stop());
+  assert.equal((await source.selectQuestion([], { kind: 'novel' })).kind, 'novel');
+  assert.ok(requests <= 8);
+});
+
+test('an exhausted CPU theme falls back only to another verified work with unused decoys', async t => {
+  const { generateComputerTitles } = require('../server/src/computerTitles');
+  const usedTitles = generateComputerTitles(story, 100);
+  const farming = '農場を継いだ青年は、古い畑で作物を育て始める。日照りで収穫が減るなか、隣の農園に暮らす人々と協力し、水路を修理することにした。離れて暮らす家族にも手紙を送り、この土地での新たな暮らしを伝える。次の春に種をまくため、彼らは小さな倉庫を直し、村の市場で収穫物を売ろうとする。';
+  const source = createLiveQuestionSource({ discoverImpl: discovery([work(1), work(2)]),
+    fetchImpl: async url => response(url === work(1).url ? html(1) : html(2).replace(story, farming)) });
+  t.after(() => source.stop());
+  const next = await source.selectQuestion([], { kind: 'film', acceptQuestion: q =>
+    generateComputerTitles(q.synopsis, 5, { realTitle: q.realTitle, usedTitles }).length === 5 });
+  assert.equal(next.id, work(2).id);
+  const decoys = generateComputerTitles(next.synopsis, 5, { usedTitles, realTitle: next.realTitle });
+  assert.equal(decoys.length, 5); assert.ok(decoys.every(title => !usedTitles.includes(title)));
+  await assert.rejects(source.selectQuestion([], { kind: 'film', acceptQuestion: () => false }), /未使用のCPU/u);
+  assert.equal(source.getStatus().failure.code, 'cpu_titles_exhausted');
+});
+
 test('unavailable media cannot exhaust the request budget before a verified used-medium fallback is tried', async t => {
   let repeated = false;
   const seen = [];

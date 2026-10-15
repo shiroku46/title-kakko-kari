@@ -25,6 +25,8 @@ const REVIEW_COMMENTARY = /(?:作画|演出|脚本|描写|映像|疾走感).{0,4
 function introductionSentenceIsUsable(sentence) {
   if (typeof sentence !== 'string' || !/[。!?！？][」』”"]?$/u.test(sentence.trim())) return false;
   if (/三題噺|投稿作|(?:約)?[\d,]+文字|^この度は|^さあ働け|支援を募(?:る|り)/u.test(sentence)) return false;
+  if (/^[「『“"].*[」』”"]\s*[（(][^()（）]{0,100}(?:より|から抜粋|から引用)[)）]/u.test(sentence)) return false;
+  if (/を演じ.{0,40}(?:劇場版|映画|ドラマ)|^監督は.{0,80}(?:シリーズ|手[掛が]け|『|「)|賞候補作|復刊です|単行本初収録|珠玉の[0-9]+作品|コミックアーティスト.{0,30}短編をお届け/u.test(sentence)) return false;
   if (/メガホンを|主演(?:を|の)|共演|らが出演|ふんする|監督が(?:組ん|タッグ)|監督と.{0,25}(?:組ん|タッグ)|(?:役|主人公|ヒロイン|妻|夫)を.{0,60}(?:が|は)演じ|(?:エッセンス|創造力|魅力).{0,30}(?:網羅|堪能)|一冊で.{0,60}網羅/u.test(sentence)) return false;
   if (NON_CONTENT.test(sentence) || REVIEW_COMMENTARY.test(sentence) || EDITORIAL.test(sentence) || METADATA.test(sentence) || PERSON_PROFILE.test(sentence) || PROMOTION.test(sentence) || PRODUCTION_PROCESS.test(sentence) || CREATOR_REPORT.test(sentence) || CREATOR_PUBLICATION.test(sentence) || OLD_KANA.test(sentence) || CLASSICAL_ENDING.test(sentence)) return false;
   // Primary dialogue/lyrics are not a work introduction. A synopsis may still

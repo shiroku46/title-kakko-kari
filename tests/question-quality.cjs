@@ -21,6 +21,19 @@ test('cast and director credits cannot fill the minimum plot length', () => {
   assert.equal(introductionSentenceIsUsable('青年は家族の前では強がる父親を演じるが、娘の失踪をきっかけに本音を打ち明ける。'), true);
 });
 
+test('anniversary collection aliases cannot leak the named work and attributed excerpts are not introductions', () => {
+  const { questionTitleAliases } = require('../server/src/questions/title-policy');
+  const aliases = questionTitleAliases('白い灯台70周年記念短編集', [], 'manga');
+  assert.ok(aliases.includes('白い灯台'));
+  assert.ok(questionTitleAliases('作家の傑作短編集 港への便り', [], 'novel').includes('港への便り'));
+  const { summarizeWithoutTitles } = require('../server/src/questions/generator');
+  assert.throws(() => summarizeWithoutTitles(('白い灯台の名は村から町へと語り継がれていった。').repeat(10), aliases));
+  const excerpt = '「帰る場所がないと、青年は言った。島で出会った少女を待ちながら、彼は古い船を修理し続けた。」(「海辺の日々」より) 若い二人の姿を丁寧に描く物語。';
+  assert.equal(introductionSentenceIsUsable(excerpt), false);
+  assert.equal(introductionSentenceIsUsable('織田という俳優が14年ぶりに警察官を演じ、街を奔走する劇場版。'), false);
+  assert.equal(introductionSentenceIsUsable('監督は本シリーズを手掛けてきた映画監督。'), false);
+});
+
 const sentences = [
   '海辺の村に暮らす少年は、嵐の翌朝、壊れた舟のそばで見知らぬ旅人を見つけた。',
   '旅人は遠く離れた島から来たと言い、行方のわからなくなった妹を探していると話した。',

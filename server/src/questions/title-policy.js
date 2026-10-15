@@ -54,6 +54,12 @@ function questionTitleAliases(realTitle, aliases = [], kind) {
     if (translation) { result.add(translation[1].trim()); result.add(translation[2].trim()); }
     const movieBase = title.replace(/\s*(?:[/:：]\s*|\s+)(?:ザ[・\s-]*ムービー|the\s+movie)$/iu, '').trim();
     if (movieBase && movieBase !== title) result.add(movieBase);
+    if (BOOK_KINDS.has(kind)) {
+      const anniversary = title.match(/^(.{2,}?)\s*[0-9]+周年(?:記念)?(?:短編集|作品集|アンソロジー)$/u);
+      const collection = title.match(/短編集\s+(.{2,})$/u);
+      if (anniversary) result.add(anniversary[1].trim());
+      if (collection) result.add(collection[1].trim());
+    }
   }
   return [...result];
 }

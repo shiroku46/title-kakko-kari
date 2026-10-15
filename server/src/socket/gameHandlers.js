@@ -67,6 +67,14 @@ function rememberWork(room, work) {
   (room.usedWorks ||= []).push({ realTitle: work.realTitle, kind: work.kind });
 }
 
+function computerTitlesFor(room, work) {
+  return generateComputerTitles(work.synopsis, room.players.filter(player => player.is_computer).length, {
+    realTitle: work.realTitle, excludedTitles: work.aliases || [],
+    usedTitles: room.rounds.flatMap(previous => previous.answers.filter(answer =>
+      room.players.some(player => player.is_computer && player.id === answer.player_id)).map(answer => answer.title)),
+  });
+}
+
 async function loadCpuSynopsis(io, room, round) {
   cancelCpuFetch(round);
   const controller = new AbortController();
@@ -78,6 +86,7 @@ async function loadCpuSynopsis(io, room, round) {
   let failure;
   try {
     work = await selectQuestionAsync(room.usedQuestionIds, { signal: controller.signal, excludedWorks: excludedWorks(room),
+      acceptQuestion: candidate => computerTitlesFor(room, candidate).length === room.players.filter(player => player.is_computer).length,
       ...(room.settings.genreDisclosure && round.workKind !== 'any' && { kind: getGameGenre(round.workKind)?.id }) });
   } catch (error) {
     failure = error.message;
@@ -141,11 +150,8 @@ function requirePhase(round, phase) {
 
 function startSubmitting(io, room, round) {
   const computers = room.players.filter((p) => p.is_computer);
-  const titles = generateComputerTitles(round.synopsis, computers.length, {
-    excludedTitles: [round.real_title, ...(round.sourceQuestion?.aliases || [])],
-    usedTitles: room.rounds.flatMap(previous => previous.answers.filter(answer =>
-      room.players.some(player => player.is_computer && player.id === answer.player_id)).map(answer => answer.title)),
-  });
+  const titles = computerTitlesFor(room, { synopsis: round.synopsis, realTitle: round.real_title, aliases: round.sourceQuestion?.aliases });
+  if (titles.length < computers.length) throw new Error('この紹介文に合う未使用のCPUタイトル案が足りません。別の作品を選び直してください。');
   computers.forEach((player, index) => round.answers.push({
     id: randomUUID(), round_id: round.id, player_id: player.id, title: titles[index], is_real: false,
   }));
@@ -210,7 +216,9 @@ function registerGameHandlers(io, socket) {
       state.controller = new AbortController();
       return { room, round, check, usedQuestionIds: [...room.usedQuestionIds], usedWorks: excludedWorks(room), workKind };
       });
-      const work = await selectQuestionAsync(usedQuestionIds, { signal: state.controller.signal, excludedWorks: usedWorks, kind: workKind === 'any' ? undefined : workKind });
+      const work = await selectQuestionAsync(usedQuestionIds, { signal: state.controller.signal, excludedWorks: usedWorks,
+        acceptQuestion: candidate => computerTitlesFor(room, candidate).length === room.players.filter(player => player.is_computer).length,
+        kind: workKind === 'any' ? undefined : workKind });
       await runStateOperation(async () => {
       check();
       if (state.version !== version) throw new Error('取得中に出題内容が変更されました。もう一度お試しください');
