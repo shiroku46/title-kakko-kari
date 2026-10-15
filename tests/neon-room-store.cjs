@@ -31,12 +31,16 @@ function rooms() {
 }
 test('replacement writer restores Map, same seat, submissions, votes, score and MVP; former writer is fenced', async () => {
   const db = database(); const first = createNeonRoomStore(db.query); assert.equal((await first.load()).size, 0);
-  const state = rooms(); await first.save(state); const revision = db.row.revision;
+  const state = rooms();
+  state.history = new Map([['synthetic-game', { access: { owner: { hash: 'a'.repeat(64), userId: 'owner' } },
+    detail: { id: 'synthetic-game', players: [], rounds: [] } }]]);
+  await first.save(state); const revision = db.row.revision;
   const replacement = createNeonRoomStore(db.query); const loaded = await replacement.load();
   const restored = loaded.get('123456'); const original = state.get('123456');
   assert.equal(restored.id, original.id); assert.equal(restored.players[0].id, original.players[0].id);
   assert.equal(restored.players[0].socket_id, null); assert.equal(restored.players[0].is_online, false);
   assert.equal(restored.players[0].score, 7); assert.equal(restored.players[0].resume_hash, 'a'.repeat(64));
+  assert.deepEqual(loaded.history, state.history);
   assert(restored.rounds[0].declarations instanceof Map); assert.equal(restored.rounds[0].mvpAnswerId, 'fake');
   assert.deepEqual(restored.rounds[0].votes, original.rounds[0].votes);
   await assert.rejects(first.save(state), e => e.code === 'ROOM_STORE_UNAVAILABLE' && e.uncertain);

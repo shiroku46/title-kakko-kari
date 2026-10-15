@@ -401,8 +401,14 @@ test('solo needs a second seat, concurrent joins stop at 6, duplicate names reje
 for (const count of [4, 5, 6]) {
   for (const mode of ['player', 'cpu']) {
     test(`${count} players / ${mode}: create → join → start → submit → vote → result → final`, async (t) => {
-      const { bots } = await roomWith(t, count);
+      const { bots, room, entry } = await roomWith(t, count);
       const host = bots[0];
+      const history = async () => {
+        const response = await fetch(`${url}/api/history/detail`, { method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: room.id, receipts: [{ id: room.id, playerId: host.player.id, token: entry.token }] }) });
+        assert.equal(response.status, 200); return response.json();
+      };
       await denied(bots[1], 'game:start', { mode });
       const starts = await Promise.all([ack(host, 'game:start', { mode, totalRounds: 2 }), ack(host, 'game:start', { mode })]);
       assert.equal(starts.filter((r) => r.ok).length, 1);
@@ -448,6 +454,9 @@ for (const count of [4, 5, 6]) {
           }
         }
         const state = await ok(answerers[0], 'room:get_state');
+        const beforeReveal = await history();
+        assert.equal(beforeReveal.rounds.length, r - 1);
+        assert(!beforeReveal.rounds.some(round => round.id === data.round.id));
         assertNoSources(state);
         assert.ok(!JSON.stringify(state).includes(realTitle));
         assert.equal(state.room.rounds, undefined);
@@ -500,6 +509,11 @@ for (const count of [4, 5, 6]) {
           for (const p of selected.playerScores) assert.equal(p.score, expected.get(p.id));
         }
         previousAnswerId = lure.id;
+        const savedHistory = await history();
+        assert.equal(savedHistory.rounds.length, r);
+        assert.equal(savedHistory.rounds.at(-1).realTitle, realTitle);
+        assert.equal(savedHistory.rounds.at(-1).votes.length, answerers.length);
+        if (questioner) assert.equal(savedHistory.rounds.at(-1).mvpAnswerId, lure.id);
         await ok(host, 'game:next_round');
         if (r < data.totalRounds) {
           data = await event(host, 'game:round_started');
@@ -507,6 +521,9 @@ for (const count of [4, 5, 6]) {
         }
       }
       const finished = await event(host, 'game:finished');
+      const finalHistory = await history();
+      assert.equal(finalHistory.status, 'finished');
+      assert.equal(finalHistory.rounds.length, data.totalRounds);
       for (const p of finished.finalScores) assert.equal(p.score, expected.get(p.id));
       assert.equal(finished.winner.score, Math.max(...expected.values()));
       await denied(host, 'game:next_round');
@@ -1740,6 +1757,7 @@ test('a snapshot write failure leaves no orphan seat and returns no storage path
 
 test('browser room bookmarks survive reload, observe deletion and tolerate unavailable storage', () => {
   const source = readFileSync(join(__dirname, '../client/src/utils/roomSession.js'), 'utf8')
+    .replace("import { rememberHistory } from './gameHistory';", 'const rememberHistory = () => {};')
     .replaceAll('export function ', 'function ') + '\n({ getRoomSession, saveRoomSession, clearRoomSession })';
   const values = new Map();
   const storage = { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
@@ -1955,7 +1973,9 @@ test('a name editor mounted before resume ACK keeps controls pending on the alre
 });
 
 test('authoritative recovery removes the covered editor route without changing ordinary entry navigation', () => {
-  const source = readFileSync(join(__dirname, '../client/src/utils/roomSession.js'), 'utf8').replace(/export function /gu, 'function ');
+  const source = readFileSync(join(__dirname, '../client/src/utils/roomSession.js'), 'utf8')
+    .replace("import { rememberHistory } from './gameHistory';", 'const rememberHistory = () => {};')
+    .replace(/export function /gu, 'function ');
   const { showRoom } = runInNewContext(`${source}\n({ showRoom });`, {});
   for (const covered of ['Lobby', 'Game']) {
     for (const target of ['NameEntry', 'Lobby', 'Game', 'Result']) {

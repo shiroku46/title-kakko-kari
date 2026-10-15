@@ -73,9 +73,13 @@ async function handleDisconnect(io, socket) {
     io.to(roomCode).emit('room:player_disconnected', { playerId, nickname });
     const connectedPlayers = room.players.filter((p) => p.is_connected);
     const humans = connectedPlayers.filter((p) => !p.is_computer);
-    // Delete the whole session, including titles, votes and declarations, when empty.
+    // Remove the live session when empty; persist its revealed history first.
     if (!humans.length) {
-      rooms.delete(roomCode);
+      if (room.current_round) {
+        room.history_interrupted ||= room.status !== 'finished';
+        room.status = 'finished';
+        room.expires_at = Date.now();
+      } else rooms.delete(roomCode);
       return;
     }
     if (player.is_host) (humans.find((p) => p.is_online) || humans[0]).is_host = true;
@@ -92,6 +96,7 @@ async function handleDisconnect(io, socket) {
       // give the remaining member an explicit exit instead of waiting forever
       // for absent declarations, submissions or votes.
       room.status = 'finished';
+      room.history_interrupted = true;
       io.to(roomCode).emit('game:stopped', {
         reason: 'not_enough_players',
         message: 'ほかの人がいなくなったため、ゲームを終わります。ホームに戻って、部屋を作り直してください。',

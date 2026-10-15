@@ -11,6 +11,7 @@ import LobbyScreen from './src/screens/LobbyScreen';
 import GameScreen from './src/screens/GameScreen';
 import ResultScreen from './src/screens/ResultScreen';
 import RulesScreen from './src/screens/RulesScreen';
+import HistoryScreen from './src/screens/HistoryScreen';
 import { colors } from './src/theme';
 import { fontAssets } from './src/theme/fontAssets';
 import { GAME_NAME } from './src/theme/brand';
@@ -57,6 +58,7 @@ export default function App() {
           <Stack.Screen name="Game" component={GameScreen} />
           <Stack.Screen name="Result" component={ResultScreen} />
           <Stack.Screen name="Rules" component={RulesScreen} />
+          <Stack.Screen name="History" component={HistoryScreen} />
         </Stack.Navigator>
         <RoomBgm active={inRoom} />
         </View>

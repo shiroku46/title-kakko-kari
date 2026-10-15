@@ -22,6 +22,7 @@ async function authOptions(env, database, sendMail) {
     database, baseURL: env.BETTER_AUTH_URL, secret: env.BETTER_AUTH_SECRET,
     trustedOrigins: [new URL(env.BETTER_AUTH_URL).origin],
     logger: { disabled: true },
+    onAPIError: { errorURL: `${new URL(env.BETTER_AUTH_URL).origin}/?account_error=1` },
     user: { modelName: 'title_auth_user', additionalFields: { icon: { type: 'string', required: false, defaultValue: '🐈' } } },
     session: { modelName: 'title_auth_session', expiresIn: 30 * 86400, updateAge: 86400 },
     account: { modelName: 'title_auth_account', accountLinking: { enabled: true, trustedProviders: [] } },
@@ -67,7 +68,11 @@ async function initializeAccountAuth() {
   const { betterAuth } = await import('better-auth');
   const { toNodeHandler } = await import('better-auth/node');
   const auth = betterAuth(options);
-  return { configuration, handler: toNodeHandler(auth), close: () => { transport?.close(); return database.end(); } };
+  return { configuration, handler: toNodeHandler(auth),
+    getSession: async (headers) => {
+      const { fromNodeHeaders } = await import('better-auth/node');
+      return auth.api.getSession({ headers: fromNodeHeaders(headers) });
+    }, close: () => { transport?.close(); return database.end(); } };
   } catch {
     transport?.close(); await database.end();
     throw new Error('認証設定または接続先を確認してください。');
