@@ -15,7 +15,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
   let sequence = initialKind, stopped = false, completed = 0, succeeded = 0;
   let lastStartedAt = null, lastCompletedAt = null, lastSuccessfulAt = null, failure = null;
 
-  async function selectQuestion(excludedIds = [], { signal, kind: requestedKind } = {}) {
+  async function selectQuestion(excludedIds = [], { signal, kind: requestedKind, excludedWorks = [] } = {}) {
     if (requestedKind !== undefined && (typeof requestedKind !== 'string' || !getKind(requestedKind))) throw new Error('作品のジャンルが不正です');
     if (stopped) throw new Error('ネット検索を停止しました。');
     if (active.size >= 8) throw new Error('ネット検索が混み合っています。少し待ってもう一度検索してください。');
@@ -24,7 +24,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     if (signal?.aborted) cancel(); else signal?.addEventListener('abort', cancel, { once: true });
     const excluded = new Set(excludedIds), attempted = new Set();
     const history = excludedIds.map(id => delivered.get(id)).filter(Boolean);
-    const excludedTitles = new Set(history.map(q => q.title));
+    const excludedTitles = new Set([...history.map(q => q.title), ...excludedWorks.map(titleKey)]);
     const startKind = sequence++ % LIVE_KINDS.length;
     const page = Math.floor(sequence / LIVE_KINDS.length) % 20;
     const counts = Object.fromEntries(LIVE_KINDS.map(kind => [kind, 0]));

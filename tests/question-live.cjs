@@ -17,6 +17,26 @@ const html = n => `<title>自主制作映画「港への便り${n}の日」</tit
 const response = body => new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8' } });
 const discovery = candidates => async () => ({ candidates: [...candidates] });
 
+test('second discovery pass changes to a work-introduction query instead of repeating business results', async () => {
+  const queries = [];
+  for (const pass of [0, 1]) await discoverLiveCandidates({ kind: 'game', pass, page: 0,
+    fetchImpl: async url => { const u = new URL(url); if (u.searchParams.has('p') || u.searchParams.has('q')) queries.push(u.searchParams.get('p') || u.searchParams.get('q')); return response(''); } });
+  assert.equal(queries.length, 2); assert.notEqual(queries[0], queries[1]);
+  assert.match(queries[1], /ストーリー 公式サイト/u);
+  const { searchQuery } = require('../server/src/questions/web-search');
+  assert.match(searchQuery('manga', '作品紹介'), /短編集 内容紹介 出版社/u);
+  assert.doesNotMatch(searchQuery('manga', '作品紹介'), /1巻/u);
+});
+
+test('persisted works exclude another URL for the same title after source restart', async t => {
+  const source = createLiveQuestionSource({ discoverImpl: discovery([work(1)]),
+    fetchImpl: async () => response(html(1)) });
+  t.after(() => source.stop());
+  const previous = { realTitle: '港への便り1の日', kind: 'film' };
+  await assert.rejects(source.selectQuestion(['old-url-id'], { kind: 'film', excludedWorks: [previous] }));
+  assert.equal(source.getStatus().successfulRequests, 0);
+});
+
 test('an explicit genre limits every discovery attempt and never falls back to a different medium', async t => {
   const searched = [];
   const source = createLiveQuestionSource({ discoverImpl: async ({ kind }) => {

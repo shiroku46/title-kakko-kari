@@ -106,7 +106,7 @@ const themes = [
     '放課後の約束', '卒業までに伝えたいこと', '遠回りの夏休み', '制服を脱ぐ日まで',
     '校庭に残した夢', '春が来る前に', '教室の窓から見た明日',
   ] },
-  { pattern: /仕事|職場|会社|商店|喫茶店|店主|閉店|商店街/u, titles: [
+  { pattern: /仕事|職場|会社|商店|喫茶店|店主|閉店|商店街|銀行員|預金|融資|転勤|経営/u, titles: [
     '働く街の片隅で', '明日の仕事を探して', 'はじめての仕事',
     'いつもの街で会いましょう', '日々の続きをつくる', '仕事の先にある暮らし', '明日もここで働く',
   ] },
@@ -121,13 +121,22 @@ const fallbackTitles = [
 ];
 
 // shortcut: select authored titles by story cues; unrestricted story-specific writing needs a language model.
-function generateComputerTitles(synopsis, count) {
+function generateComputerTitles(synopsis, count, { excludedTitles = [], usedTitles = [] } = {}) {
   if (!count) return [];
   const story = synopsis.split(/(?<=[。!?！？])|\n/u).filter(sentence =>
     !/メガホン|主演を|共演|らが出演|『[^』]*』など.{0,80}演じ/u.test(sentence))
-    .join('').replace(/『[^』]*』/gu, '');
+    .join('').replace(/『[^』]*』/gu, '')
+    .replace(/[^。!?！？]*?(?:映画|ドラマ|小説|漫画|本|ゲーム)を(?:観た|見た|読んだ|遊んだ)/gu, '');
   const titles = themes.find(({ pattern }) => pattern.test(story))?.titles || fallbackTitles;
-  return shuffle(titles).slice(0, count);
+  const key = title => title.normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
+  const excluded = new Set(excludedTitles.filter(Boolean).map(key));
+  const used = new Set(usedTitles.map(key));
+  const eligible = [...new Set(titles)].filter(title => !excluded.has(key(title)));
+  if (eligible.length < count) eligible.push(...fallbackTitles.filter(title => !eligible.includes(title) && !excluded.has(key(title))));
+  // shortcut: finite authored candidates can repeat once a matching pool is
+  // exhausted; unrestricted story-specific writing needs a language model.
+  return [...shuffle(eligible.filter(title => !used.has(key(title)))),
+    ...shuffle(eligible.filter(title => used.has(key(title))))].slice(0, count);
 }
 
 module.exports = { generateComputerTitles };

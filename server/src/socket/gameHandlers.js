@@ -58,6 +58,15 @@ function resetCpuSynopsis(round, workKind = null) {
   round.declarations.clear();
 }
 
+function excludedWorks(room) {
+  return [...(room.usedWorks || []), ...room.rounds.map(round => round.sourceQuestion).filter(Boolean)];
+}
+
+function rememberWork(room, work) {
+  room.usedQuestionIds.push(work.id);
+  (room.usedWorks ||= []).push({ realTitle: work.realTitle, kind: work.kind });
+}
+
 async function loadCpuSynopsis(io, room, round) {
   cancelCpuFetch(round);
   const controller = new AbortController();
@@ -68,7 +77,7 @@ async function loadCpuSynopsis(io, room, round) {
   let work;
   let failure;
   try {
-    work = await selectQuestionAsync(room.usedQuestionIds, { signal: controller.signal,
+    work = await selectQuestionAsync(room.usedQuestionIds, { signal: controller.signal, excludedWorks: excludedWorks(room),
       ...(room.settings.genreDisclosure && round.workKind !== 'any' && { kind: getGameGenre(round.workKind)?.id }) });
   } catch (error) {
     failure = error.message;
@@ -90,7 +99,7 @@ async function loadCpuSynopsis(io, room, round) {
         round.sourceQuestion = work;
         round.workKind = round.workKind === 'any' ? 'any' : getGameGenre(work.kind)?.id;
         round.contentType = work.contentType || (getKind(work.kind)?.contentMode === 'description' ? 'description' : 'synopsis');
-        room.usedQuestionIds.push(work.id);
+        rememberWork(room, work);
       }
       if (host) stagedIo.to(host.socket_id).emit(round.fetchError ? 'round:synopsis_fetch_failed' : 'round:synopsis_fetched',
         round.fetchError ? { roundId: round.id, error: round.fetchError } :
@@ -132,7 +141,11 @@ function requirePhase(round, phase) {
 
 function startSubmitting(io, room, round) {
   const computers = room.players.filter((p) => p.is_computer);
-  const titles = generateComputerTitles(round.synopsis, computers.length);
+  const titles = generateComputerTitles(round.synopsis, computers.length, {
+    excludedTitles: [round.real_title, ...(round.sourceQuestion?.aliases || [])],
+    usedTitles: room.rounds.flatMap(previous => previous.answers.filter(answer =>
+      room.players.some(player => player.is_computer && player.id === answer.player_id)).map(answer => answer.title)),
+  });
   computers.forEach((player, index) => round.answers.push({
     id: randomUUID(), round_id: round.id, player_id: player.id, title: titles[index], is_real: false,
   }));
@@ -173,7 +186,7 @@ function registerGameHandlers(io, socket) {
     let state;
     let version;
     try {
-      const { room, round, check, usedQuestionIds, workKind } = await runStateOperation(() => {
+      const { room, round, check, usedQuestionIds, usedWorks, workKind } = await runStateOperation(() => {
       const { room, player } = getMember(socket);
       const round = getCurrentRound(room);
       const check = () => {
@@ -195,13 +208,13 @@ function registerGameHandlers(io, socket) {
       version = ++state.version;
       state.loading = true;
       state.controller = new AbortController();
-      return { room, round, check, usedQuestionIds: [...room.usedQuestionIds], workKind };
+      return { room, round, check, usedQuestionIds: [...room.usedQuestionIds], usedWorks: excludedWorks(room), workKind };
       });
-      const work = await selectQuestionAsync(usedQuestionIds, { signal: state.controller.signal, kind: workKind === 'any' ? undefined : workKind });
+      const work = await selectQuestionAsync(usedQuestionIds, { signal: state.controller.signal, excludedWorks: usedWorks, kind: workKind === 'any' ? undefined : workKind });
       await runStateOperation(async () => {
       check();
       if (state.version !== version) throw new Error('取得中に出題内容が変更されました。もう一度お試しください');
-      await commitGameAction(io, room, persistRooms, () => room.usedQuestionIds.push(work.id));
+      await commitGameAction(io, room, persistRooms, () => rememberWork(room, work));
       state.question = work;
       callback({ ok: true, roundId: round.id, questionId: work.id, title: work.realTitle,
         synopsis: work.synopsis, kind: workKind === 'any' ? 'any' : getGameGenre(work.kind)?.id, contentType: work.contentType || 'synopsis' });
@@ -388,6 +401,7 @@ function registerGameHandlers(io, socket) {
     const round = getCurrentRound(room);
     if (round.questioner_id === player.id) throw new Error('出題者は偽タイトルを提出できません');
     requirePhase(round, 'submitting');
+    if (round.phase_ready) throw new Error('タイトル案の受付は終了しました');
     const title = textInput(payload?.title, 'タイトル', 200);
     if (round.answers.some((a) => a.player_id === player.id)) throw new Error('すでに偽タイトルを提出しています');
     round.answers.push({ id: randomUUID(), round_id: round.id, player_id: player.id, title, is_real: false });

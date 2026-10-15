@@ -61,7 +61,7 @@ export default function GameScreen({ navigation, route }) {
   const [stoppedMessage, setStoppedMessage] = useState(null);
   const leavingRef = useRef(false);
   const reconnecting = useRoomRecovery(navigation, leavingRef);
-  const resumed = round.id === gameData.round.id ? saved : {};
+  const resumed = selectingKey === 0 && round.id === gameData.round.id ? saved : {};
 
   const isQuestioner = player.id === round.questioner_id;
 
@@ -353,6 +353,7 @@ export default function GameScreen({ navigation, route }) {
             isQuestioner={isQuestioner}
             playerId={player.id}
             fakeSubmittedCount={fakeSubmittedCount}
+            phaseReady={phaseReady}
             consent={gameData.settings?.advanceMode === 'consent'}
             realTitle={isQuestioner ? questionerView?.realTitle : null}
             submittedAnswers={isQuestioner ? questionerView?.answers : []}

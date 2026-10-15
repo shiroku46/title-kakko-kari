@@ -10,6 +10,17 @@ const { extractWebWork } = require('../server/src/questions/web-source');
 const { questionIsValid, prepareQuestion } = require('../server/src/questions/validation');
 const { createQuestionService } = require('../server/src/questions/service');
 
+test('cast and director credits cannot fill the minimum plot length', () => {
+  for (const credit of ['メガホンを取るのは映画監督。', '主演の俳優が主人公を演じる。',
+    'アフレックふんする主人公の妻を女優が演じるほか、人気俳優らが出演する。',
+    '俳優と監督が組んだコメディー。', '一冊で作者のエッセンスをすべて網羅し、創造力を堪能できる短編集。']) {
+    assert.equal(introductionSentenceIsUsable(credit), false, credit);
+  }
+  assert.throws(() => summarizeExtractively('息子を誘拐された父は、行方を追い始める。' +
+    'メガホンを取るのは映画監督。主演の俳優が主人公を演じる。'.repeat(4)));
+  assert.equal(introductionSentenceIsUsable('青年は家族の前では強がる父親を演じるが、娘の失踪をきっかけに本音を打ち明ける。'), true);
+});
+
 const sentences = [
   '海辺の村に暮らす少年は、嵐の翌朝、壊れた舟のそばで見知らぬ旅人を見つけた。',
   '旅人は遠く離れた島から来たと言い、行方のわからなくなった妹を探していると話した。',

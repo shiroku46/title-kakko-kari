@@ -23,6 +23,15 @@ function fixture() {
   return { rooms, room, receipt };
 }
 
+test('expired live rooms appear interrupted on history reads before pruning runs', () => {
+  const { rooms, room, receipt } = fixture();
+  room.expires_at = Date.now() - 1000;
+  rooms.history = recordHistory(rooms);
+  assert.equal(readHistory(rooms, [receipt], null, room.id).status, 'interrupted');
+  assert.equal(readHistory(rooms, [receipt], null).items[0].status, 'interrupted');
+  assert.equal(rooms.size, 1);
+});
+
 test('history omits every unrevealed question, answer and vote, even for its owner', () => {
   const { rooms, room, receipt } = fixture();
   for (const phase of ['selecting', 'confirming', 'submitting', 'voting']) {

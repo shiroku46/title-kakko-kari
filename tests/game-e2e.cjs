@@ -6,6 +6,34 @@ const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 const { runInNewContext } = require('node:vm');
+
+test('CPU decoys exclude the correct title and prefer titles not used in this match', () => {
+  const story = '幽霊が住む屋敷で、怪異の正体を調べる。';
+  const forbidden = ['まだ、そこにいる', 'そこにいるのは誰'];
+  for (let i = 0; i < 30; i++) {
+    const titles = generateComputerTitles(story, 5, { excludedTitles: forbidden });
+    assert.equal(titles.length, 5);
+    assert.ok(titles.every(title => !forbidden.includes(title)));
+  }
+  const first = generateComputerTitles(story, 2);
+  const next = generateComputerTitles(story, 5, { usedTitles: first });
+  assert.ok(next.every(title => !first.includes(title)));
+  const farm = generateComputerTitles('強盗事件を扱った映画を観た家族が、故郷の農場で作物を育てる日々を描く。', 5);
+  assert.ok(farm.every(title => /種|畑|育|実り|土地|土|収穫/u.test(title)), farm.join(' / '));
+});
+
+test('used CPU works keep their title exclusions in the durable room snapshot', async t => {
+  const { bots, room } = await roomWith(t, 1);
+  await ok(bots[0], 'room:set_computers', { count: 1 });
+  await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 2 });
+  await event(bots[0], 'round:synopsis_fetched');
+  const live = rooms.get(room.code);
+  const work = live.rounds[0].sourceQuestion;
+  assert.deepEqual(live.usedWorks, [{ realTitle: work.realTitle, kind: work.kind }]);
+  const { serializeRooms, deserializeRooms } = require('../server/src/roomStore');
+  const restored = deserializeRooms(JSON.parse(JSON.stringify(serializeRooms(new Map([[room.code, live]])))));
+  assert.deepEqual(restored.get(room.code).usedWorks, live.usedWorks);
+});
 const { io: connect } = require('../client/node_modules/socket.io-client');
 
 // Exercise the real Express/Socket.IO server in production mode, without any

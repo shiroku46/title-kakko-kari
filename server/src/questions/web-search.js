@@ -30,7 +30,7 @@ function searchQuery(kind, angle, now = new Date()) {
   if (angle === '作品紹介') {
     if (kind === 'game') return 'アドベンチャーゲーム ストーリー 公式サイト';
     if (['film','anime','drama'].includes(kind)) return `${label} ストーリー 公式サイト`;
-    if (kind === 'manga') return '漫画 電子書籍 1巻';
+    if (kind === 'manga') return '漫画 短編集 内容紹介 出版社';
     return `${label} ${story ? '内容紹介' : '作品紹介'}`;
   }
   if (angle === '新作') return `${now.getFullYear()} ${book ? '新刊' : '新作'} ${label} ${story ? 'あらすじ' : '作品紹介'}`;
