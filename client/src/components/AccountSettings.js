@@ -3,12 +3,11 @@ import { View, Modal, ScrollView, StyleSheet, Platform } from 'react-native';
 import { Text, TextInput } from './ui/GameText';
 import { PaperPanel, StationeryButton } from './ui';
 import { colors } from '../theme';
-import useAccount from '../hooks/useAccount';
 import { authClient, accountUrl, discordCallbacks, consumeAccountError } from '../utils/accountAuth';
 function resetToken() { try { return new URLSearchParams(globalThis.location?.search).get('token'); } catch (_) { return null; } }
 
-export default function AccountSettings() {
-  const { user, configuration, refresh } = useAccount();
+export default function AccountSettings({ account }) {
+  const { user, configuration, refresh } = account;
   const [token, setToken] = useState(resetToken);
   const [open, setOpen] = useState(Boolean(token));
   const [signup, setSignup] = useState(false);
@@ -61,15 +60,17 @@ export default function AccountSettings() {
     <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
       <View style={styles.backdrop}>
         <ScrollView style={styles.panel} keyboardShouldPersistTaps="handled">
-          <PaperPanel tone="cream">
-      <StationeryButton variant="ghost" onPress={() => setOpen(false)} accessibilityLabel="アカウント設定を閉じる">閉じる</StationeryButton>
+          <PaperPanel tone="cream" style={styles.content}>
+      <View style={styles.closeRow}>
+        <StationeryButton variant="ghost" style={styles.trigger} onPress={() => setOpen(false)} accessibilityLabel="アカウント設定を閉じる">閉じる</StationeryButton>
+      </View>
       <Text style={styles.title}>{user ? 'アカウントの名前' : signup ? 'アカウントをつくる' : token ? '新しいパスワード' : 'ログイン'}</Text>
       {user || signup ? <TextInput style={styles.input} value={name} onChangeText={setName} maxLength={12}
         editable={!pending} placeholder="ゲームで使う名前" accessibilityLabel="アカウント名入力欄" /> : null}
       {user ? <>
         <StationeryButton disabled={pending || !name.trim()} onPress={() => action(() => authClient.updateUser({ name: name.trim() }), '名前を保存しました。')}
           accessibilityLabel="アカウントの名前を保存">保存する</StationeryButton>
-        {configuration.discord ? <StationeryButton disabled={pending} onPress={() => action(() => authClient.linkSocial({ provider: 'discord', ...discordCallbacks }))}>Discord を連携する</StationeryButton> : null}
+        {configuration.discord ? <StationeryButton variant="neutral" disabled={pending} onPress={() => action(() => authClient.linkSocial({ provider: 'discord', ...discordCallbacks }))}>Discord を連携する</StationeryButton> : null}
         <StationeryButton variant="ghost" disabled={pending} onPress={() => action(() => authClient.signOut(), 'ログアウトしました。')}
           accessibilityLabel="ログアウトする">ログアウト</StationeryButton>
       </> : <>
@@ -106,6 +107,8 @@ const styles = StyleSheet.create({
   trigger: { minHeight: 44, paddingHorizontal: 8, paddingVertical: 10 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.45)', alignItems: 'center', justifyContent: 'center', padding: 16 },
   panel: { width: '100%', maxWidth: 440, maxHeight: '90%', flexGrow: 0 },
+  content: { gap: 10 },
+  closeRow: { alignItems: 'flex-end' },
   title: { fontWeight: '700', color: colors.navy, marginBottom: 8 },
   input: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.navy, borderRadius: 8, padding: 12, marginBottom: 8 },
   note: { color: colors.ink, fontSize: 12, lineHeight: 20 }, error: { color: colors.red, marginTop: 8 },

@@ -7,6 +7,7 @@ import {
 import { Text, TextInput } from '../components/ui/GameText';
 import { getCurrentUrl } from '../hooks/useSocket';
 import useRoomEntry from '../hooks/useRoomEntry';
+import useAccount from '../hooks/useAccount';
 import { getRoomSession } from '../utils/roomSession';
 import { colors } from '../theme';
 import { brandAssets, GAME_NAME } from '../theme/brand';
@@ -15,7 +16,9 @@ import HomeDemo from '../components/home/HomeDemo';
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 
 export default function HomeScreen({ navigation }) {
-  const [nickname, setNickname] = useState('');
+  const account = useAccount();
+  const [nicknameInput, setNickname] = useState(null);
+  const nickname = nicknameInput ?? account.user?.name?.slice(0, 12) ?? '';
   const [roomCode, setRoomCode] = useState('');
   const [mode, setMode] = useState('home');
   const serverUrl = getCurrentUrl();
@@ -115,7 +118,7 @@ export default function HomeScreen({ navigation }) {
               <Text style={[styles.topLinkText, wide && styles.topLinkTextWide]}>遊び方</Text>
             </TouchableOpacity>
             <View style={styles.navDivider} />
-            <AccountSettings />
+            <AccountSettings account={account} />
           </View>
         </View>
         <View style={[styles.main, wide && styles.mainWide]}>
