@@ -52,10 +52,10 @@ class TestNodeRuntimeDeclaration(unittest.TestCase):
         self.assertIn("engines", self.package)
         self.assertIn("node", self.package["engines"])
 
-    def test_node_engine_requires_patched_supported_runtimes(self):
-        # Security release 2026-10-21: supported 22.x and 24.x must include the fixes.
+    def test_node_engine_requires_patched_24_lts(self):
+        # Security release 2026-10-21: Node.js 24 LTS must include the fixes.
         engine = self.package["engines"]["node"]
-        self.assertEqual(">=22.23.4 <23 || >=24.22.1 <25", engine)
+        self.assertEqual(">=24.22.1 <25", engine)
 
     def test_node_engine_matches_package_lock(self):
         lock = json.loads(read("server/package-lock.json"))
