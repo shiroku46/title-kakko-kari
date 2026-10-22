@@ -52,9 +52,22 @@ class TestNodeRuntimeDeclaration(unittest.TestCase):
         self.assertIn("engines", self.package)
         self.assertIn("node", self.package["engines"])
 
-    def test_node_engine_requires_global_fetch_runtime(self):
+    def test_node_engine_requires_patched_24_lts(self):
+        # Security release 2026-10-21: Node.js 24 LTS must include the fixes.
         engine = self.package["engines"]["node"]
-        self.assertIn(">=20", engine)
+        self.assertEqual(">=24.22.1 <25", engine)
+
+    def test_node_engine_matches_package_lock(self):
+        lock = json.loads(read("server/package-lock.json"))
+        self.assertEqual(
+            self.package["engines"]["node"],
+            lock["packages"][""]["engines"]["node"],
+        )
+
+    def test_render_runtime_pins_patched_node(self):
+        for version_file in (".node-version", "server/.node-version"):
+            with self.subTest(path=version_file):
+                self.assertEqual("24.22.1", read(version_file).strip())
 
     def test_node_engine_avoids_unbounded_future_major(self):
         engine = self.package["engines"]["node"]
