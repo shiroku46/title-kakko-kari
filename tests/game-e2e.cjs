@@ -6,6 +6,68 @@ const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 const { runInNewContext } = require('node:vm');
+
+test('CPU decoys exclude the correct title and prefer titles not used in this match', () => {
+  const story = '幽霊が住む屋敷で、怪異の正体を調べる。';
+  const forbidden = ['まだ、そこにいる', 'そこにいるのは誰'];
+  for (let i = 0; i < 30; i++) {
+    const titles = generateComputerTitles(story, 5, { excludedTitles: forbidden });
+    assert.equal(titles.length, 5);
+    assert.ok(titles.every(title => !forbidden.includes(title)));
+  }
+  const first = generateComputerTitles(story, 2);
+  const next = generateComputerTitles(story, 5, { usedTitles: first });
+  assert.ok(next.every(title => !first.includes(title)));
+  const farm = generateComputerTitles('強盗事件を扱った映画を観た家族が、故郷の農場で作物を育てる日々を描く。', 5);
+  assert.ok(farm.every(title => /種|畑|育|実り|土地|土|収穫/u.test(title)), farm.join(' / '));
+});
+
+test('used CPU works keep their title exclusions in the durable room snapshot', async t => {
+  const { bots, room } = await roomWith(t, 1);
+  await ok(bots[0], 'room:set_computers', { count: 1 });
+  await ok(bots[0], 'game:start', { mode: 'cpu', totalRounds: 2 });
+  await event(bots[0], 'round:synopsis_fetched');
+  const live = rooms.get(room.code);
+  const work = live.rounds[0].sourceQuestion;
+  assert.deepEqual(live.usedWorks, [{ realTitle: work.realTitle, kind: work.kind }]);
+  const { serializeRooms, deserializeRooms } = require('../server/src/roomStore');
+  const restored = deserializeRooms(JSON.parse(JSON.stringify(serializeRooms(new Map([[room.code, live]])))));
+  assert.deepEqual(restored.get(room.code).usedWorks, live.usedWorks);
+});
+
+test('CPU decoys match English title language and never recycle an exhausted pool', () => {
+  const story = '幽霊と怪異が現れる屋敷の謎を調べる。';
+  const used = [];
+  for (let i = 0; i < 7; i++) {
+    const titles = generateComputerTitles(story, 1, { realTitle: 'Unseen', usedTitles: used });
+    assert.equal(titles.length, 1); assert.match(titles[0], /^[A-Za-z][A-Za-z ,'-]*$/u);
+    assert(!used.includes(titles[0])); used.push(titles[0]);
+  }
+  assert.deepEqual(generateComputerTitles(story, 1, { realTitle: 'Unseen', usedTitles: used }), []);
+  const law = generateComputerTitles('隠し資産の条項を執行し、人間の命の価値を裁く。', 5, { realTitle: 'THE 13th Digit' });
+  assert.equal(law.length, 5); assert.ok(law.every(title => /Law|Verdict|Justice|Sentence|Judgment|Trial|Witness|Clause|Order/u.test(title)));
+});
+
+test('exploitation and a broken engagement do not become cheerful romance decoys', () => {
+  const titles = generateComputerTitles('婚約者に才能を搾取された女性が、死を偽装して姿を消す。残された男は破滅に向かう。', 5);
+  assert.equal(titles.length, 5);
+  assert.ok(titles.every(title => /許|復讐|忘れる|奪われ|あの日|決着/u.test(title)), titles.join(' / '));
+});
+
+test('CPU exhaustion stays selecting with a useful retry error and no partial answers', async t => {
+  const { bots, room } = await roomWith(t, 1); const host = bots[0];
+  await ok(host, 'room:set_computers', { count: 1 });
+  await ok(host, 'game:start', { mode: 'cpu', totalRounds: 1 }); await event(host, 'round:synopsis_fetched');
+  const live = rooms.get(room.code), round = live.rounds[0];
+  const all = generateComputerTitles(round.synopsis, 100);
+  live.rounds.unshift({ ...structuredClone(round), id: 'past-exhaustion', round_number: 0,
+    answers: all.map((title, index) => ({ id: 'old-'+index,
+    player_id: live.players.find(p => p.is_computer).id, title, is_real: false })), status: 'revealed' });
+  await ok(host, 'round:confirm_synopsis'); await ok(host, 'round:declare_unknown');
+  const response = await ack(host, 'round:start_submitting', { roundId: round.id });
+  assert.equal(response.ok, false); assert.match(response.error, /選び直/u);
+  assert.equal(round.status, 'selecting'); assert.equal(round.answers.length, 0);
+});
 const { io: connect } = require('../client/node_modules/socket.io-client');
 
 // Exercise the real Express/Socket.IO server in production mode, without any

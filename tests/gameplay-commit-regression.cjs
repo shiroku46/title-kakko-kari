@@ -159,6 +159,39 @@ function fixture(phase = 'revealed') {
     register, delay(promise) { pendingWrite = promise; }, fail(value) { failWrite = value; }, durable: () => durable };
 }
 
+test('consent deadline closes late submissions while the controller is deciding', async () => {
+  const f = fixture('submitting'), round = f.room.rounds[0];
+  f.room.settings.advanceMode = 'consent';
+  round.answers = round.answers.filter(a => a.player_id === 'a');
+  round.deadline_at = Date.now() - 1000;
+  await f.game.checkRoundTimers(f.io);
+  assert.equal(round.phase_ready, true);
+  const late = await f.command('b')('round:submit_fake', { title: '遅れた回答' });
+  assert.equal(late.ok, false);
+  assert.equal(round.answers.length, 1);
+});
+
+test('reselection after recovery discards the old declaration for human and CPU rounds', () => {
+  let source = readFileSync(join(__dirname, '../client/src/screens/GameScreen.js'), 'utf8')
+    .replace(/^import .*;\r?\n/gm, '').replace('export default function', 'function');
+  source = source.slice(0, source.indexOf('  function renderPhase()')) + 'return { resumed, selectingKey }; }';
+  for (const declaration of ['known', 'unknown']) for (const mode of ['player', 'cpu']) {
+    const hooks = []; let index = 0, listeners;
+    const context = { useState(initial) { const i = index++; if (!(i in hooks)) hooks[i] = initial;
+      return [hooks[i], value => hooks[i] = typeof value === 'function' ? value(hooks[i]) : value]; },
+      useRef(value) { const i = index++; return hooks[i] ||= { current: value }; }, useEffect() {},
+      useRoomRecovery: () => false, getSocket: () => ({}), useSocketListeners(value) { listeners = value; } };
+    runInNewContext(source + ';this.renderGame = GameScreen;', context);
+    const props = { navigation: {}, route: { params: { room: { players: [{ id: 'a', nickname: 'a' }] },
+      player: { id: 'a' }, gameData: { mode, round: { id: 'r' }, resumeState: { declaration } } } } };
+    assert.equal(context.renderGame(props).resumed.declaration, declaration);
+    listeners['round:reselect_started']({ mode }); index = 0;
+    const after = context.renderGame(props);
+    assert.equal(after.selectingKey, 1);
+    assert.equal(after.resumed.declaration, undefined);
+  }
+});
+
 test('real MVP handler: failed save, retry, duplicate and resume cannot double-credit', async () => {
   const f = fixture();
   const command = f.command('q');

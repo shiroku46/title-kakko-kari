@@ -37,7 +37,7 @@ function catalogueLinks(html, base, kind) {
 
 async function discoverLiveCandidates({ kind, pass = 0, page = 0, fetchImpl, signal }) {
   const engine = LIVE_ENGINES[pass % LIVE_ENGINES.length];
-  const angle = pass < 2 ? '小規模' : 'インディー';
+  const angle = pass === 1 ? '作品紹介' : pass === 0 ? '小規模' : 'インディー';
   const query = searchQuery(kind, angle).replace(/(映画 あらすじ)$/u, '$1 -作り方 -方法 -募集');
   const catalogue = catalogueUrl(kind, page);
   const routes = [

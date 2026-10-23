@@ -15,7 +15,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
   let sequence = initialKind, stopped = false, completed = 0, succeeded = 0;
   let lastStartedAt = null, lastCompletedAt = null, lastSuccessfulAt = null, failure = null;
 
-  async function selectQuestion(excludedIds = [], { signal, kind: requestedKind } = {}) {
+  async function selectQuestion(excludedIds = [], { signal, kind: requestedKind, excludedWorks = [], acceptQuestion = () => true } = {}) {
     if (requestedKind !== undefined && (typeof requestedKind !== 'string' || !getKind(requestedKind))) throw new Error('作品のジャンルが不正です');
     if (stopped) throw new Error('ネット検索を停止しました。');
     if (active.size >= 8) throw new Error('ネット検索が混み合っています。少し待ってもう一度検索してください。');
@@ -23,7 +23,8 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     const cancel = () => controller.abort();
     if (signal?.aborted) cancel(); else signal?.addEventListener('abort', cancel, { once: true });
     const excluded = new Set(excludedIds), attempted = new Set();
-    const history = excludedIds.map(id => delivered.get(id)).filter(Boolean);
+    const history = [...new Map([...excludedIds.map(id => delivered.get(id)).filter(Boolean),
+      ...excludedWorks.map(q => ({ title: titleKey(q), kind: mediaKind(q.kind) }))].map(q => [q.title, q])).values()];
     const excludedTitles = new Set(history.map(q => q.title));
     const startKind = sequence++ % LIVE_KINDS.length;
     const page = Math.floor(sequence / LIVE_KINDS.length) % 20;
@@ -45,7 +46,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
     lastStartedAt = new Date(now()).toISOString();
     const timeout = setTimeout(() => controller.abort(), deadlineMilliseconds);
     let requests = 0;
-    const details = { responses: 0, httpErrors: 0, fetchErrors: 0, candidates: 0, workErrors: 0, rejectedWorks: 0, networkCode: null };
+    const details = { responses: 0, httpErrors: 0, fetchErrors: 0, candidates: 0, workErrors: 0, rejectedWorks: 0, unsuitableWorks: 0, networkCode: null };
     const fetchPage = async (url, options = {}) => {
       controller.signal.throwIfAborted();
       const host = new URL(url).hostname;
@@ -109,6 +110,9 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
         }
         // Examine several different work pages concurrently within the shared
         // request/deadline budget. Slow or invalid pages cannot block another.
+        // Reserve the remaining budget for an independent slower route instead
+        // of spending it all on fast invalid pages from the first engine.
+        if (search.remaining && requests >= Math.ceil(maxRequests / 2)) await search.remaining;
         if (queue.length && requests < maxRequests) {
           const batch = queue.splice(0, 3);
           const batchController = new AbortController();
@@ -133,6 +137,7 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
               if ((requestedKind === undefined || requestedKind === 'novel' ? mediaKind(q.kind) : q.kind) !== kind || !questionIsValid(q) || excluded.has(q.id) || excludedTitles.has(titleKey(q)) || !selection.isEligible(q)) {
                 details.rejectedWorks++; throw new Error('作品条件を満たしません');
               }
+              if (!acceptQuestion(q)) { details.unsuitableWorks++; throw new Error('未使用のCPU案が不足しています'); }
               return q;
             }));
           } catch { /* Try the next source batch when every work is invalid. */ }
@@ -158,8 +163,10 @@ function createLiveQuestionSource({ fetchImpl = createPublicFetch(), discoverImp
       }
       throw new Error('紹介文を確認できる作品が見つかりませんでした。もう一度ネット検索してください。');
     } catch {
-      const message = stopped ? 'ネット検索を停止しました。' : 'ネット検索先から紹介文を取得できませんでした。もう一度検索してください。';
-      failure = { code: controller.signal.aborted ? 'search_timeout' : 'search_failed', message, at: new Date(now()).toISOString(), details: { requests, ...details } };
+      const message = stopped ? 'ネット検索を停止しました。' : details.unsuitableWorks ?
+        '紹介文に合う未使用のCPUタイトル案を用意できませんでした。別の作品やジャンルを選び直してください。' :
+        'ネット検索先から紹介文を取得できませんでした。もう一度検索してください。';
+      failure = { code: controller.signal.aborted ? 'search_timeout' : details.unsuitableWorks ? 'cpu_titles_exhausted' : 'search_failed', message, at: new Date(now()).toISOString(), details: { requests, ...details } };
       throw new Error(message);
     } finally {
       clearTimeout(timeout); active.delete(controller); completed++; lastCompletedAt = new Date(now()).toISOString();

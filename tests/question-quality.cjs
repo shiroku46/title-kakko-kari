@@ -10,6 +10,38 @@ const { extractWebWork } = require('../server/src/questions/web-source');
 const { questionIsValid, prepareQuestion } = require('../server/src/questions/validation');
 const { createQuestionService } = require('../server/src/questions/service');
 
+test('cast and director credits cannot fill the minimum plot length', () => {
+  for (const credit of ['メガホンを取るのは映画監督。', '主演の俳優が主人公を演じる。',
+    'アフレックふんする主人公の妻を女優が演じるほか、人気俳優らが出演する。',
+    '俳優と監督が組んだコメディー。', '一冊で作者のエッセンスをすべて網羅し、創造力を堪能できる短編集。']) {
+    assert.equal(introductionSentenceIsUsable(credit), false, credit);
+  }
+  assert.throws(() => summarizeExtractively('息子を誘拐された父は、行方を追い始める。' +
+    'メガホンを取るのは映画監督。主演の俳優が主人公を演じる。'.repeat(4)));
+  assert.equal(introductionSentenceIsUsable('青年は家族の前では強がる父親を演じるが、娘の失踪をきっかけに本音を打ち明ける。'), true);
+});
+
+test('anniversary collection aliases cannot leak the named work and attributed excerpts are not introductions', () => {
+  const { questionTitleAliases } = require('../server/src/questions/title-policy');
+  const aliases = questionTitleAliases('白い灯台70周年記念短編集', [], 'manga');
+  assert.ok(aliases.includes('白い灯台'));
+  assert.ok(questionTitleAliases('作家の傑作短編集 港への便り', [], 'novel').includes('港への便り'));
+  const { summarizeWithoutTitles } = require('../server/src/questions/generator');
+  assert.throws(() => summarizeWithoutTitles(('白い灯台の名は村から町へと語り継がれていった。').repeat(10), aliases));
+  const excerpt = '「帰る場所がないと、青年は言った。島で出会った少女を待ちながら、彼は古い船を修理し続けた。」(「海辺の日々」より) 若い二人の姿を丁寧に描く物語。';
+  assert.equal(introductionSentenceIsUsable(excerpt), false);
+  assert.equal(introductionSentenceIsUsable('織田という俳優が14年ぶりに警察官を演じ、街を奔走する劇場版。'), false);
+  assert.equal(introductionSentenceIsUsable('監督は本シリーズを手掛けてきた映画監督。'), false);
+});
+
+test('purchase warnings and launch praise cannot pad a short manga plot', () => {
+  for (const noise of ['ご購入の際はご注意ください。', 'ご注文の前にお確かめください。',
+    '新進気鋭の作家が描く、異類婚姻幻想譚が堂々、開演!']) assert.equal(introductionSentenceIsUsable(noise), false, noise);
+  const short = '身寄りを失った少女は、魔法使いに連れられて異国で暮らし始める。';
+  assert.throws(() => summarizeExtractively(short + 'ご購入の際はご注意ください。'.repeat(8)));
+  assert.equal(introductionSentenceIsUsable('少女は市場で魔法の道具を買い、旅立ちの準備を進めていく。'), true);
+});
+
 const sentences = [
   '海辺の村に暮らす少年は、嵐の翌朝、壊れた舟のそばで見知らぬ旅人を見つけた。',
   '旅人は遠く離れた島から来たと言い、行方のわからなくなった妹を探していると話した。',
